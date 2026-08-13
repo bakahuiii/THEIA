@@ -1,0 +1,12 @@
+{
+  "label": "\u51b7\u94f6",
+  "detail": "\u4f4e\u9971\u548c\u62c9\u4e1d\u94f6",
+  "gradientMap": { "enabled": true, "syncPalette": true, "shadow": "#1b1d20", "highlight": "#e4e7e8", "shadowPosition": 17, "highlightPosition": 85 },
+  "backgroundBlur": 2,
+  "backgroundTransparency": 20,
+  "backgroundImage": { "opacity": 52, "brightness": 102, "contrast": 128, "saturation": 0 },
+  "backgroundTexture": { "enabled": true, "opacity": 0.6, "height": 155 },
+  "backgroundMotion": { "enabled": true, "intensity": 4, "scale": 104 },
+  "basePreset": "classic",
+  "backgroundBuiltin": "duotone"
+}

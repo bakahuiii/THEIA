@@ -1,0 +1,24 @@
+{
+  "label": "柳湖",
+  "detail": "清水出芙蓉",
+  "gradientMap": {
+    "enabled": false,
+    "syncPalette": true,
+    "shadow": "#063b5a",
+    "highlight": "#cc8b38",
+    "shadowPosition": 12,
+    "highlightPosition": 86
+  },
+  "backgroundBlur": 0,
+  "backgroundTransparency": 50,
+  "backgroundImage": {
+    "opacity": 100,
+    "brightness": 104,
+    "contrast": 110,
+    "saturation": 108
+  },
+  "backgroundTexture": { "enabled": true, "opacity": 0.15, "height": 155 },
+  "backgroundMotion": { "enabled": true, "intensity": 10, "scale": 105 },
+  "basePreset": "classic",
+  "backgroundBuiltin": "buct-lake"
+}

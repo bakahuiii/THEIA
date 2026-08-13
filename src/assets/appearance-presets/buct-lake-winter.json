@@ -1,0 +1,12 @@
+{
+  "label": "冬",
+  "detail": "江带峨眉雪",
+  "gradientMap": { "enabled": false, "syncPalette": true, "shadow": "#526c7c", "highlight": "#eef4f5", "shadowPosition": 14, "highlightPosition": 88 },
+  "backgroundBlur": 0,
+  "backgroundTransparency": 50,
+  "backgroundImage": { "opacity": 100, "brightness": 106, "contrast": 106, "saturation": 100 },
+  "backgroundTexture": { "enabled": true, "opacity": 0.12, "height": 155 },
+  "backgroundMotion": { "enabled": true, "intensity": 10, "scale": 104 },
+  "basePreset": "classic",
+  "backgroundBuiltin": "buct-lake-winter"
+}

@@ -1,0 +1,13 @@
+{
+  "schema": "theia-official-appearance-presets/v1",
+  "presets": [
+    "copper-dawn",
+    "deep-current",
+    "cool-silver",
+    "buct-lake",
+    "buct-lake-spring",
+    "buct-lake-summer",
+    "buct-lake-autumn",
+    "buct-lake-winter"
+  ]
+}

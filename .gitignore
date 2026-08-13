@@ -1,0 +1,12 @@
+node_modules/
+dist/
+release-bin/
+.vite/
+coverage/
+*.log
+*.tsbuildinfo
+.buct-data/
+test-results/
+.api-crawl*/
+.crawl*/
+.post-api*/

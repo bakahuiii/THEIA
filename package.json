@@ -1,0 +1,123 @@
+{
+  "name": "theia-campus-client",
+  "private": true,
+  "version": "0.4.1",
+  "description": "THEIA, a local-first desktop workspace for Beijing University of Chemical Technology campus services.",
+  "author": "bakahuiii",
+  "type": "module",
+  "main": "electron/main.mjs",
+  "engines": {
+    "node": ">=22.12.0",
+    "npm": ">=10.0.0"
+  },
+  "bin": {
+    "theia": "cli/theia-cli.mjs"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "node scripts/dev-web.mjs",
+    "desktop": "node scripts/dev.mjs",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "test": "node --test tests/*.test.mjs",
+    "cli": "node cli/theia-cli.mjs",
+    "dist:unpacked": "npm run build && electron-builder --win dir --x64",
+    "dist:source": "node scripts/package-source.mjs",
+    "dist:installer": "npm run build && electron-builder --win nsis --x64 && npm run dist:source",
+    "smoke:packaged": "node scripts/smoke-packaged.mjs"
+  },
+  "dependencies": {
+    "@tesseract.js-data/chi_sim": "^1.0.0",
+    "cheerio": "^1.1.2",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "iconv-lite": "^0.7.0",
+    "imapflow": "1.6.6",
+    "jpeg-js": "^0.4.4",
+    "jszip": "^3.10.1",
+    "lucide-react": "^0.536.0",
+    "mailparser": "3.9.15",
+    "mammoth": "1.12.0",
+    "marked": "^18.0.9",
+    "pdf-parse": "2.4.5",
+    "radix-ui": "^1.6.7",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "sanitize-html": "^2.17.6",
+    "tailwind-merge": "^3.6.0",
+    "tesseract.js": "^7.0.0",
+    "undici": "7.29.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.32.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.1.0",
+    "@types/react": "^19.1.9",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "electron": "43.2.0",
+    "electron-builder": "^26.0.12",
+    "eslint": "^9.32.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.20",
+    "globals": "^16.3.0",
+    "tailwindcss": "^4.3.3",
+    "tw-animate-css": "^1.4.0",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.38.0",
+    "vite": "^7.0.6"
+  },
+  "build": {
+    "appId": "io.github.bakahuiii.theia",
+    "productName": "THEIA",
+    "electronDist": "node_modules/electron/dist",
+    "asar": true,
+    "artifactName": "THEIA-${version}-${arch}-${os}.${ext}",
+    "icon": "build/theia-icon.ico",
+    "directories": {
+      "output": "release-bin"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "!electron/extract-*-cookies.py",
+      "core/**/*",
+      "cli/**/*",
+      "integration/**/*",
+      "!{dist,electron,core,cli,integration}/**/*.{log,sqlite,sqlite3,db,db-wal,db-shm,tmp,pyc}",
+      "!{dist,electron,core,cli,integration}/**/{__pycache__,.cache,cache,caches,logs,.references}{,/**/*}",
+      "!{dist,electron,core,cli,integration}/**/{auth-diagnostics.ndjson,api-runtime.json,buct-data.json,model-config-transaction.v1.json,theia-feed.json}",
+      "!{dist,electron,core,cli,integration}/**/*.dpapi.json",
+      "package.json"
+    ],
+    "win": {
+      "signAndEditExecutable": true,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "forceCodeSigning": false
+    },
+    "asarUnpack": [
+      "node_modules/tesseract.js/**/*",
+      "node_modules/tesseract.js-core/**/*",
+      "node_modules/@tesseract.js-data/chi_sim/**/*",
+      "node_modules/bmp-js/**/*",
+      "node_modules/is-url/**/*",
+      "node_modules/regenerator-runtime/**/*",
+      "node_modules/wasm-feature-detect/**/*"
+    ],
+    "nsis": {
+      "guid": "2467e4eb-7496-532c-ab2c-b64234a36eb3",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

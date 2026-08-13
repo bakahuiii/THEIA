@@ -1,0 +1,12 @@
+{
+  "label": "夏",
+  "detail": "川横三峡流",
+  "gradientMap": { "enabled": false, "syncPalette": true, "shadow": "#083f5c", "highlight": "#73a84d", "shadowPosition": 10, "highlightPosition": 87 },
+  "backgroundBlur": 0,
+  "backgroundTransparency": 50,
+  "backgroundImage": { "opacity": 100, "brightness": 106, "contrast": 108, "saturation": 112 },
+  "backgroundTexture": { "enabled": true, "opacity": 0.15, "height": 155 },
+  "backgroundMotion": { "enabled": true, "intensity": 10, "scale": 105 },
+  "basePreset": "classic",
+  "backgroundBuiltin": "buct-lake-summer"
+}

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.theia/schema/theia-campus-feed-v1.json",
+  "title": "THEIA Campus Feed v1",
+  "type": "object",
+  "required": ["schema", "generatedAt", "producer", "events", "tasks", "academic"],
+  "properties": {
+    "schema": { "const": "theia-campus-feed/v1" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "producer": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "const": "THEIA" },
+        "version": { "type": "string" },
+        "layout": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "profile": { "type": ["object", "null"] },
+    "events": { "type": "array", "items": { "type": "object" } },
+    "tasks": { "type": "array", "items": { "type": "object" } },
+    "academic": {
+      "type": "object",
+      "required": ["terms", "courses", "schedule", "grades", "selectedCourses", "academicProgress", "exams", "assignments", "workspaces", "notices"],
+      "properties": {
+        "terms": { "type": "array" },
+        "courses": { "type": "array" },
+        "schedule": { "type": "array" },
+        "grades": { "type": "array" },
+        "exams": { "type": "array" },
+        "assignments": { "type": "array" },
+        "workspaces": { "type": "array" },
+        "notices": { "type": "array" }
+      },
+      "additionalProperties": true
+    },
+    "localData": {
+      "type": "object",
+      "properties": {
+        "mail": {
+          "type": "object",
+          "required": ["messages"],
+          "properties": { "messages": { "type": "array" } },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,12 @@
+{
+  "label": "春",
+  "detail": "水树绿如发",
+  "gradientMap": { "enabled": false, "syncPalette": true, "shadow": "#1f6b6c", "highlight": "#d6c466", "shadowPosition": 12, "highlightPosition": 86 },
+  "backgroundBlur": 0,
+  "backgroundTransparency": 50,
+  "backgroundImage": { "opacity": 100, "brightness": 104, "contrast": 108, "saturation": 108 },
+  "backgroundTexture": { "enabled": true, "opacity": 0.15, "height": 155 },
+  "backgroundMotion": { "enabled": true, "intensity": 10, "scale": 105 },
+  "basePreset": "classic",
+  "backgroundBuiltin": "buct-lake-spring"
+}

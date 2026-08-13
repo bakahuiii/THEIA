@@ -1,0 +1,12 @@
+{
+  "label": "秋",
+  "detail": "窥日畏衔山",
+  "gradientMap": { "enabled": false, "syncPalette": true, "shadow": "#274353", "highlight": "#bc782e", "shadowPosition": 12, "highlightPosition": 85 },
+  "backgroundBlur": 0,
+  "backgroundTransparency": 50,
+  "backgroundImage": { "opacity": 100, "brightness": 104, "contrast": 110, "saturation": 108 },
+  "backgroundTexture": { "enabled": true, "opacity": 0.15, "height": 155 },
+  "backgroundMotion": { "enabled": true, "intensity": 10, "scale": 105 },
+  "basePreset": "classic",
+  "backgroundBuiltin": "buct-lake-autumn"
+}
