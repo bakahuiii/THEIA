@@ -1,92 +1,92 @@
-# 运行时数据流
+# Runtime Data Flow
 
-修改数据源适配器、持久化数据、本地 API 或本地数据集成前，请先阅读本文。
+Read this before changing a source adapter, persisted data, the local API, or a local-data integration.
 
-## 数据归属
+## Ownership
 
 ```text
-学校服务 / IMAP / 本地工具
-  -> 核心适配器或服务
-  -> CampusStore.update() 或 .replace()
-  -> 不可变分片 + 清单
-  -> CampusStore 快照订阅者
-  +-> snapshotWithRevision() -> 进程内确定性顾问概览 -> 受信任 IPC
-  +-> 原子写入 theia-feed.json -> 渲染进程快照、回环 API、CLI、外部本地消费者
+school service / IMAP / local tool
+  -> core adapter or service
+  -> CampusStore.update() or .replace()
+  -> immutable fragments + manifest
+  -> CampusStore snapshot subscribers
+  +-> snapshotWithRevision() -> in-process deterministic Advisor overview -> trusted IPC
+  +-> atomic theia-feed.json -> renderer snapshot, loopback API, CLI, external local consumers
 ```
 
-- 渲染进程不读取磁盘文件，也不解析学校页面。
-- `CampusStore` 是持久化业务数据的唯一所有者。
-- 凭据、Cookie、API 密钥、原始 HTML 和浏览器会话绝不属于 `CampusState` 或任何分片。
-- 临时界面状态保留在 React Hook 中；持久化状态必须归入 `core/schema.mjs` 和 `CampusStore`。
+- The renderer never reads disk files or parses school pages.
+- `CampusStore` is the only owner of persistent business data.
+- Credentials, cookies, API keys, raw HTML and browser sessions are never part of `CampusState` or a fragment.
+- Temporary UI state stays in React hooks. Persisted state belongs in `core/schema.mjs` and `CampusStore`.
 
-## 运行时边界
+## Runtime Boundaries
 
-| 层级 | 负责内容 | 禁止事项 |
+| Layer | Owns | Must not do |
 | --- | --- | --- |
-| 渲染进程 | 展示、局部交互状态 | 访问磁盘、直接抓取 HTTP、持有凭据 |
-| Preload / IPC | 范围有限的类型化命令 | 暴露 Electron 或会话内部能力 |
-| 核心适配器 | 按来源获取并规范化数据 | 保存界面专用状态或绕过持久化层 |
-| 核心服务 | 合并、重试、来源归属 | 直接修改渲染进程状态 |
-| `CampusStore` | 规范化快照与持久写入 | 访问网络 |
-| 本地 API / CLI | 只读外部数据契约 | 提供写接口或绑定公网地址 |
-| 核心顾问 | 单个版本化快照、数据质量、证据、本地结论、风险和议程 | 请求网络或模型、读取回环接口、写入存储 |
+| Renderer | presentation, local interaction state | disk access, direct HTTP scraping, credentials |
+| Preload/IPC | narrow typed commands | expose Electron/session internals |
+| Core adapters | source-specific fetch and normalization | UI-specific state or persistence bypasses |
+| Core services | merge, retry, source ownership | direct renderer mutation |
+| CampusStore | normalized snapshots and durable writes | network access |
+| Local API/CLI | read-only external data contract | write endpoints or public binding |
+| Core Advisor | one versioned snapshot, data quality, evidence, local claims, risks and agenda | network/model calls, loopback reads, store writes |
 
-## 写入规则
+## Write Rules
 
-1. 输入必须先规范化，再进入 `CampusStore`。
-2. 局部状态变更使用 `store.update()`；完整同步状态使用 `store.replace()`。
-3. 功能模块不得直接写入 `buct-data.json`、`data/` 或 `theia-feed.json`。
-4. 成功的存储操作先更新分片式主存储，再按相同快照顺序排队写入 Feed。
-5. 数据源失败时保留旧数据。API 或 SSO 刷新失败不得清空先前有效的集合。
-6. 数据和对应数据域来源必须在同一次 `store.update()` / `replace()` 事务中持久化。绝不能依据全局 `snapshot.updatedAt` 推进某个数据域的水位时间。
+1. Normalize input before it reaches `CampusStore`.
+2. Use `store.update()` for a targeted state change or `store.replace()` for a full synchronized state.
+3. Do not write `buct-data.json`, `data/`, or `theia-feed.json` directly from a feature.
+4. A successful store write updates the sharded primary store first; feed writing is then queued in the same snapshot order.
+5. Preserve old source data when a source fails. A failed API/SSO refresh must not clear a previous valid collection.
+6. Persist data and its domain provenance in the same `store.update()`/`replace()` transaction. Never advance a domain watermark from global `snapshot.updatedAt`.
 
-## 进程内顾问读取
+## In-process Advisor Read
 
-确定性顾问是内部消费者，不是外部集成。`electron/advisor-overview-service.mjs` 只调用一次 `CampusStore.snapshotWithRevision()`，只采样一次评估时钟，并在进程内构建自洽的完整概览。它不得调用回环 API、读取 `theia-feed.json`，也不得构建或读取 AI 导出包。
+The deterministic Advisor is an internal consumer, not an external integration. `electron/advisor-overview-service.mjs` calls `CampusStore.snapshotWithRevision()` once, samples the evaluation clock once, and builds one self-consistent overview in process. It must not call the loopback API, read `theia-feed.json`, or build/read an AI export package.
 
-概览实例由 `{snapshotRevision, evaluatedAt, timeZone, rulesVersion}` 标识。任意成员变化时，消费者都必须整体替换实例；不得依据稳定的结论 ID 合并不同评估产生的动态值。完整不变量见[《顾问 P0 可信底座》](16-advisor-p0-foundation.md)。
+The overview instance is identified by `{snapshotRevision, evaluatedAt, timeZone, rulesVersion}`. Consumers replace the whole instance when any member changes; they must not merge dynamic values from different evaluations by stable claim ID. Full invariants are in `16-advisor-p0-foundation.md`.
 
-## 数据源归属
+## Source Ownership
 
-- JWGLXT 负责教务资料、学期、成绩、考试、已选课程、学业进度和个人课表。
-- 北化在线 THEOL 负责源自 THEOL 的课程、作业和通知。
-- IMAP 负责邮件元数据和按需缓存的正文。
-- `dataCatalog` 负责带来源标记的本地档案，例如体测数据和全校课表缓存。
-- 校历服务负责 `%APPDATA%/THEIA/academic-calendar/manifest.json` 中的官方二进制资产和可编辑 PDF 分析；`cacheAcademicCalendarAssets()` 会把安全的结构化摘要镜像到 `dataCatalog.academicCalendar`。
-- 每个集合只能有一个合并权威。不得让无关适配器用空结果替换该集合。
+- JWGLXT owns academic profile, terms, grades, exams, selected courses, academic progress and personal schedule.
+- 北化在线THEOL owns courses, assignments and notices originating from THEOL.
+- IMAP owns email metadata and on-demand cached bodies.
+- `dataCatalog` owns source-tagged local archives such as fitness and the school-wide schedule cache.
+- The academic-calendar service owns its official binary assets and editable PDF analyses in `%APPDATA%/THEIA/academic-calendar/manifest.json`; its safe, structured summary is mirrored into `dataCatalog.academicCalendar` through `cacheAcademicCalendarAssets()`.
+- A collection must have one merge authority. Do not let an unrelated adapter replace it with an empty result.
 
-## Feed 契约
+## Feed Contract
 
-`theia-feed.json` 是原子生成的兼容性导出，是派生数据，不是真相来源。
+`theia-feed.json` is an atomically generated compatibility export. It is derived data, not a source of truth.
 
-- `events` 是面向日历的规范化视图。
-- `tasks` 是作业与工作区视图。
-- `academic` 包含教务集合。
-- `localData` 包含 `dataCatalog` 和邮件元数据。
+- `events` is the normalized calendar-oriented view.
+- `tasks` is the assignment/workspace view.
+- `academic` contains academic collections.
+- `localData` contains `dataCatalog` and mail metadata.
 
-THEIA 运行时，外部 AI 应优先读取回环 API；THEIA 未运行时，可读取 Feed。两者均为只读。
+External AI should prefer the loopback API when THEIA is running. It can read the Feed when THEIA is not running. Both are read-only.
 
-上述外部消费者规则不适用于进程内顾问。未来 `AdvisorRuntime` 发起模型请求时，必须在该请求的整个生命周期内冻结版本化快照及实际披露的结论目录。
+This external-consumer guidance does not apply to the in-process Advisor. A model request in a future `AdvisorRuntime` must instead freeze a versioned snapshot and its disclosed claim catalog for the lifetime of that request.
 
-## 新增数据
+## Adding Data
 
-每新增一个持久化集合，都必须完成以下工作：
+For every new persisted collection:
 
-1. 在 `core/schema.mjs` 中加入规范化默认值和迁移处理。
-2. 在 `core/store.mjs` 中加入分片映射。
-3. 明确它应进入 Feed、本地 API 端点、CSV / NDJSON 导出，还是完全不对外提供。
-4. 添加规范化、存储与重载、公开输出测试。
-5. 更新 `docs/ai/` 下对应的专题文档。
+1. Add a normalized default and migration handling in `core/schema.mjs`.
+2. Add a fragment mapping in `core/store.mjs`.
+3. Decide whether it belongs in the Feed, a local API endpoint, CSV/NDJSON export, or none of them.
+4. Add tests for normalization, storage/reload and public output.
+5. Update the matching focused document under `docs/ai/`.
 
-未来 AI 功能需要的数据不得只放入渲染进程缓存。
+Do not add data to a renderer-only cache when it is needed by future AI features.
 
-## 校历 PDF
+## Academic Calendar PDFs
 
-`core/academic-calendar-pdf-analysis.mjs` 利用文本层在本地解析官方周历和教学安排 PDF。它不使用模型，也不存储 PDF 原始文本。
+`core/academic-calendar-pdf-analysis.mjs` parses the official working-week calendar and teaching-schedule PDFs locally with their text layer. It never uses a model or stores the raw PDF text.
 
-- `weeklyCalendar.entries` 是扁平数组：官方表格中的一行对应一个可编辑事件对象。无法确定的日期保留为 `null`，同时保留 `dateText`。
-- `teachingSchedule.rows` 保留每个年级专业行。仅当学号年份与有充分依据的专业关键词同时匹配时，才设置 `match.selected`；只有年级匹配的结果必须明确标示。
-- 只能把所选行实际出现的字母标记复制到 `markerNotes`，不得附上完整的 A-T 图例。
-- 任一 PDF 变化、解析器版本变化或本地学业方向上下文变化时，都要重新解析。解析失败时保留上次成功结果。
-- `weeklyCalendar.courseSelectionWindows` 只能从选课事件推导，排除“论文题目补选”。选课界面可以应用尚未结束且时间最近的窗口；即使哨兵已停用，`CourseSelectionJournal` 仍须保留用户手动修改的起止时间。
-- 教学安排解析器明确支持官方文档简称 `高材 -> 材料` 和 `功材 -> 材料`。上下文中必须保留学生原始专业方向，并在 `match.basis` 记录所用别名；不得静默把个人资料改写成表格简称。
+- `weeklyCalendar.entries` is flat: one official table row equals one editable event object. Keep uncertain dates as `null` while retaining `dateText`.
+- `teachingSchedule.rows` preserves every cohort row; `match.selected` is only set when the student ID year and a defensible major keyword agree. A cohort-only result must remain explicit.
+- Only letter markers present in the selected row may be copied into `markerNotes`; do not attach the full A-T legend.
+- Reparse when either PDF changes, the parser version changes, or the local academic-track context changes. Parsing errors retain the last successful analysis.
+- `weeklyCalendar.courseSelectionWindows` is derived only from course-selection events (论文题目补选 is excluded). The selection UI may apply the nearest not-yet-ended window, while `CourseSelectionJournal` keeps manually edited start/end values even when the sentinel is disabled.
+- The teaching parser has explicit official-document aliases `高材 -> 材料` and `功材 -> 材料`. Keep the student's original track in context and record the alias in `match.basis`; never silently rewrite the profile to the table's shortened label.
