@@ -1,12 +1,12 @@
-# Local API, CLI and Export
+# 本地 API、CLI 与导出
 
-## Security Boundary
+## 安全边界
 
-`core/local-api.mjs` binds only to `127.0.0.1`. It is read-only. Do not add public listeners, write endpoints, proxy forwarding or permissive CORS.
+`core/local-api.mjs` 只绑定 `127.0.0.1`，并且只读。不得增加公网监听、写入端点、代理转发或宽松的 CORS。
 
-The active port is in `api-runtime.json`. Default port is `8765`; a small local fallback range is used if occupied.
+当前端口记录在 `api-runtime.json`。默认端口是 `8765`；如果被占用，会在一个很小的本地端口范围内回退。
 
-## API Contract
+## API 契约
 
 ```text
 GET /v1/health
@@ -24,9 +24,9 @@ GET /v1/{collection}.csv
 GET /v1/calendar.ics
 ```
 
-`/v1/data-manifest` exposes storage layout metadata and fragment names only. It does not expose arbitrary file reads. Collection endpoints may accept `?since=<ISO timestamp>`.
+`/v1/data-manifest` 只公开存储布局元数据和分片名称，不提供任意文件读取。集合端点可以接受 `?since=<ISO timestamp>`。
 
-Use `/v1/feed` for a normalized full-data view, collection endpoints for selective reads, and `/v1/school-schedule` for local term-cache queries. All return normalized data; none should expose credentials, raw pages, session state or private binary attachments.
+使用 `/v1/feed` 获取规范化的完整数据视图，使用集合端点选择性读取，使用 `/v1/school-schedule` 查询本地学期缓存。它们均返回规范化数据，不得暴露凭据、原始页面、会话状态或私有二进制附件。
 
 ## CLI
 
@@ -40,22 +40,22 @@ theia api
 theia doctor
 ```
 
-The CLI reads the same sharded `CampusStore` as the desktop application. It must never reconstruct its own file parser or write directly into `data/`.
+CLI 与桌面应用读取同一个分片式 `CampusStore`，绝不能自行实现另一套文件解析器，也不能直接写入 `data/`。
 
-`export --format ai` writes a new `THEIA-AI-EXPORT-YYYYMMDD-HHmmss/` child directory below the requested parent directory. It uses the same `core/ai-export.mjs` builder as the desktop Export for AI command, includes an SHA-256 manifest and never overwrites an existing package. Read `../reference/ai-export-contract.md` before modifying its schema, file inventory, or sanitation rules.
+`export --format ai` 会在指定父目录下新建 `THEIA-AI-EXPORT-YYYYMMDD-HHmmss/` 子目录。它与桌面端“导出供 AI 使用”命令共用 `core/ai-export.mjs` 构建器，包含 SHA-256 清单，且绝不会覆盖既有数据包。修改其 Schema、文件清单或净化规则前，请先阅读[《AI 导出契约》](../reference/ai-export-contract.md)。
 
-For an external AI task explicitly initiated by the user, prefer this package over a raw Feed or direct fragment reads. The package gives the model `AI_CONTEXT.md`, `DATA_DICTIONARY.md`, a source/availability explanation, and path/credential stripping. It is still a static, privacy-sensitive snapshot: validate `manifest.json` first; do not infer live school state or attempt URL/session/attachment access.
+对于用户明确发起的外部 AI 任务，应优先使用该数据包，而不是原始 Feed 或直接读取分片。数据包向模型提供 `AI_CONTEXT.md`、`DATA_DICTIONARY.md`、来源与可用性说明，并移除路径和凭据。它仍然是静态且涉及隐私的快照：必须先校验 `manifest.json`，不得据此推断学校系统实时状态，也不得尝试访问 URL、会话或附件。
 
-This package is not the runtime input path for THEIA's in-process Advisor. The deterministic overview reads one `snapshotWithRevision()` directly from `CampusStore`; it does not make a loopback request or round-trip through an export. A future remote-model request must use a narrower, consent-scoped `ContextBuilder`, not silently reuse the full export package.
+该数据包不是 THEIA 进程内顾问的运行时输入。确定性概览直接从 `CampusStore` 读取一次 `snapshotWithRevision()`，不发起回环请求，也不经由导出往返。未来的远程模型请求必须使用范围更窄、受用户授权约束的 `ContextBuilder`，不得静默复用完整导出包。
 
-## AI Consumer Rules
+## AI 消费者规则
 
-The following rules are for processes outside the THEIA main process:
+以下规则适用于 THEIA 主进程之外的程序：
 
-1. Prefer the loopback API while THEIA is running.
-2. Otherwise read `theia-feed.json`; it is an atomic compatibility export.
-3. For disk-level tooling, use `data/manifest.json` and verify each referenced fragment digest before consuming it.
-4. Treat source URL, capture time, parser version and refresh state as provenance, not display noise.
-5. Do not infer credential availability from data files.
+1. THEIA 运行时，优先使用回环 API。
+2. 否则读取原子生成的兼容性导出 `theia-feed.json`。
+3. 磁盘级工具必须使用 `data/manifest.json`，并在读取前校验每个被引用分片的摘要。
+4. 来源 URL、采集时间、解析器版本和刷新状态属于来源证据，不是可以忽略的展示噪声。
+5. 不得根据数据文件推断凭据是否可用。
 
-Do not apply these rules to `core/advisor/`: an internal Advisor component that reads loopback/API/Feed data can lose the atomic relationship between state, revision and domain digests.
+这些规则不适用于 `core/advisor/`。如果内部顾问通过回环 API 或 Feed 读取数据，会丢失状态、修订号和数据域摘要之间的原子关系。

@@ -1,62 +1,62 @@
 # THEIA
 
-THEIA is a local-first Windows desktop workspace for Beijing University of Chemical Technology campus services.
+THEIA 是面向北京化工大学校园服务的本地优先 Windows 桌面工作台。
 
-## What it does
+## 主要能力
 
-- Uses the school unified-authentication browser session for 北化在线THEOL and browser-backed campus pages. Academic data can instead use an optional, isolated Zhengfang API session with separately encrypted credentials when API priority is enabled.
-- Reads schedules, courses, selected courses, exams, grades, official academic-progress data, notices, assignments, and online tests into a local normalized snapshot.
-- Filters assignments that are already overdue, even when 北化在线THEOL continues to show them.
-- Allows high-priority academic domains to run concurrently and starts the 北化在线THEOL home-page read alongside the academic sync. After the main sync completes, the per-course `Course task` scan runs silently through a single strictly serial queue.
-- Provides a course-selection queue through the isolated Zhengfang API session. It acts only on targets explicitly chosen by the user and never automatically replays a selection POST after session expiry.
-- Provides a high-resolution Changping campus map with aligned campus and satellite base layers.
-- Prepares local assignment workspaces containing task text, attachments, parsed online-test questions, `manifest.json`, and templates.
-- Calls a user-configured OpenAI-compatible model service to process prepared workspaces.
-- For normal assignments, writes a local `model-answer.md`. For online tests, validates and writes `answers.json`.
-- Opens the original school page in THEIA's built-in browser to upload a file or write test answers. THEIA never clicks the final school submission button.
+- 使用学校统一身份认证浏览器会话访问北化在线 THEOL 和其他校园网页。启用 API 优先级后，也可使用独立加密凭据建立隔离的正方教务 API 会话。
+- 将课表、课程、已选课程、考试、成绩、官方学业进度、通知、作业和在线测试读取为本地规范化快照。
+- 即使北化在线 THEOL 仍显示已截止作业，也会在本地将其过滤。
+- 高优先级教务域可以并发读取，北化在线 THEOL 首页读取可与教务同步并行；主同步完成后，每门课程的 `Course task` 扫描才通过严格串行队列静默执行。
+- 通过隔离的正方教务 API 会话提供选课队列。它只操作用户明确选择的目标，并且绝不会在会话过期后自动重放选课 `POST`。
+- 提供昌平校区高清地图，并对齐校园图层与卫星底图。
+- 为作业生成本地工作区，其中包含题目、附件、解析后的在线测试题目、`manifest.json` 和模板。
+- 调用用户自行配置的 OpenAI 兼容模型服务处理已准备的工作区。
+- 普通作业生成本地 `model-answer.md`；在线测试经校验后生成 `answers.json`。
+- 在 THEIA 内置浏览器中打开学校原页面，用于上传文件或填写测试答案。THEIA 永远不会点击学校页面上的最终提交按钮。
 
-## Model service and privacy
+## 模型服务与隐私
 
-Configure the service URL and API key in **Settings**. THEIA automatically checks the compatible `/v1/models` endpoint, lists the available models, and selects a suitable text model. A manual model ID remains available for relays that do not expose model listing. THEIA uses the OpenAI-compatible Chat Completions endpoint:
+在“设置”中填写服务地址与 API 密钥。THEIA 会检查兼容的 `/v1/models` 端点、列出可用模型并选择合适的文本模型；对于不提供模型列表的中转服务，仍可手动填写模型 ID。THEIA 使用 OpenAI 兼容的 Chat Completions 端点：
 
 ```text
-POST {service URL}/chat/completions
-Authorization: Bearer {API key}
+POST {服务地址}/chat/completions
+Authorization: Bearer {API 密钥}
 ```
 
-The service URL and model name are stored in THEIA settings. The API key is stored separately with Electron `safeStorage` / Windows DPAPI and is never included in campus data, exports, the loopback API, task manifests, or diagnostic logs. Model calls are made only in the Electron main process; the renderer never receives the API key.
+服务地址和模型名称保存在 THEIA 设置中。API 密钥由 Electron `safeStorage` / Windows DPAPI 单独加密，绝不会进入校园数据、导出、回环 API、任务清单或诊断日志。模型请求只由 Electron 主进程发起，渲染进程无法取得 API 密钥。
 
-The model receives only the prepared local task context. School passwords, cookies, browser storage, and authenticated pages are never sent to the model service by THEIA.
+模型只会收到已准备的本地任务上下文。THEIA 不会把学校密码、Cookie、浏览器存储或已认证页面发送给模型服务。
 
-## Advisor readiness
+## 顾问能力现状
 
-THEIA now has a deterministic, model-free advisor foundation. `getAdvisorOverview` reads one atomic `CampusStore.snapshotWithRevision()` and locally evaluates per-domain data quality, evidence references, typed claims, data-quality risks, assignment/exam timing records, and a stable agenda. This path performs no school request, model request, browser-session read, or state write, so it remains available offline and without an API key.
+THEIA 已具备不依赖模型的确定性顾问底座。`getAdvisorOverview` 从一次原子的 `CampusStore.snapshotWithRevision()` 读取数据，在本地计算各数据域质量、证据引用、类型化结论、数据质量风险、作业与考试时间记录以及稳定议程。该路径不访问学校、不请求模型、不读取浏览器会话，也不写入状态，因此可在离线和未配置 API 密钥时运行。
 
-This is the P0 trust foundation, not the conversational advisor. The existing `ModelService` still serves the explicit coursework and summary workflows described above; it is not an `AdvisorRuntime`. Provider abstraction, a consent-scoped context builder, strict model narrative schema, response citation/action validation, conversations, and tool loops remain unimplemented. Future advisor model calls must be explicit, disclose only the minimum authorized fields, and validate the response against the exact claim/evidence catalog frozen for that request.
+这是 P0 可信底座，不是完整的对话式顾问。现有 `ModelService` 仍只服务于下述明确的作业和摘要流程，并不等同于 `AdvisorRuntime`。服务商抽象、按授权范围构建上下文、严格的模型叙述结构、回答引用与动作校验、对话和工具循环仍未实现。未来的顾问模型请求必须由用户明确触发，只披露获准的最少字段，并依据该次请求冻结的结论与证据目录校验回答。
 
-## Assignment workflow
+## 作业流程
 
-1. Sync 北化在线THEOL, then open **Assignments and tests**.
-2. Choose **Prepare workspace** to save a local task package.
-3. Choose **Use model** to create a draft answer or a complete answer JSON file.
-4. Review the files in **Open workspace**.
-5. For a test, choose **Write to test page**, inspect the built-in browser, then submit on the school page yourself.
-6. For an assignment, choose the file to upload and inspect the built-in browser before submitting on the school page yourself.
+1. 同步北化在线 THEOL，然后打开“作业与测试”。
+2. 选择“准备工作区”，保存本地任务包。
+3. 选择“使用模型”，生成答案草稿或完整的答案 JSON 文件。
+4. 在“打开工作区”中检查文件。
+5. 在线测试请选择“写入测试页面”，在内置浏览器中核对后自行在学校页面提交。
+6. 普通作业请选择要上传的文件，在内置浏览器中核对后自行在学校页面提交。
 
-## Run from source
+## 从源码运行
 
-Requires Node.js 22.12+ and npm 10+.
+需要 Node.js 22.12+ 和 npm 10+。
 
 ```powershell
 npm install
 npm run dev
 ```
 
-The browser-only preview is intentionally limited: school authentication, encrypted credential storage, file dialogs, local model keys, and built-in source-browser actions require the installed Electron desktop client.
+纯浏览器预览有意限制功能：学校认证、加密凭据存储、文件选择、本地模型密钥和内置来源浏览器操作都必须使用已安装的 Electron 桌面客户端。
 
-## Command line and local data API
+## 命令行与本地数据 API
 
-THEIA also provides generic, read-only local data interfaces for scripts and other tools running on the same computer.
+THEIA 为同一台电脑上的脚本和工具提供通用的只读本地数据接口。
 
 ```powershell
 npm run cli -- status
@@ -70,20 +70,13 @@ npm run cli -- work show <assignment-id>
 npm run cli -- doctor
 ```
 
-`export --format ai` creates a new `THEIA-AI-EXPORT-YYYYMMDD-HHmmss` directory inside the chosen parent directory. It contains 16 normalized domain JSON files, `AI_CONTEXT.md`, `DATA_DICTIONARY.md`, and `manifest.json`; the manifest lists SHA-256 digests for the other 18 files. The package is a static, user-authorized AI reading snapshot, not a live school-system session or an import/write format. It excludes credentials, cookies, browser state, absolute paths, raw attachments, and workspace output files, but can still contain sensitive academic and mail data. Keep it local or share it only with a model service you explicitly trust. See [the AI export contract](docs/reference/ai-export-contract.md) for the exact schema and verification rules.
+`export --format ai` 会在所选父目录内新建 `THEIA-AI-EXPORT-YYYYMMDD-HHmmss` 目录，其中包含 16 份规范化数据域 JSON、`AI_CONTEXT.md`、`DATA_DICTIONARY.md` 和 `manifest.json`；清单为其余 18 个文件记录 SHA-256 摘要。该数据包是由用户主动导出的静态 AI 阅读快照，不是学校系统的实时会话，也不能用于导入或写入。它会排除凭据、Cookie、浏览器状态、绝对路径、原始附件和工作区输出，但仍可能包含敏感的学业与邮件数据。请只保存在本机，或仅交给你明确信任的模型服务。准确结构和校验规则见[《AI 导出契约》](docs/reference/ai-export-contract.md)。
 
-The desktop Settings page has a separate encrypted academic API credential
-slot and an explicit source selector. When API priority is enabled with saved
-credentials, THEIA uses the isolated academic API adapter; when it is disabled
-or unconfigured, THEIA uses the unified-authentication browser path. A failed
-enabled API request preserves the existing local snapshot and reports the source
-error rather than silently switching paths during the same sync.
+桌面端“设置”提供单独加密的教务 API 凭据槽和明确的数据源选择器。启用 API 优先且已保存凭据时，THEIA 使用隔离的教务 API 适配器；未启用或未配置时，使用统一身份认证浏览器路径。如果已启用的 API 请求失败，THEIA 会保留现有本地快照并报告来源错误，不会在同一次同步中静默切换路径。
 
-The direct API session must remain isolated from `persist:theia`: BUCT may
-invalidate an earlier academic session when a second login is created. API
-cookies must not be mirrored into the unified-authentication browser session.
+直接 API 会话必须与 `persist:theia` 隔离，因为北化可能在第二次登录时使先前的教务会话失效。API Cookie 不得复制到统一身份认证浏览器会话。
 
-While the desktop client is running, the loopback service binds only to `127.0.0.1` (default port `8765`, with the actual port in `api-runtime.json`):
+桌面客户端运行时，回环服务只绑定 `127.0.0.1`。默认端口为 `8765`，实际端口记录在 `api-runtime.json`：
 
 ```text
 GET /v1/health
@@ -102,16 +95,61 @@ GET /v1/notices
 GET /v1/calendar.ics
 ```
 
-`/v1/feed` uses the `theia-campus-feed/v1` schema. A reusable local client and schema are in [integration](integration/README.md).
+`/v1/feed` 使用 `theia-campus-feed/v1` Schema；可复用的本地客户端和 Schema 见[《本地集成接口》](integration/README.md)。
 
-## Data boundaries
+## 数据边界
 
-- Data lives in `%APPDATA%\THEIA` by default. `THEIA_DATA_ROOT` is an isolated override. On a default-path launch, selected legacy files may be copied from `%APPDATA%\BUCT` only when the corresponding THEIA file is absent; the legacy directory is retained.
-- `auth-diagnostics.ndjson` contains only authentication phase, sanitized host/path, and error summaries. It does not contain passwords, API keys, cookies, or URL query values.
-- Unified-authentication, academic API, mailbox, and model-service credentials are separately DPAPI-encrypted and excluded from business snapshots, exports, and local API responses.
-- Course selection runs only after the user explicitly chooses a teaching class and starts a bounded task. THEIA does not automate withdrawal, evaluation, or applications.
+- 数据默认位于 `%APPDATA%\THEIA`；`THEIA_DATA_ROOT` 可指定隔离目录。使用默认目录启动时，仅当 THEIA 对应文件不存在，才可能从 `%APPDATA%\BUCT` 复制特定旧版文件，旧目录会被保留。
+- `auth-diagnostics.ndjson` 只记录认证阶段、脱敏后的主机和路径以及错误摘要，不包含密码、API 密钥、Cookie 或 URL 查询参数。
+- 统一身份认证、教务 API、邮箱和模型服务凭据分别使用 DPAPI 加密，并从业务快照、导出和本地 API 响应中排除。
+- 只有用户明确选择教学班并启动有限任务后才会选课。THEIA 不会自动退课、评教或提交申请。
 
-## Verify and package
+## 文档导航
+
+### 使用与产品
+
+- [文档总索引](docs/README.md)：按用户、开发、数据和运维主题查找文档。
+- [用户指南](docs/guides/USER_GUIDE.md)：桌面端完整操作说明。
+- [新生快速开始](docs/guides/FRESHMAN_START.md)：首次使用与基础同步。
+- [产品方向](PRODUCT_DIRECTION.md)：产品边界和近期方向。
+- [AI 方向](AI_DIRECTION.md)：AI 顾问的目标、阶段和原则。
+- [待办事项](TODO.md)：尚未完成的工作与优先级。
+
+### 架构、数据与开发
+
+- [系统架构](docs/architecture.md)：进程、模块、信任边界和主要数据流。
+- [数据生命周期](docs/data-lifecycle.md)：采集、规范化、存储、导出和清理规则。
+- [数据归属矩阵](docs/data-ownership-matrix.md)：各数据域的来源、所有者与消费者。
+- [数据模型参考](docs/reference/data-model.md)：状态、实体和字段契约。
+- [API 与 IPC 参考](docs/reference/api-and-ipc.md)：桌面桥接与本地接口。
+- [AI 导出契约](docs/reference/ai-export-contract.md)：AI 数据包结构、脱敏和完整性校验。
+- [开发指南](docs/developer-guide.md)：开发环境、代码组织和改动流程。
+- [开发工作流](DEVELOPMENT.md)：仓库级开发、验证与提交约定。
+- [运维与测试](docs/operations-and-testing.md)：诊断、测试、构建和发布检查。
+- [本地集成接口](integration/README.md)：回环 API 与集成客户端用法。
+
+### 专题开发文档
+
+- [专题开发索引](docs/ai/README.md)：按任务路由到相应专题。
+- [项目规则](docs/ai/00-project-rules.md)
+- [运行时数据流](docs/ai/01-runtime-data-flow.md)
+- [前端外壳与样式](docs/ai/02-frontend-shell-styles.md)
+- [前端页面](docs/ai/03-frontend-views.md)
+- [设置与个性化](docs/ai/04-settings-personalization.md)
+- [IPC 与 Bridge 契约](docs/ai/05-ipc-bridge.md)
+- [存储 Schema](docs/ai/06-storage-schema.md)
+- [认证与同步](docs/ai/07-auth-and-sync.md)
+- [教务数据来源](docs/ai/08-academic-sources.md)
+- [作业、模型与抢课](docs/ai/09-coursework-model-selection.md)
+- [邮箱](docs/ai/10-mailbox.md)
+- [体测与工具](docs/ai/11-fitness-tools.md)
+- [本地 API、CLI 与导出](docs/ai/12-local-api-cli.md)
+- [测试与发布](docs/ai/13-testing-release.md)
+- [代码索引](docs/ai/14-code-map.md)
+- [选课 API](docs/ai/15-course-selection-api.md)
+- [顾问 P0 可信底座](docs/ai/16-advisor-p0-foundation.md)
+
+## 验证与打包
 
 ```powershell
 npm test
