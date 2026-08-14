@@ -123,24 +123,55 @@ function fetchCoverage(fetchLog) {
   }
 }
 
-const COMMON_PAYLOAD_KEYS = ['items', 'rows', 'data', 'result', 'list']
+const COMMON_PAYLOAD_KEYS = [
+  'items', 'rows', 'data', 'result', 'list', 'aaData', 'records', 'recordList',
+  'dataList', 'gradeList', 'courseList', 'courses',
+]
 
-function hasRecordEnvelope(value, domain) {
-  if (Array.isArray(value)) return true
-  if (!value || typeof value !== 'object') return false
-  const keys = domain === 'schedule'
-    ? [...COMMON_PAYLOAD_KEYS, 'kbList', 'sjkList', 'jxhjkcList']
-    : COMMON_PAYLOAD_KEYS
-  for (const key of keys) {
-    if (Array.isArray(value[key])) return true
-    if (value[key] && typeof value[key] === 'object'
-      && ['items', 'rows', 'list'].some((nested) => Array.isArray(value[key][nested]))) return true
+const PAYLOAD_ARRAY_KEYS = new Set([
+  ...COMMON_PAYLOAD_KEYS,
+  'kbList', 'sjkList', 'jxhjkcList',
+].map((key) => key.toLowerCase()))
+
+function findRecordArray(value, depth = 0, seen = new Set()) {
+  if (Array.isArray(value)) return { found: true, value }
+  if (!value || typeof value !== 'object' || depth > 5 || seen.has(value)) return { found: false, value: [] }
+  seen.add(value)
+  for (const [key, nestedValue] of Object.entries(value)) {
+    if (!PAYLOAD_ARRAY_KEYS.has(String(key).toLowerCase())) continue
+    if (Array.isArray(nestedValue)) return { found: true, value: nestedValue }
+    const nested = findRecordArray(nestedValue, depth + 1, seen)
+    if (nested.found) return nested
   }
-  return false
+  return { found: false, value: [] }
+}
+
+function hasExplicitEmptyPayload(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const code = value.code ?? value.statusCode ?? value.status
+  const success = value.success ?? value.ok
+  const totals = []
+  const collectTotals = (node, depth = 0, seen = new Set()) => {
+    if (!node || typeof node !== 'object' || depth > 4 || seen.has(node)) return
+    seen.add(node)
+    for (const [key, nested] of Object.entries(node)) {
+      if (['totalresult', 'recordstotal', 'total', 'count'].includes(String(key).toLowerCase())) totals.push(nested)
+      else if (nested && typeof nested === 'object') collectTotals(nested, depth + 1, seen)
+    }
+  }
+  collectTotals(value)
+  const total = totals[0] ?? value.totalResult ?? value.recordsTotal ?? value.total ?? value.count
+  return (success === true || ['0', '1000', '1005', 'success'].includes(String(code ?? '').toLowerCase()))
+    && (total === 0 || total === '0' || value.data === null || (value.data && typeof value.data === 'object' && !Object.keys(value.data).length))
+}
+
+function hasRecordEnvelope(value) {
+  return findRecordArray(value).found || hasExplicitEmptyPayload(value)
 }
 
 function hasRecognizedTable(body) {
   if (typeof body !== 'string' || !/<table\b/i.test(body)) return false
+  if (/<tbody\b[^>]*>\s*<tr\b/i.test(body) && !/<input\b[^>]*type\s*=\s*["']?password/i.test(body)) return true
   return /<(?:th|td)\b[^>]*>[^<]*(?:课程|成绩|考试|学年|学期|Course|Grade|Exam)/iu.test(body)
     || /(?:没有符合条件记录|无数据显示|暂无数据|未查询到[^<]*记录)/u.test(body)
 }
@@ -151,18 +182,22 @@ function assertValidQueryPayload(body, domain) {
     let payload
     try {
       payload = JSON.parse(text)
+      for (let depth = 0; typeof payload === 'string' && depth < 3; depth += 1) payload = JSON.parse(payload)
     } catch {
       throw new Error(`${domain}_invalid_json`)
     }
     const statusCode = Number(payload?.code ?? payload?.statusCode)
     const statusText = String(payload?.status ?? '').trim().toLowerCase()
+    const successfulEnvelopeCode = [0, 1000, 1005].includes(statusCode)
     if (payload?.success === false || payload?.ok === false
-      || (Number.isFinite(statusCode) && statusCode >= 400)
+      || String(payload?.success ?? '').toLowerCase() === 'false'
+      || String(payload?.ok ?? '').toLowerCase() === 'false'
+      || (Number.isFinite(statusCode) && statusCode >= 400 && !successfulEnvelopeCode)
       || ['error', 'failed', 'failure'].includes(statusText)
       || (typeof payload?.error === 'string' && payload.error.trim())) {
       throw new Error(`${domain}_error_payload`)
     }
-    if (hasRecordEnvelope(payload, domain)) return
+    if (hasRecordEnvelope(payload)) return
     throw new Error(`${domain}_unexpected_payload`)
   }
   if (hasRecognizedTable(body)) return
@@ -374,12 +409,19 @@ export class JwglxtAdapter {
     const gradesTask = needsGrades ? (async () => {
       let value
       const taskErrors = []
+      const fetchLog = []
       this.onProgress?.({ stage: 'grades', status: 'syncing', label: '正在读取全部学期成绩…' })
       const gradesIndexUrl = new URL('cjcx/cjcx_cxDgXscj.html?gnmkdm=N305005&layout=default', BASE).toString()
+      let gradesIndex = null
+      let gradesForm = null
+      let queryUrl = null
+      const alternateQueryUrl = new URL('cjcx/cjcx_cxDgXscj.html?doType=query&gnmkdm=N305005', BASE).toString()
+      let gradePageTerms = []
       try {
-        const gradesIndex = await this.client.page(gradesIndexUrl, { source: 'Grades' })
-        const gradesForm = parseJwQueryForm(gradesIndex.text, gradesIndex.url, '#searchForm')
-        const queryUrl = new URL('cjcx/cjcx_cxXsgrcj.html?doType=query', BASE).toString()
+        gradesIndex = await this.client.page(gradesIndexUrl, { source: 'Grades' })
+        gradesForm = parseJwQueryForm(gradesIndex.text, gradesIndex.url, '#searchForm')
+        gradePageTerms = parseJwHomepage(gradesIndex.text, gradesIndex.url).terms || []
+        queryUrl = new URL('cjcx/cjcx_cxXsgrcj.html?doType=query&gnmkdm=N305005', BASE).toString()
         const body = await this.client.form(queryUrl, {
           ...gradesForm.values,
           xnm: '',
@@ -387,15 +429,85 @@ export class JwglxtAdapter {
           xxdm: gradesForm.values.sxxdm || '',
           kcbj: gradesForm.values.kcbjdm || '',
           sfzgcj: '',
-          ...queryModel(5000),
+           ...queryModel(100),
         }, { source: 'Grades all terms', referer: gradesIndex.url })
         assertValidQueryPayload(body, 'grades')
         value = parseJwGrades(body, { term, sourceUrl: gradesIndex.url, capturedAt })
+        fetchLog.push({ termId: 'all', count: value.length })
       } catch (error) {
-        taskErrors.push(compactError(error))
+        // A subset of deployments rejects blank xnm/xqm for direct API
+        // clients even though the browser form advertises “all terms”. Retry
+        // concrete terms discovered from the authenticated schedule index.
+        // Authentication failures must go through the source-level recovery
+        // path; do not multiply six doomed requests against an expired jar.
+        if (error instanceof AuthRequiredError || Number(error?.code) === 1006) {
+          taskErrors.push(compactError(error))
+          return { value, fetchLog, errors: taskErrors }
+        }
+        // Some deployments expose the personal grade grid only through the
+        // DgXscj endpoint (the same endpoint used by zfn_api). Try its
+        // all-term form before falling back to one request per term.
+        if (gradesForm && alternateQueryUrl) {
+          try {
+            const body = await this.client.form(alternateQueryUrl, {
+              ...gradesForm.values,
+              xnm: '',
+              xqm: '',
+              xxdm: gradesForm.values.sxxdm || '',
+              kcbj: gradesForm.values.kcbjdm || '',
+              sfzgcj: '',
+              ...queryModel(100),
+            }, { source: 'Grades all terms (alternate)', referer: gradesIndex.url })
+            assertValidQueryPayload(body, 'grades')
+            value = parseJwGrades(body, { term, sourceUrl: gradesIndex.url, capturedAt })
+            fetchLog.push({ termId: 'all', count: value.length })
+            return { value, fetchLog, errors: taskErrors }
+          } catch {
+            // Concrete-term recovery below records the final actionable error.
+          }
+        }
+        if (!gradesForm || !queryUrl) {
+          taskErrors.push(compactError(error))
+          return { value, fetchLog, errors: taskErrors }
+        }
+        const recovered = []
+        const fallbackErrors = []
+        const fallbackTerms = gradePageTerms.length
+          ? uniqueTerms(term, gradePageTerms, homepage.terms || [])
+          : uniqueTerms(term, relevantTerms, homepage.terms || [])
+        for (const t of fallbackTerms) {
+          let termError = null
+          for (const candidateUrl of [queryUrl, alternateQueryUrl].filter(Boolean)) {
+            try {
+              const body = await this.client.form(candidateUrl, {
+                ...gradesForm.values,
+                xnm: String(t.year),
+                xqm: t.term,
+                xxdm: gradesForm.values.sxxdm || '',
+                kcbj: gradesForm.values.kcbjdm || '',
+                sfzgcj: '',
+                ...queryModel(100),
+              }, { source: `Grades ${t.label}`, referer: gradesIndex.url })
+              assertValidQueryPayload(body, 'grades')
+              const parsed = parseJwGrades(body, { term: t, sourceUrl: gradesIndex.url, capturedAt })
+              fetchLog.push({ termId: t.id, count: parsed.length })
+              recovered.push(...parsed)
+              termError = null
+              break
+            } catch (errorForUrl) {
+              termError = errorForUrl
+            }
+          }
+          if (termError) {
+            fetchLog.push({ termId: t.id, count: 0, error: compactError(termError) })
+            fallbackErrors.push(termError)
+          }
+        }
+        if (recovered.length || !fallbackErrors.length) value = recovered
+        else taskErrors.push(compactError(error), compactError(fallbackErrors[0]))
       }
-      return { value, errors: taskErrors }
-    })() : Promise.resolve({ value: undefined, errors: [] })
+      return { value, fetchLog, errors: taskErrors }
+    })() : Promise.resolve({ value: undefined, fetchLog: [], errors: [] })
 
     const academicProgressTask = needsAcademicProgress ? (async () => {
       let value = null
@@ -420,6 +532,7 @@ export class JwglxtAdapter {
     const exams = examsResult.value
     const examsFetchLog = examsResult.fetchLog
     const grades = gradesResult.value
+    const gradesFetchLog = gradesResult.fetchLog || []
     const academicProgress = academicProgressResult.value
     errors.push(...scheduleResult.errors, ...examsResult.errors, ...gradesResult.errors, ...academicProgressResult.errors)
 
@@ -535,7 +648,13 @@ export class JwglxtAdapter {
           errorCode: scheduleFetchLog.some((item) => item.error) ? 'partial_schedule_read' : null,
           ...fetchCoverage(scheduleFetchLog),
         })
-    if (wants('grades')) domainOutcomes.grades = grades === undefined ? failedDomain('grades_read_failed') : successfulDomain(grades, 'grades', capturedAt)
+    if (wants('grades')) domainOutcomes.grades = grades === undefined
+      ? failedDomain('grades_read_failed', fetchCoverage(gradesFetchLog))
+      : successfulDomain(grades, 'grades', capturedAt, {
+          completeness: gradesFetchLog.some((item) => item.error) ? 'partial' : 'complete',
+          errorCode: gradesFetchLog.some((item) => item.error) ? 'partial_grades_read' : null,
+          ...fetchCoverage(gradesFetchLog),
+        })
     if (wants('exams')) domainOutcomes.exams = exams === undefined
       ? failedDomain('exams_read_failed', fetchCoverage(examsFetchLog))
       : successfulDomain(exams, 'exams', capturedAt, {

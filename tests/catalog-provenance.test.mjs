@@ -115,6 +115,32 @@ test('fitness is complete only when every declared year was read', () => {
   assert.equal(complete.sync.domains.fitness.emptyConfirmed, false)
 })
 
+test('a successfully read empty fitness year is confirmed empty without failing the domain', () => {
+  const emptyYear = {
+    yearKey: '2026-2027_1',
+    availableYears: [{ yearKey: '2026-2027_1', label: '2026年(1)' }],
+    vitality: null,
+    run50: null,
+    flex: null,
+    jump: null,
+    strength: null,
+    endureSecs: null,
+  }
+  const state = updateFitnessCatalog(emptyState(), {
+    results: [emptyYear],
+    failures: [],
+    runId: 'fitness-confirmed-empty',
+    attemptedAt: AT,
+    completedAt: DONE,
+  })
+
+  assert.equal(state.sync.domains.fitness.status, 'succeeded')
+  assert.equal(state.sync.domains.fitness.completeness, 'complete')
+  assert.equal(state.sync.domains.fitness.emptyConfirmed, true)
+  assert.equal(state.sync.domains.fitness.outcomes['fitness:2026-2027_1'].emptyConfirmed, true)
+  assert.equal(state.dataCatalog.collections.fitness.records['2026-2027_1'].refreshState, 'empty')
+})
+
 test('partial and all-failed fitness runs do not manufacture an aggregate success watermark', () => {
   const availableYears = [{ yearKey: '2025-2026_1' }, { yearKey: '2024-2025_1' }]
   let state = updateFitnessCatalog(emptyState(), {

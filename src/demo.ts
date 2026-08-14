@@ -6,7 +6,7 @@ function isoAfter(hours: number) {
 
 export const demoState: CampusState = {
   schema: "theia-campus-data/v1",
-  appVersion: "0.4.1",
+  appVersion: "0.4.2",
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
   profile: { name: "校园用户", studentId: "2026000000" },
@@ -344,7 +344,14 @@ export const demoState: CampusState = {
     academicApiEnabled: false,
     mail: { enabled: false, pollIntervalMinutes: 5 },
     modelBaseUrl: "",
+    modelProvider: "openai-compatible",
     modelName: "",
     modelModels: [],
+    modelRouting: {
+      advisorFastModel: null,
+      advisorDeepModel: null,
+      courseworkModel: null,
+      fallbackModel: null,
+    },
   },
 };

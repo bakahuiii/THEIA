@@ -2,18 +2,30 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { modelServiceIdentity } from '../core/model-url-policy.mjs'
+import { isLiteralLoopbackModelService, modelServiceIdentity } from '../core/model-url-policy.mjs'
+import { normalizeModelProvider } from '../core/model-provider-policy.mjs'
 
 export const MODEL_CONFIG_TRANSACTION_SCHEMA = 'theia-model-config-transaction/v1'
 const MAX_JOURNAL_BYTES = 64 * 1024
 
 function modelSettings(settings) {
+  const routing = settings?.modelRouting && typeof settings.modelRouting === 'object'
+    ? settings.modelRouting
+    : {}
+  const route = (value) => typeof value === 'string' && value.trim().length <= 300 ? value.trim() || null : null
   return {
     modelBaseUrl: typeof settings?.modelBaseUrl === 'string' ? settings.modelBaseUrl : '',
+    modelProvider: normalizeModelProvider(settings?.modelProvider),
     modelName: typeof settings?.modelName === 'string' ? settings.modelName : '',
     modelModels: Array.isArray(settings?.modelModels)
       ? settings.modelModels.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 300)
       : [],
+    modelRouting: {
+      advisorFastModel: route(routing.advisorFastModel),
+      advisorDeepModel: route(routing.advisorDeepModel),
+      courseworkModel: route(routing.courseworkModel),
+      fallbackModel: route(routing.fallbackModel),
+    },
   }
 }
 
@@ -133,6 +145,9 @@ async function saveModelConfigTransactionUnlocked({
   baseUrl,
   modelName,
   models,
+  modelRouting,
+  modelProvider,
+  allowKeyless = false,
   apiKey = '',
   publishSnapshot = () => {},
 }) {
@@ -149,7 +164,10 @@ async function saveModelConfigTransactionUnlocked({
     }
     const status = await vault.status({ allowPendingTransaction: true })
     const expectedIdentity = modelServiceIdentity(baseUrl)
-    if (!status.saved || !status.bound || status.serviceIdentity !== expectedIdentity) {
+    const keylessOllama = allowKeyless === true
+      && normalizeModelProvider(modelProvider) === 'ollama-chat'
+      && isLiteralLoopbackModelService(baseUrl)
+    if (!keylessOllama && (!status.saved || !status.bound || status.serviceIdentity !== expectedIdentity)) {
       throw new Error('Enter a model API key for this exact service address before saving it')
     }
     settingsMayHaveChanged = true
@@ -158,8 +176,10 @@ async function saveModelConfigTransactionUnlocked({
       settings: {
         ...state.settings,
         modelBaseUrl: expectedIdentity,
+        modelProvider: normalizeModelProvider(modelProvider),
         modelName,
         modelModels: [...models],
+        modelRouting: modelSettings({ modelRouting }).modelRouting,
       },
     }))
     publishSnapshot(snapshot)

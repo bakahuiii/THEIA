@@ -10,10 +10,12 @@ import {
   permittedSourceUrl,
 } from '../core/source-url-policy.mjs'
 
-test('source URL policy accepts only HTTPS campus hosts', () => {
+test('source URL policy accepts official HTTP and HTTPS campus hosts', () => {
   for (const url of [
     'https://buct.edu.cn/',
     'https://course.buct.edu.cn/meol/',
+    'http://course.buct.edu.cn/meol/',
+    'http://jwglxt.buct.edu.cn/jwglxt/',
   ]) {
     assert.equal(isPermittedSourceUrl(url), true, url)
     assert.equal(permittedSourceUrl(url), new URL(url).toString())
@@ -29,15 +31,13 @@ test('source URL policy rejects arbitrary protocols, credentials, and lookalike 
     'https://buct.edu.cn.evil.example/',
     'https://buct.edu.cn@evil.example/',
     'https://user@course.buct.edu.cn/',
-    'http://jwglxt.buct.edu.cn/jwglxt/',
-    'http://buct.edu.cn/',
     'http://127.0.0.1:8765/v1/health',
     'http://localhost:5174/',
     'http://127.0.0.1.evil.example/',
     'not a URL',
   ]) {
     assert.equal(isPermittedSourceUrl(url), false, url)
-    assert.throws(() => permittedSourceUrl(url), /HTTPS.*buct\.edu\.cn/)
+    assert.throws(() => permittedSourceUrl(url), /HTTP\(S\).*buct\.edu\.cn/)
   }
 })
 
@@ -54,9 +54,12 @@ test('external URL policy allows credential-free HTTP(S) links only', () => {
 
 test('app navigation remains on its exact packaged document or development origin', () => {
   assert.equal(isPermittedAppNavigation('file:///C:/THEIA/resources/app.asar/dist/index.html#calendar', 'file:///C:/THEIA/resources/app.asar/dist/index.html'), true)
+  assert.equal(isPermittedAppNavigation('file://localhost/C:/THEIA/resources/app.asar/dist/', 'file:///C:/THEIA/resources/app.asar/dist/index.html'), true)
   assert.equal(isPermittedAppNavigation('file:///C:/THEIA/resources/app.asar/dist/other.html', 'file:///C:/THEIA/resources/app.asar/dist/index.html'), false)
   assert.equal(isPermittedAppNavigation('http://127.0.0.1:5174/tools', 'http://127.0.0.1:5174/'), true)
+  assert.equal(isPermittedAppNavigation('http://localhost:5174/index.html', 'http://127.0.0.1:5174/'), true)
   assert.equal(isPermittedAppNavigation('http://127.0.0.1:8765/v1/feed', 'http://127.0.0.1:5174/'), false)
+  assert.equal(isPermittedAppNavigation('http://192.168.1.10:5174/', 'http://127.0.0.1:5174/'), false)
   assert.equal(isPermittedAppNavigation('https://example.com/', 'http://127.0.0.1:5174/'), false)
 })
 

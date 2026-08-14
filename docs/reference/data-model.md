@@ -58,7 +58,7 @@ THEIA 是本地优先应用。`CampusStore` 持有的 `CampusState` 是 renderer
 ```json
 {
   "schema": "theia-campus-data/v1",
-  "appVersion": "0.4.1",
+  "appVersion": "0.4.2",
   "createdAt": "2026-08-01T08:00:00.000Z",
   "updatedAt": "2026-08-12T02:30:00.000Z",
   "profile": null,

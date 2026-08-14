@@ -26,13 +26,18 @@ view/hook -> src/bridge.ts -> electron/preload.cjs
 - 抢课：discover、candidates、start、stop、snapshot。
 - 窗口/外观：窗口控制、缩放、背景文件、settings。
 - 数据：本地 API 状态、导出。
-- Advisor：`theia:advisor:get-overview` 仅返回主进程从一次原子快照和一次时钟采样生成的确定性 overview；它不调用模型，也不触发同步。
+- Advisor：`theia:advisor:get-overview`、`academic-what-if`、`course-decisions` 和 `execute-action` 承载 P0-P3 本地确定性能力；`list-threads`、`create-thread`、`prepare`、`send`、`cancel` 和 `delete-thread` 承载 P4 模型请求生命周期。模型 IPC 不复用本地动作 IPC，也不获得任意执行负载。
 
 主进程是所有特权动作唯一位置。URL 经过 `permittedSourceUrl()`；附件与路径用受控 picker 或既有 workspace 记录；不暴露通用 shell、filesystem、session 或 arbitrary URL IPC。
 
-## Advisor overview 边界
+## Advisor P0-P5 边界
 
 - renderer 不自行拼接 `CampusState`、revision 或当前时间来重算 overview。
 - overview 及其 `dataQuality` 的 `snapshotRevision`、`evaluatedAt`、`timeZone`、`rulesVersion` 必须完全一致。
 - renderer 收到新四元实例键时整体替换旧 overview；稳定 claim ID 只表示同一规则下的 claim 身份，不允许据此跨实例合并 `value`、`displayText`、`confidence` 或 `caveats`。
-- 当前 handler 是只读 P0 能力。未来的模型请求、流式事件、取消和授权需要独立的 `AdvisorRuntime` 协议，不能复用现有 overview handler 暗中发起网络调用。
+- What-if 和 course decisions 各自从一次冻结快照计算；renderer 不能把数据质量从 unknown/partial 升级为 complete，也不能接收并复用过期 revision 的响应。
+- `advisor:execute-action` 的 renderer 参数不得增加原始 assignment ID、URL 或任意 payload；原始 THEOL assignment ID 只能在主进程从当前冻结快照私下唯一反解。
+- P4 模型请求由独立 `AdvisorRuntime` 的 prepare/send 两阶段协议处理：prepare 冻结快照并返回披露计划，send 只在用户确认、prepared request 有效且 revision 未变化时调用 Provider。
+- 当前没有流式 IPC、通用工具调用、任意 URL、filesystem、session 或学校请求代理；`suggestedActionIds` 不是执行授权。
+
+完整合同见 [16-advisor-p0-foundation.md](16-advisor-p0-foundation.md)、[17-advisor-p1-p3-local-workbench.md](17-advisor-p1-p3-local-workbench.md) 和 [18-advisor-p4-p5-model-runtime.md](18-advisor-p4-p5-model-runtime.md)。

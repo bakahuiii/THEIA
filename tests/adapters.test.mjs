@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { JwglxtAdapter } from '../core/adapters/jwglxt.mjs'
 import { TheolAdapter, THEOL_URLS } from '../core/adapters/theol.mjs'
-import { TyglAdapter } from '../core/adapters/tygl.mjs'
+import { TyglAdapter, upgradeTyglRedirectUrl } from '../core/adapters/tygl.mjs'
 import { isStandardCourseCode } from '../core/parsers/jwglxt.mjs'
 
 test('THEOL probes the authenticated personal homepage instead of the public index', async () => {
@@ -232,6 +232,44 @@ test('health cloud parses the paired metric and result table', async () => {
   })
 })
 
+test('health cloud upgrades only its own insecure authentication callback', () => {
+  assert.equal(
+    upgradeTyglRedirectUrl('http://tygl.buct.edu.cn/?ticket=opaque#result'),
+    'https://tygl.buct.edu.cn/?ticket=opaque#result',
+  )
+  for (const url of [
+    'https://tygl.buct.edu.cn/',
+    'http://course.buct.edu.cn/',
+    'http://tygl.buct.edu.cn:8080/',
+    'http://user@tygl.buct.edu.cn/',
+    'not a URL',
+  ]) assert.equal(upgradeTyglRedirectUrl(url), null, url)
+})
+
+test('health cloud returns a readable year without measurements as an empty result', async () => {
+  const availableYears = [
+    { yearKey: '2026-2027_1', label: '2026年(1)' },
+    { yearKey: '2025-2026_1', label: '2025年(1)' },
+  ]
+  const adapter = new TyglAdapter({
+    async page(url) { return { url, text: '<main>健康云</main>'.padEnd(300, ' ') } },
+  }, {
+    fitnessPageLoader: async () => ({
+      url: 'https://tygl.buct.edu.cn/main.php?module=stu&title=stu_ht_score&year=2026-2027_1',
+      text: '<main><h1>2026年体测成绩</h1><p>暂无数据</p></main>',
+      yearKey: '2026-2027_1',
+      availableYears,
+    }),
+  })
+
+  const score = await adapter.fetchScore({ year: '2026-2027_1' })
+  assert.equal(score.yearKey, '2026-2027_1')
+  assert.deepEqual(score.availableYears, availableYears)
+  for (const field of ['vitality', 'run50', 'flex', 'jump', 'strength', 'endureSecs']) {
+    assert.equal(score[field], null, field)
+  }
+})
+
 test('JWGLXT queries current-term schedule, grades and exams through their student endpoints', async () => {
   const forms = []
   const requestPhases = []
@@ -307,7 +345,7 @@ test('JWGLXT queries current-term schedule, grades and exams through their stude
   assert.equal(result.notices[0].title, 'Academic notice')
   assert.match(forms[0].url, /xskbcx_cxXsgrkb\.html$/)
   assert.ok(['2025','2026'].includes(forms[0].values.xnm))
-  assert.match(forms.find(f => f.url.includes('cjcx_cxXsgrcj')).url, /cjcx_cxXsgrcj\.html\?doType=query$/)
+  assert.match(forms.find(f => f.url.includes('cjcx_cxXsgrcj')).url, /cjcx_cxXsgrcj\.html\?doType=query&gnmkdm=N305005$/)
   assert.ok(forms.some(f => f.url.includes('kscx_cxXsksxxIndex')))
   assert.ok(forms.some(f => f.url.includes('xsxxwh_cxXsxkxx')))
   assert.deepEqual(primaryStarted, new Set(['schedule', 'exams', 'grades', 'academic-progress']))
@@ -347,6 +385,49 @@ test('JWGLXT schedule sync prioritizes the selected term and ignores years befor
   assert.equal(result.schedule.length, 1)
   assert.equal(result.source.diagnostics.scheduleFetch[0].termId, '2026-3')
   assert.equal(result.errors.length, 0)
+})
+
+test('JWGLXT grades retry concrete terms when the all-term endpoint rejects blank selectors', async () => {
+  const gradeRequests = []
+  const client = {
+    async page(url) {
+      if (url.includes('/xtgl/')) return { url, text: '<input id="xh" value="2024TEST01"><input id="xnm" value="2025"><input id="xqm" value="16"><a href="/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html">Schedule</a>' }
+      if (url.includes('/kbcx/')) return { url, text: '<form id="ajaxForm"><select name="xnm"><option value="2025" selected>2025-2026</option><option value="2024">2024-2025</option></select><select name="xqm"><option value="16" selected>3</option></select></form>' }
+      if (url.includes('/cjcx/')) return { url, text: '<form id="searchForm"><input name="sxxdm" value="10010"><input name="kcbjdm" value=""><select name="xnm"><option value="2025" selected>2025-2026</option><option value="2024">2024-2025</option></select><select name="xqm"><option value="16" selected>3</option></select></form>' }
+      return { url, text: '<form id="searchForm"></form>' }
+    },
+    async form(url, values) {
+      if (!url.includes('/cjcx/')) return JSON.stringify({ items: [] })
+      gradeRequests.push({ url, values })
+      if (!values.xnm && !values.xqm) throw new Error('all-term selector is not supported')
+      return JSON.stringify({ aaData: [{ kcmc: `Grade ${values.xnm}`, kch_id: 'MAT14000G', xf: '4', cj: '91', jd: '4' }] })
+    },
+  }
+
+  const result = await new JwglxtAdapter(client).sync({ domains: ['grades'] })
+  assert.equal(result.domainOutcomes.grades.succeeded, true)
+  assert.equal(result.grades.length, 2)
+  assert.ok(gradeRequests.every(({ url }) => [
+    'cjcx_cxXsgrcj.html?doType=query&gnmkdm=N305005',
+    'cjcx_cxDgXscj.html?doType=query&gnmkdm=N305005',
+  ].some((suffix) => url.endsWith(suffix))))
+})
+
+test('JWGLXT accepts deeply nested grade payloads and explicit empty responses', async () => {
+  const client = {
+    async page(url) {
+      if (url.includes('/xtgl/')) return { url, text: '<span id="yhm">Student</span><select id="xnm"><option value="2025" selected>2025-2026</option></select><select id="xqm"><option value="16" selected>Third</option></select>' }
+      if (url.includes('/cjcx/')) return { url, text: '<form id="searchForm"><input name="sxxdm" value="10010"></form>' }
+      return { url, text: '<form></form>' }
+    },
+    async form(url, values) {
+      if (!values.xnm && !values.xqm) return JSON.stringify({ success: true, data: { result: { aaData: [{ kcmc: 'Nested', kch_id: 'MAT14000G', xf: '2', cj: '90', jd: '4' }] } } })
+      return JSON.stringify({ success: true, data: { total: 0, rows: [] } })
+    },
+  }
+  const result = await new JwglxtAdapter(client).sync({ domains: ['grades'] })
+  assert.equal(result.domainOutcomes.grades.succeeded, true)
+  assert.equal(result.grades.length, 1)
 })
 
 test('JWGLXT academic-progress retry does not request schedule, exams, grades, or selected courses', async () => {

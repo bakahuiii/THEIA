@@ -32,7 +32,9 @@ Authorization: Bearer {API 密钥}
 
 THEIA 已具备不依赖模型的确定性顾问底座。`getAdvisorOverview` 从一次原子的 `CampusStore.snapshotWithRevision()` 读取数据，在本地计算各数据域质量、证据引用、类型化结论、数据质量风险、作业与考试时间记录以及稳定议程。该路径不访问学校、不请求模型、不读取浏览器会话，也不写入状态，因此可在离线和未配置 API 密钥时运行。
 
-这是 P0 可信底座，不是完整的对话式顾问。现有 `ModelService` 仍只服务于下述明确的作业和摘要流程，并不等同于 `AdvisorRuntime`。服务商抽象、按授权范围构建上下文、严格的模型叙述结构、回答引用与动作校验、对话和工具循环仍未实现。未来的顾问模型请求必须由用户明确触发，只披露获准的最少字段，并依据该次请求冻结的结论与证据目录校验回答。
+在此底座上，P1-P3 已提供本地议程、学业分析和选课决策工作台；P4-P5 首发已把受约束的模型解释接入顾问页。`AdvisorRuntime` 只在用户明确发起并确认披露后发送按意图裁剪的最小上下文，回答必须通过严格叙述 schema，以及请求时冻结的 claim、action 和低信任通知/邮件引用目录校验。模型不能直接读取 `CampusStore`、Feed、回环 API、浏览器会话或本机文件。
+
+当前首发仍不是自由 Agent：没有持久会话或持久多轮摘要，没有工具循环、Agent Provider、多代理、流式输出、embedding 或持久 RAG，也没有任何模型登录、同步、抢课、填答、发信、提交或文件访问权限。`course` 意图尚未接入 P3 当前候选/决策的专用交互，邮件也不会被顾问自动联网读取或改变已读状态。准确边界见 [P4-P5 模型运行时说明](docs/ai/18-advisor-p4-p5-model-runtime.md)。
 
 ## 作业流程
 
@@ -104,6 +106,12 @@ GET /v1/calendar.ics
 - 统一身份认证、教务 API、邮箱和模型服务凭据分别使用 DPAPI 加密，并从业务快照、导出和本地 API 响应中排除。
 - 只有用户明确选择教学班并启动有限任务后才会选课。THEIA 不会自动退课、评教或提交申请。
 
+## 开源许可
+
+THEIA 的源代码以 [MIT License](LICENSE) 发布。该许可只适用于本仓库的代码和文档，不授予北京化工大学、学校平台或其商标的任何权利，也不覆盖用户本地数据、认证凭据、课程材料、邮件或学校服务内容。使用者应自行遵守学校的服务规则与课程要求。
+
+安全问题请不要通过公开 Issue 披露，处理方式见 [SECURITY.md](SECURITY.md)。Windows 安装包的可信代码签名是独立于 MIT 许可的发布流程；未签名构建可能触发 SmartScreen，详见 [发行兼容与恢复](docs/ai/22-distribution-compatibility-and-recovery.md)。
+
 ## 文档导航
 
 ### 使用与产品
@@ -148,6 +156,8 @@ GET /v1/calendar.ics
 - [代码索引](docs/ai/14-code-map.md)
 - [选课 API](docs/ai/15-course-selection-api.md)
 - [顾问 P0 可信底座](docs/ai/16-advisor-p0-foundation.md)
+- [顾问 P1-P3 本地工作台](docs/ai/17-advisor-p1-p3-local-workbench.md)
+- [顾问 P4-P5 模型运行时](docs/ai/18-advisor-p4-p5-model-runtime.md)
 
 ## 验证与打包
 

@@ -3,6 +3,54 @@ import { normalizeAdvisorOptions, normalizeVersionedSnapshot } from './contracts
 
 const CRITICAL_DATA_DOMAINS = new Set(['academic-progress', 'assignments', 'exams', 'grades'])
 
+const DATA_DOMAIN_LABELS = Object.freeze({
+  profile: '个人信息',
+  terms: '学期',
+  courses: '课程',
+  academic: '学业基础',
+  schedule: '课表',
+  grades: '成绩',
+  exams: '考试',
+  'selected-courses': '已选课程',
+  'academic-progress': '学业进度',
+  assignments: '作业与测试',
+  workspaces: '课程工作区',
+  coursework: '课程任务',
+  notices: '通知',
+  mailbox: '校园邮箱',
+  fitness: '体测',
+  'school-schedule': '全校课表',
+  'academic-calendar': '校历',
+  'local-data-catalog': '本地资料',
+})
+
+const SEVERITY_LABELS = Object.freeze({
+  urgent: '紧急',
+  attention: '需关注',
+  info: '提示',
+  unknown: '未知',
+})
+
+const DEADLINE_BAND_LABELS = Object.freeze({
+  overdue: '已逾期',
+  critical: '24 小时内',
+  soon: '3 天内',
+  normal: '3 天以后',
+  unknown: '时间未知',
+})
+
+export function advisorRiskDomainLabel(value) {
+  return DATA_DOMAIN_LABELS[normalizeText(value, { trim: true }).toLowerCase()] || '未知数据域'
+}
+
+export function advisorRiskSeverityLabel(value) {
+  return SEVERITY_LABELS[normalizeText(value, { trim: true }).toLowerCase()] || '未知等级'
+}
+
+export function advisorRiskDeadlineBandLabel(value) {
+  return DEADLINE_BAND_LABELS[normalizeText(value, { trim: true }).toLowerCase()] || '未知时间范围'
+}
+
 function riskId(kind, entityId, rulesVersion) {
   return `risk:${kind}:${shortDigest({ kind, entityId: normalizeText(entityId), rulesVersion }, 16)}`
 }
@@ -102,7 +150,7 @@ function registerDomainEvidence(registry, quality) {
     fields,
     capturedAt: quality.capturedAt,
     source: quality.source[0] || null,
-    label: `${quality.domain} data quality`,
+    label: `${advisorRiskDomainLabel(quality.domain)}数据质量`,
     evidenceDigest: qualityEvidenceDigest,
   })
   registry.disclose(evidence.id, fields)
@@ -123,6 +171,9 @@ function dataQualityReasons(quality) {
 }
 
 function dataQualityRisk(quality, registry, rulesVersion) {
+  // Aggregate catalog health is evidence, not an independently retryable source.
+  // Its failing child domains already produce the actionable repair risk.
+  if (quality.domain === 'local-data-catalog') return null
   const why = dataQualityReasons(quality)
   if (!why.length) return null
   const critical = CRITICAL_DATA_DOMAINS.has(quality.domain)
@@ -130,6 +181,7 @@ function dataQualityRisk(quality, registry, rulesVersion) {
   if (!critical && !hardFailure && quality.freshness !== 'stale' && quality.completeness !== 'partial') return null
   const evidence = registerDomainEvidence(registry, quality)
   const severity = critical && hardFailure ? 'urgent' : (quality.freshness === 'stale' || quality.completeness === 'partial' || critical ? 'attention' : 'info')
+  const domainLabel = advisorRiskDomainLabel(quality.domain)
   const suggestedAction = quality.lastAttempt.status === 'auth-required'
     ? '重新登录对应校园来源后再同步'
     : '重新同步并检查该领域的数据状态'
@@ -137,7 +189,7 @@ function dataQualityRisk(quality, registry, rulesVersion) {
     subject: quality.domain,
     predicate: 'data-quality-severity',
     value: { type: 'severity', value: severity },
-    displayText: `${quality.domain} 数据可信度：${severity}`,
+    displayText: `${domainLabel}数据可信度：${advisorRiskSeverityLabel(severity)}`,
     evidenceRefs: [evidence.id],
     confidence: quality.provenanceInferred ? 'high' : 'high',
     caveats: why,
@@ -153,7 +205,7 @@ function dataQualityRisk(quality, registry, rulesVersion) {
       entityId: `domain:${quality.domain}`,
       domain: quality.domain,
       severity,
-      title: `${quality.domain} 数据暂不能作为完整实时依据`,
+      title: `${domainLabel}数据暂不能作为完整实时依据`,
       why,
       evidenceRefs: [evidence.id],
       claimIds: [claim.id],
@@ -303,7 +355,7 @@ function assignmentRisks(state, quality, registry, { now, timeZone, rulesVersion
       why: uniqueSorted([
         band === 'overdue'
           ? '记录中的截止时间已经过去，当前是否仍可提交需要人工确认'
-          : validityCaveat ? `按记录计算截止时间处于 ${band} 分段` : `截止时间处于 ${band} 分段`,
+          : validityCaveat ? `按记录计算截止时间属于“${advisorRiskDeadlineBandLabel(band)}”分段` : `截止时间属于“${advisorRiskDeadlineBandLabel(band)}”分段`,
         ...caveats,
       ]),
       evidenceRefs: [evidence.id],
@@ -430,7 +482,7 @@ function examRisks(state, quality, registry, { now, timeZone, rulesVersion }) {
       domain: 'exams',
       severity: validityCaveat ? 'attention' : deadlineSeverity(band),
       title: validityCaveat ? `${exam.courseName || '考试'}有一条未经当前同步确认的时间记录` : `${exam.courseName || '考试'}倒计时`,
-      why: uniqueSorted([validityCaveat ? `按记录计算考试开始时间处于 ${band} 分段` : `考试开始时间处于 ${band} 分段`, ...caveats]),
+      why: uniqueSorted([validityCaveat ? `按记录计算考试开始时间属于“${advisorRiskDeadlineBandLabel(band)}”分段` : `考试开始时间属于“${advisorRiskDeadlineBandLabel(band)}”分段`, ...caveats]),
       evidenceRefs: [evidence.id],
       claimIds: [startClaim.id, countdownClaim.id],
       dueAt: effective.iso,
@@ -440,6 +492,78 @@ function examRisks(state, quality, registry, { now, timeZone, rulesVersion }) {
       actionKind: validityCaveat ? 'open-source-detail' : 'prepare-exam',
       impactClass: 'exam',
       delayCostClass: validityCaveat ? 'information-only' : 'irrecoverable-window',
+      quality: qualitySummary(quality),
+      rulesVersion,
+    }))
+  }
+  return { risks, claims }
+}
+
+function officialWindowRisks(state, quality, registry, { now, timeZone, rulesVersion }) {
+  const risks = []
+  const claims = []
+  const nowMilliseconds = Date.parse(now)
+  const weeklyCalendar = state.dataCatalog?.collections?.academicCalendar?.analysis?.weeklyCalendar
+  for (const [index, window] of (Array.isArray(weeklyCalendar?.courseSelectionWindows) ? weeklyCalendar.courseSelectionWindows : []).entries()) {
+    if (!window || typeof window !== 'object') continue
+    const startAt = parseCampusInstant(window.startAt, { timeZone })
+    const endAt = parseCampusInstant(window.endAt, { timeZone })
+    if (!startAt || !endAt || endAt.milliseconds < nowMilliseconds) continue
+    const entityId = window.id || shortDigest({ index, summary: window.summary, startAt: window.startAt, endAt: window.endAt }, 20)
+    const subject = `official-window:${shortDigest(entityId, 16)}`
+    const fields = ['summary', 'dateText', 'startAt', 'endAt']
+    const evidence = registry.register({
+      dataset: 'academic-calendar-window',
+      domain: 'academic-calendar',
+      entityId,
+      fields,
+      capturedAt: weeklyCalendar.source?.parsedAt || state.dataCatalog?.collections?.academicCalendar?.lastRefreshedAt,
+      source: weeklyCalendar.source?.assetKey || 'official-academic-calendar',
+      label: window.summary || '官方校历窗口',
+    })
+    registry.disclose(evidence.id, fields)
+    const opensInFuture = startAt.milliseconds > nowMilliseconds
+    const effectiveDeadline = opensInFuture ? startAt : endAt
+    const validityCaveat = timeValidityCaveat(quality, '官方校历窗口')
+    const caveats = uniqueSorted([
+      validityCaveat,
+      quality?.freshness === 'stale' ? '校历解析结果已超过当前新鲜度阈值' : null,
+      '校历窗口不代表选课平台一定可用，实际状态需在确认界面核对',
+    ])
+    const claim = localClaim({
+      kind: 'computed',
+      subject,
+      predicate: opensInFuture ? 'window-opens-at' : 'window-closes-at',
+      value: { type: 'instant', value: effectiveDeadline.iso, timeZone },
+      displayText: `${window.summary || '官方校历窗口'}${opensInFuture ? '开始于' : '截止于'} ${effectiveDeadline.iso}`,
+      evidenceRefs: [evidence.id],
+      confidence: claimConfidence(quality),
+      caveats,
+      rulesVersion,
+      domainDigest: quality.contentDigest,
+      fields: opensInFuture ? ['startAt'] : ['endAt'],
+    })
+    claims.push(claim)
+    risks.push(Object.freeze({
+      id: riskId('official-window', entityId, rulesVersion),
+      kind: 'window',
+      entityId: subject,
+      domain: 'academic-calendar',
+      severity: validityCaveat ? 'attention' : deadlineSeverity(deadlineBand(effectiveDeadline.milliseconds - nowMilliseconds)),
+      title: window.summary || '官方校历中的选课窗口',
+      why: uniqueSorted([
+        opensInFuture ? '官方周历记录的选课窗口尚未开始' : '官方周历记录的选课窗口正在进行',
+        ...caveats,
+      ]),
+      evidenceRefs: [evidence.id],
+      claimIds: [claim.id],
+      dueAt: effectiveDeadline.iso,
+      deadlineBand: validityCaveat ? 'unknown' : deadlineBand(effectiveDeadline.milliseconds - nowMilliseconds),
+      actionable: true,
+      suggestedAction: opensInFuture ? '查看选课沙盘并提前保存候选目标' : '进入选课界面核对开放状态并人工确认',
+      actionKind: 'review-course-selection-window',
+      impactClass: 'official-window',
+      delayCostClass: opensInFuture ? 'information-only' : 'irrecoverable-window',
       quality: qualitySummary(quality),
       rulesVersion,
     }))
@@ -462,8 +586,9 @@ export function evaluateRisks(versionedSnapshot, { dataQuality, evidenceRegistry
   }
   const assignments = assignmentRisks(versioned.snapshot, dataQuality.domains?.assignments || {}, evidenceRegistry, normalizedOptions)
   const exams = examRisks(versioned.snapshot, dataQuality.domains?.exams || {}, evidenceRegistry, normalizedOptions)
-  risks.push(...assignments.risks, ...exams.risks)
-  claims.push(...assignments.claims, ...exams.claims)
+  const windows = officialWindowRisks(versioned.snapshot, dataQuality.domains?.['academic-calendar'] || {}, evidenceRegistry, normalizedOptions)
+  risks.push(...assignments.risks, ...exams.risks, ...windows.risks)
+  claims.push(...assignments.claims, ...exams.claims, ...windows.claims)
   return {
     risks: risks.sort((left, right) => compareCanonicalText(left.id, right.id)),
     claims: claims.sort((left, right) => compareCanonicalText(left.id, right.id)),

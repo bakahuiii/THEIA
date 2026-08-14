@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { bridge, disconnectedStatus, isDesktop } from "../bridge";
 import { createLatestApiStatusLoader } from "./runtime-api-status.mjs";
 import {
@@ -25,7 +25,14 @@ import type {
   CredentialStatus,
   ModelStatus,
   MailCredentialStatus,
+  AdvisorOverview,
+  AdvisorUrgentItem,
+  SyncRetryDomain,
 } from "../types";
+import {
+  hideAdvisorItem,
+  visibleAdvisorItems,
+} from "./advisor-presentation.mjs";
 
 type SyncFreshness = {
   kind: "syncing" | "failed" | "idle" | "ready";
@@ -135,6 +142,34 @@ export function useTheiaApp() {
   const [schoolScheduleRefreshFailed, setSchoolScheduleRefreshFailed] = useState(false);
   const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
+  const [advisorOverview, setAdvisorOverview] = useState<AdvisorOverview | null>(null);
+  const [advisorLoading, setAdvisorLoading] = useState(true);
+  const [advisorError, setAdvisorError] = useState<string | null>(null);
+  const [advisorHidden, setAdvisorHidden] = useState<Set<string>>(() => new Set());
+  const [advisorActionPendingId, setAdvisorActionPendingId] = useState<string | null>(null);
+  const courseSelectionCandidatesRequestSequence = useRef(0);
+  const advisorOverviewRequestSequence = useRef(0);
+
+  const refreshAdvisorOverview = useCallback(async () => {
+    const requestSequence = ++advisorOverviewRequestSequence.current;
+    setAdvisorLoading(true);
+    try {
+      const overview = await bridge.getAdvisorOverview();
+      if (requestSequence !== advisorOverviewRequestSequence.current) return null;
+      setAdvisorOverview(overview);
+      setAdvisorError(null);
+      return overview;
+    } catch (error) {
+      if (requestSequence !== advisorOverviewRequestSequence.current) return null;
+      const text = error instanceof Error ? error.message : String(error);
+      setAdvisorError(text);
+      return null;
+    } finally {
+      if (requestSequence === advisorOverviewRequestSequence.current) {
+        setAdvisorLoading(false);
+      }
+    }
+  }, []);
 
   const refreshActivityLog = useCallback(async () => {
     setActivityLoading(true);
@@ -190,6 +225,7 @@ export function useTheiaApp() {
         if (!active) return;
         syncFailureObserver.initialize(snapshot);
         setState(snapshot);
+        void refreshAdvisorOverview();
         // Keep cached data loading silent so the first usable frame stays calm.
         // Connection probes run only after authoritative local data is loaded.
         firstPaintFrame = window.requestAnimationFrame(() => {
@@ -249,6 +285,7 @@ export function useTheiaApp() {
     const offSnapshot = bridge.onSnapshot((snapshot) => {
       syncFailureObserver.observe(snapshot);
       setState(snapshot);
+      void refreshAdvisorOverview();
       void loadApiStatus().catch(() => undefined);
     });
     const offAuth = bridge.onAuthStatus((status) => setAuth(status));
@@ -318,7 +355,13 @@ export function useTheiaApp() {
       offNewMail();
       offProgress();
     };
-  }, [setError, setMsg, syncFailureObserver]);
+  }, [refreshAdvisorOverview, setError, setMsg, syncFailureObserver]);
+
+  useEffect(() => {
+    if (!state) return;
+    const interval = window.setInterval(() => void refreshAdvisorOverview(), 60_000);
+    return () => window.clearInterval(interval);
+  }, [refreshAdvisorOverview, state]);
 
   useEffect(() => {
     if (settingsOpen) void refreshActivityLog();
@@ -372,6 +415,70 @@ export function useTheiaApp() {
       syncFailureObserver.reportThrown(error);
     } finally {
       setSyncing(false);
+    }
+  };
+  const executeAdvisorAction = async (item: AdvisorUrgentItem) => {
+    const retryableDomains = new Set<SyncRetryDomain>([
+      "profile", "terms", "schedule", "exams", "grades", "selected-courses",
+      "academic-progress", "jwglxt-courses", "jwglxt-notices", "theol-courses",
+      "assignments", "theol-notices", "mailbox", "academic-calendar", "fitness",
+      "school-schedule",
+    ]);
+    const domain = item.domain as SyncRetryDomain | null | undefined;
+    setAdvisorActionPendingId(item.id);
+    try {
+      switch (item.actionKind) {
+        case "reauthenticate":
+          await requestLogin();
+          break;
+        case "resync": {
+          if (domain && retryableDomains.has(domain)) {
+            const snapshot = await bridge.retrySyncDomain(domain);
+            setState(snapshot);
+            setMsg(`${item.title}：数据已重新获取。`, "success");
+          } else {
+            await sync();
+          }
+          break;
+        }
+        case "open-source-detail":
+          if (item.domain === "assignments") {
+            if (!advisorOverview) throw new Error("顾问快照不可用，请重新计算后再试。");
+            const result = await bridge.executeAdvisorAction({
+              snapshotRevision: advisorOverview.snapshotRevision,
+              actionId: item.id,
+            });
+            if (!result.ok) throw new Error(result.error.message);
+          } else if (item.domain === "exams") {
+            setView("exams");
+          } else if (item.domain === "grades") {
+            setView("grades");
+          } else if (item.domain === "academic-progress") {
+            setView("progress");
+          } else {
+            setMsg("当前来源没有可安全打开的固定页面。", "error");
+          }
+          break;
+        case "review-assignment":
+          setView("assignments");
+          break;
+        case "prepare-exam":
+          setView("exams");
+          break;
+        case "review-academic-gap":
+          setView("progress");
+          break;
+        case "review-course-selection-window":
+          setView("selection");
+          break;
+        default:
+          setMsg("该建议没有可执行的固定本地动作。", "error");
+      }
+      await refreshAdvisorOverview();
+    } catch (caught) {
+      setError(caught);
+    } finally {
+      setAdvisorActionPendingId(null);
     }
   };
   const exportSchedulePdf = async () => {
@@ -524,9 +631,11 @@ export function useTheiaApp() {
     target: Pick<SchoolScheduleItem, "courseCode" | "title"> | null = null,
     options: Partial<CourseSelectionCatalogPage> = {},
   ) => {
+    const requestSequence = ++courseSelectionCandidatesRequestSequence.current;
     setCourseSelectionLoading(true);
     try {
       const result = await bridge.getCourseSelectionCandidates(blockId, target, options);
+      if (requestSequence !== courseSelectionCandidatesRequestSequence.current) return;
       setCourseSelectionPortal(result.portal);
       setCourseSelectionCandidates(result.candidates);
       setCourseSelectionCatalogPage({
@@ -536,9 +645,12 @@ export function useTheiaApp() {
       });
       if (!result.candidates.length) setMsg("该选课模块暂未返回可选教学班", "info");
     } catch (error) {
+      if (requestSequence !== courseSelectionCandidatesRequestSequence.current) return;
       setError(error);
     } finally {
-      setCourseSelectionLoading(false);
+      if (requestSequence === courseSelectionCandidatesRequestSequence.current) {
+        setCourseSelectionLoading(false);
+      }
     }
   };
   const searchSchoolSchedule = async (query: SchoolScheduleQuery) => {
@@ -653,6 +765,20 @@ export function useTheiaApp() {
     }
     setView(nextView);
   }, []);
+  const dismissAdvisorItem = useCallback((item: AdvisorOverview["urgentItems"][number]) => {
+    if (!advisorOverview) return;
+    setAdvisorHidden((current) => hideAdvisorItem(current, advisorOverview.snapshotRevision, item, "dismiss"));
+  }, [advisorOverview]);
+  const snoozeAdvisorItem = useCallback((item: AdvisorOverview["urgentItems"][number]) => {
+    if (!advisorOverview) return;
+    setAdvisorHidden((current) => hideAdvisorItem(current, advisorOverview.snapshotRevision, item, "snooze"));
+  }, [advisorOverview]);
+  const visibleAdvisorActions = useMemo(() => visibleAdvisorItems(
+    advisorOverview?.urgentItems || [],
+    advisorHidden,
+    advisorOverview?.snapshotRevision || "",
+    7,
+  ) as AdvisorOverview["urgentItems"], [advisorHidden, advisorOverview]);
   const setSidebarCollapsed = useCallback((collapsed: boolean) => {
     setSidebarCollapsedState(collapsed);
     try {
@@ -695,6 +821,11 @@ export function useTheiaApp() {
     courseSelectionLoading,
     activityLog,
     activityLoading,
+    advisorOverview,
+    advisorLoading,
+    advisorError,
+    visibleAdvisorActions,
+    advisorActionPendingId,
     credentials,
     hasSession,
     syncPercent,
@@ -716,6 +847,10 @@ export function useTheiaApp() {
     setCredentialDismissed,
     setModelStatus,
     refreshActivityLog,
+    refreshAdvisorOverview,
+    dismissAdvisorItem,
+    snoozeAdvisorItem,
+    executeAdvisorAction,
     requestLogin,
     sync,
     exportSchedulePdf,

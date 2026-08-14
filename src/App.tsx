@@ -19,6 +19,7 @@ import { AssignmentsView } from "./views/AssignmentsView";
 import { SettingsView } from "./views/SettingsView";
 import { ToolsView } from "./views/ToolsView";
 import { CommunicationsView } from "./views/CommunicationsView";
+import { AdvisorView } from "./views/AdvisorView";
 import { CredentialSetupModal } from "./views/settings/Credentials";
 import { GradientMapFilter } from "./components/GradientMapFilter";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -129,6 +130,24 @@ export default function App() {
             onOpenSource={(assignmentId) =>
               void app.openAssignmentSource(assignmentId)
             }
+            advisorItem={app.visibleAdvisorActions[0] || null}
+            advisorLoading={app.advisorLoading}
+            advisorError={app.advisorError}
+          />
+        )}
+        {app.view === "advisor" && (
+          <AdvisorView
+            overview={app.advisorOverview}
+            actions={app.visibleAdvisorActions}
+            loading={app.advisorLoading}
+            error={app.advisorError}
+            pendingActionId={app.advisorActionPendingId}
+            onRetry={() => void app.refreshAdvisorOverview()}
+            onAction={(item) => void app.executeAdvisorAction(item)}
+            onSnooze={app.snoozeAdvisorItem}
+            onDismiss={app.dismissAdvisorItem}
+            notices={state.notices}
+            emails={state.emails}
           />
         )}
         {app.view === "schedule" && (
@@ -172,6 +191,7 @@ export default function App() {
             portal={app.courseSelectionPortal}
             candidates={app.courseSelectionCandidates}
             candidateCatalogPage={app.courseSelectionCatalogPage}
+            advisorSnapshotRevision={app.advisorOverview?.snapshotRevision || null}
             snapshot={app.courseSelection}
             loading={app.courseSelectionLoading}
             schoolSchedule={app.schoolSchedule}

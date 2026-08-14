@@ -2,7 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { AcademicApiFirstAdapter } from '../core/academic-api-adapter.mjs'
 import { AcademicApiClient, AcademicApiError } from '../core/academic-api-client.mjs'
+import { JwglxtAdapter } from '../core/adapters/jwglxt.mjs'
 import { sourceDomainOutcome } from '../core/domain-provenance.mjs'
+import { AuthRequiredError } from '../core/source-client.mjs'
 
 function redirectResponse(location) {
   return {
@@ -12,6 +14,23 @@ function redirectResponse(location) {
     headers: new Headers({ Location: location }),
     async arrayBuffer() { return new ArrayBuffer(0) },
   }
+}
+
+function textResponse(body, url) {
+  return {
+    ok: true,
+    status: 200,
+    url,
+    headers: new Headers({ 'Content-Type': 'text/html; charset=UTF-8' }),
+    async arrayBuffer() { return new TextEncoder().encode(body).buffer },
+  }
+}
+
+function assertSessionExpired(error, source) {
+  assert.ok(error instanceof AcademicApiError)
+  assert.equal(error.code, 1006)
+  assert.equal(error.message, `${source} 会话已失效`)
+  return true
 }
 
 test('academic API rejects off-campus URLs and redirects before sending credentials again', async () => {
@@ -61,6 +80,131 @@ test('academic API changes redirected POST requests to GET without retaining the
     { url: 'https://jwglxt.buct.edu.cn/jwglxt/start', method: 'POST', body: 'secret=one', contentType: 'application/x-www-form-urlencoded' },
     { url: 'https://jwglxt.buct.edu.cn/jwglxt/next', method: 'GET', body: undefined, contentType: null },
   ])
+})
+
+test('academic API page accepts an authenticated grade form with a hidden yhm field', async () => {
+  const url = 'https://jwglxt.buct.edu.cn/jwglxt/cjcx/cjcx_cxDgXscj.html?gnmkdm=N305005&layout=default'
+  const body = '<form id="searchForm"><input type="hidden" name="yhm" id="yhm" value="2024000000"></form>'
+  const client = new AcademicApiClient({
+    username: '2024000000',
+    password: 'secret',
+    fetchImpl: async () => textResponse(body, url),
+  })
+
+  const result = await client.page(url, { source: 'Grades' })
+  assert.equal(result.text, body)
+  assert.equal(result.url, url)
+})
+
+test('academic API page rejects a real password login page with session error code 1006', async () => {
+  const url = 'https://jwglxt.buct.edu.cn/jwglxt/xtgl/login_slogin.html'
+  const body = '<form><input name="yhm" id="yhm"><input name="mm" type="password"><button>用户登录</button></form>'
+  const client = new AcademicApiClient({
+    username: '2024000000',
+    password: 'secret',
+    fetchImpl: async () => textResponse(body, url),
+  })
+
+  await assert.rejects(
+    client.page(url, { source: 'Grades' }),
+    (error) => assertSessionExpired(error, 'Grades'),
+  )
+})
+
+test('academic API form accepts an authenticated response with a hidden yhm field', async () => {
+  const url = 'https://jwglxt.buct.edu.cn/jwglxt/cjcx/cjcx_cxXsgrcj.html?doType=query'
+  const body = '<form id="searchForm"><input type="hidden" name="yhm" id="yhm" value="2024000000"></form>'
+  const client = new AcademicApiClient({
+    username: '2024000000',
+    password: 'secret',
+    fetchImpl: async () => textResponse(body, url),
+  })
+
+  assert.equal(await client.form(url, { xnm: '', xqm: '' }, { source: 'Grades all terms' }), body)
+})
+
+test('academic API form rejects a real password login page with session error code 1006', async () => {
+  const url = 'https://jwglxt.buct.edu.cn/jwglxt/cjcx/cjcx_cxXsgrcj.html?doType=query'
+  const loginUrl = 'https://jwglxt.buct.edu.cn/jwglxt/xtgl/login_slogin.html'
+  const body = '<form><input name="yhm" id="yhm"><input name="mm" type="password"><button>用户登录</button></form>'
+  const client = new AcademicApiClient({
+    username: '2024000000',
+    password: 'secret',
+    fetchImpl: async () => textResponse(body, loginUrl),
+  })
+
+  await assert.rejects(
+    client.form(url, { xnm: '', xqm: '' }, { source: 'Grades all terms' }),
+    (error) => assertSessionExpired(error, 'Grades all terms'),
+  )
+})
+
+test('academic API grades pass through the shared JWGLXT normalization contract', async () => {
+  const base = 'https://jwglxt.buct.edu.cn/jwglxt/'
+  const fetchImpl = async (url, init = {}) => {
+    const target = String(url)
+    if (target.includes('index_initMenu')) {
+      return textResponse('<span id="yhm">API Student</span>', target)
+    }
+    if (target.includes('cjcx_cxDgXscj')) {
+      return textResponse('<form id="searchForm"><input type="hidden" name="yhm" id="yhm" value="2024000000"></form>', target)
+    }
+    if (target.includes('cjcx_cxXsgrcj') && init.method === 'POST') {
+      return textResponse(JSON.stringify({ items: [{ kch: 'TEST100', kcmc: 'Contract course', xf: '2', cj: '88', jd: '3.67', bzxx: 'normal' }] }), target)
+    }
+    throw new Error(`Unexpected academic API request: ${target}`)
+  }
+  const client = new AcademicApiClient({ username: '2024000000', password: 'secret', fetchImpl })
+  const result = await new JwglxtAdapter(client).sync({ domains: ['grades'] })
+
+  assert.equal(result.domainOutcomes.grades.succeeded, true)
+  assert.equal(result.domainOutcomes.grades.status, 'succeeded')
+  assert.deepEqual(result.grades.map((grade) => ({
+    courseCode: grade.courseCode,
+    courseName: grade.courseName,
+    credits: grade.credits,
+    score: grade.score,
+    point: grade.point,
+    remark: grade.remark,
+    source: grade.source,
+  })), [{
+    courseCode: 'TEST100',
+    courseName: 'Contract course',
+    credits: 2,
+    score: '88',
+    point: 3.67,
+    remark: 'normal',
+    source: 'jwglxt',
+  }])
+  assert.equal(result.grades[0].sourceUrl.startsWith(base), true)
+})
+
+test('academic API grades retry the personal DgXscj endpoint when the default grid is rejected', async () => {
+  const calls = []
+  const client = {
+    async page(url) {
+      const target = String(url)
+      if (target.includes('index_initMenu')) return { text: '<span id="yhm">API Student</span>', url: target }
+      return {
+        text: '<form id="searchForm"><input name="sxxdm" value="10010"></form>',
+        url: target,
+      }
+    },
+    async form(url) {
+      const target = String(url)
+      calls.push(target)
+      if (target.includes('cxXsgrcj')) throw new Error('default grade grid unavailable')
+      return JSON.stringify({ code: 1000, data: { courses: [{
+        course_id: 'ART14000G', title: 'Alternate grade', credit: '2', grade: 'A', grade_point: '4',
+      }] } })
+    },
+  }
+  const result = await new JwglxtAdapter(client).sync({ domains: ['grades'] })
+  assert.equal(result.domainOutcomes.grades.succeeded, true)
+  assert.equal(result.grades[0].courseCode, 'ART14000G')
+  assert.equal(result.grades[0].score, 'A')
+  assert.ok(calls.some((url) => url.includes('cxXsgrcj')))
+  assert.ok(calls.some((url) => url.includes('cxDgXscj')))
 })
 
 test('academic API reads requirement rows with its own authenticated cookie jar', async () => {
@@ -166,7 +310,7 @@ test('academic adapter forwards a scoped progress request without running other 
   assert.deepEqual(Object.keys(result.domainOutcomes), ['academic-progress'])
 })
 
-test('academic API failure preserves local data without evicting browser SSO again', async () => {
+test('academic API failure falls back to the existing browser SSO session', async () => {
   let browserCalls = 0
   const browserAdapter = {
     onProgress: null,
@@ -183,9 +327,26 @@ test('academic API failure preserves local data without evicting browser SSO aga
     clientFactory: () => ({ async login() { throw new AcademicApiError(2333, '系统维护') } }),
   })
   const result = await adapter.sync()
-  assert.equal(browserCalls, 0)
-  assert.equal(result.source.connected, false)
-  assert.deepEqual(result.source.api, { enabled: true, used: false, fallback: false, code: 2333 })
+  assert.equal(browserCalls, 1)
+  assert.equal(result.source.connected, true)
+  assert.equal(result.source.api.fallback, true)
+  assert.deepEqual(result.schedule, [{ id: 'browser-schedule' }])
+})
+
+test('academic API does not swallow browser SSO expiry during fallback', async () => {
+  const authError = new AuthRequiredError('jwglxt', 'https://jwglxt.buct.edu.cn/jwglxt/grades')
+  const adapter = new AcademicApiFirstAdapter({
+    browserAdapter: {
+      onProgress: null,
+      async status() { return { connected: false } },
+      async sync() { throw authError },
+    },
+    credentialVault: { async readCredentials() { return { username: '2024000000', password: 'secret' } } },
+    isEnabled: () => true,
+    clientFactory: () => ({ async login() { throw new AcademicApiError(2333, 'service unavailable') } }),
+  })
+
+  await assert.rejects(adapter.sync(), (error) => error === authError)
 })
 
 test('academic API preserves partial session errors alongside failed domain outcomes', async () => {
@@ -226,6 +387,96 @@ test('academic API preserves partial session errors alongside failed domain outc
     diagnostics.find((entry) => entry.event === 'academic_api.partial_session_errors')?.fields,
     { count: 1 },
   )
+})
+
+test('academic API browser fallback never replaces a failed domain with an undefined payload', async () => {
+  const apiGrades = [{ id: 'api-grade-1' }]
+  const adapter = new AcademicApiFirstAdapter({
+    browserAdapter: {
+      onProgress: null,
+      async status() { return { connected: true } },
+      async sync() {
+        return {
+          // Jwglxt adapters expose requested fields as undefined on a failed
+          // read. That marker must not erase the API payload during fallback.
+          grades: undefined,
+          domainOutcomes: {
+            grades: {
+              attempted: true,
+              succeeded: false,
+              status: 'failed',
+              completeness: 'unknown',
+              errorCode: 'grades_read_failed',
+            },
+          },
+          source: { connected: true },
+          errors: ['grades_read_failed'],
+        }
+      },
+    },
+    credentialVault: { async readCredentials() { return { username: '2024000000', password: 'secret' } } },
+    isEnabled: () => true,
+    clientFactory: () => ({ async login() {} }),
+    adapterFactory: () => ({
+      async sync() {
+        return {
+          grades: apiGrades,
+          domainOutcomes: {
+            grades: {
+              attempted: true,
+              succeeded: false,
+              status: 'failed',
+              completeness: 'unknown',
+              errorCode: 'grades_read_failed',
+            },
+          },
+          source: { connected: true },
+          errors: ['api grades failed'],
+        }
+      },
+    }),
+  })
+
+  const result = await adapter.sync({ domains: ['grades'] })
+  assert.deepEqual(result.grades, apiGrades)
+  assert.equal(result.domainOutcomes.grades.succeeded, false)
+})
+
+test('academic API re-authenticates once when a domain is rejected mid-session', async () => {
+  let loginCount = 0
+  let syncCount = 0
+  const adapter = new AcademicApiFirstAdapter({
+    browserAdapter: { onProgress: null, async status() { return { connected: true } } },
+    credentialVault: { async readCredentials() { return { username: '2024000000', password: 'secret' } } },
+    isEnabled: () => true,
+    clientFactory: () => ({ async login() { loginCount += 1 } }),
+    adapterFactory: () => ({
+      async sync() {
+        syncCount += 1
+        if (syncCount === 1) return {
+          errors: ['Grades session expired'],
+          domainOutcomes: {
+            grades: { attempted: true, succeeded: false, status: 'failed', errorCode: 'grades_read_failed' },
+          },
+          source: { connected: true },
+        }
+        return {
+          errors: [],
+          grades: [{ id: 'grade-1' }],
+          domainOutcomes: {
+            grades: { attempted: true, succeeded: true, status: 'succeeded', completeness: 'complete' },
+          },
+          source: { connected: true },
+        }
+      },
+    }),
+  })
+
+  const result = await adapter.sync({ domains: ['grades'] })
+  assert.equal(loginCount, 2)
+  assert.equal(syncCount, 2)
+  assert.equal(result.grades.length, 1)
+  assert.equal(result.domainOutcomes.grades.succeeded, true)
 })
 
 test('academic API enriches its GPA summary with same-session degree-plan details', async () => {

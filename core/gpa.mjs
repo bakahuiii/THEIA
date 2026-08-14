@@ -1,10 +1,20 @@
-const NON_GPA_MARKS = new Set(['P', 'PASS', '合格', 'U', '不合格'])
+const NON_GPA_MARKS = new Set(['P', 'PASS', '合格'])
 const LETTER_POINTS = new Map([
   ['A+', 4.33], ['A', 4], ['A-', 3.67], ['B+', 3.33], ['B', 3], ['B-', 2.67],
   ['C+', 2.33], ['C', 2], ['C-', 1.67], ['D+', 1.33], ['D', 1], ['F', 0],
 ])
 const FAILED_GRADE = /缺考|不合格|不及格|未通过|挂科|违纪|作弊/i
 const PASSED_GRADE = /合格|通过|及格|优秀|良好|中等|已修|完成/i
+const GPA_POLICY_EXCLUSION = /(素质教育|体育|二级计分|二级评分|两级计分)/i
+const EXPLICIT_GPA_EXCLUSION = /不(?:统计|计入|纳入)(?:\s*(?:GPA|绩点|平均绩点))?/i
+const NON_GPA_PASS_REASONS = new Set(['explicitly-excluded', 'policy-excluded', 'non-numeric-mark'])
+
+function optionalFiniteNumber(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (typeof value !== 'string' || value.trim() === '') return null
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
 
 export function scoreToPoint(value) {
   if (value === null || value === undefined || value === '') return null
@@ -28,20 +38,27 @@ export function scoreToPoint(value) {
   return 0
 }
 
-export function isGpaEligible(grade) {
+export function gpaEligibilityReason(grade) {
   const credits = Number(grade?.credits)
-  if (!Number.isFinite(credits) || credits <= 0) return false
-  if (grade?.gpaIncluded === false) return false
-  const text = [grade?.category, grade?.nature, grade?.courseCategory, grade?.courseName].filter(Boolean).join(' ')
-  if (/(素质教育|体育|二级计分|二级评分|两级计分)/i.test(text)) return false
-  if (NON_GPA_MARKS.has(String(grade?.score ?? '').trim().toUpperCase())) return false
-  return gradePoint(grade) !== null
+  if (!Number.isFinite(credits) || credits <= 0) return 'missing-or-invalid-credits'
+  const sourcePolicy = [grade?.remark, grade?.status].filter(Boolean).join(' ')
+  if (grade?.gpaIncluded === false || EXPLICIT_GPA_EXCLUSION.test(sourcePolicy)) return 'explicitly-excluded'
+  const descriptor = [grade?.category, grade?.nature, grade?.courseCategory, grade?.courseName].filter(Boolean).join(' ')
+  if (GPA_POLICY_EXCLUSION.test(descriptor)) return 'policy-excluded'
+  if (NON_GPA_MARKS.has(String(grade?.score ?? '').trim().toUpperCase())) return 'non-numeric-mark'
+  return gradePoint(grade) === null ? 'missing-point-or-numeric-score' : null
+}
+
+export function isGpaEligible(grade) {
+  return gpaEligibilityReason(grade) === null
 }
 
 export function gradePoint(grade) {
   const statusText = [grade?.remark, grade?.status, grade?.score].filter(Boolean).join(' ')
   if (FAILED_GRADE.test(statusText)) return 0
-  const point = Number(grade?.point)
+  const normalizedScore = String(grade?.score ?? '').trim().toUpperCase()
+  if (normalizedScore === 'U' || normalizedScore === 'F') return 0
+  const point = optionalFiniteNumber(grade?.point)
   if (Number.isFinite(point) && point >= 0 && point <= 4.33) return point
   return scoreToPoint(grade?.score)
 }
@@ -68,20 +85,39 @@ function termRank(termId) {
 }
 
 function bestGpaAttempts(grades) {
-  const selected = new Map()
+  const groups = new Map()
   for (const [index, grade] of (grades || []).entries()) {
-    if (!isGpaEligible(grade)) continue
-    const point = gradePoint(grade)
-    if (point === null) continue
     const key = gradeIdentity(grade, index)
-    const current = selected.get(key)
-    if (!current
-      || point > current.point
-      || (point === current.point && termRank(grade?.termId) >= termRank(current.grade?.termId))) {
-      selected.set(key, { grade, point })
-    }
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(grade)
   }
-  return [...selected.values()]
+
+  const selected = []
+  for (const attempts of groups.values()) {
+    const eligible = attempts
+      .filter(isGpaEligible)
+      .map((grade) => ({ grade, point: gradePoint(grade) }))
+      .filter(({ point }) => point !== null)
+    const passed = eligible.filter(({ grade }) => isPassedGrade(grade))
+
+    // A qualitative pass (P/PASS/合格) closes the course without adding GPA
+    // credits. It must still suppress an older failed attempt in the same group.
+    if (!passed.length && attempts.some((grade) => (
+      isPassedGrade(grade) && NON_GPA_PASS_REASONS.has(gpaEligibilityReason(grade))
+    ))) continue
+
+    const candidates = passed.length ? passed : eligible
+    let best = null
+    for (const candidate of candidates) {
+      if (!best
+        || candidate.point > best.point
+        || (candidate.point === best.point && termRank(candidate.grade?.termId) >= termRank(best.grade?.termId))) {
+        best = candidate
+      }
+    }
+    if (best) selected.push(best)
+  }
+  return selected
 }
 
 export function isPassedGrade(grade) {
@@ -95,7 +131,7 @@ export function isPassedGrade(grade) {
     const numeric = Number(score)
     if (Number.isFinite(numeric)) return numeric >= 60
   }
-  const point = Number(grade?.point)
+  const point = optionalFiniteNumber(grade?.point)
   return Number.isFinite(point) && point > 0
 }
 
@@ -136,7 +172,7 @@ export function computeGpaTrend(grades, terms = []) {
   const grouped = new Map()
   for (const grade of grades || []) {
     const termId = grade?.termId
-    if (!termId || !isGpaEligible(grade)) continue
+    if (!termId) continue
     if (!grouped.has(termId)) grouped.set(termId, [])
     grouped.get(termId).push(grade)
   }

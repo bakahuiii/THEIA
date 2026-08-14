@@ -1,0 +1,95 @@
+# Distribution compatibility and recovery
+
+This note describes the temporary compatibility profile used by THEIA while
+the 0.4.x builds are being tested by a wider group. It is intentionally short
+so an AI maintainer can load it without reading the whole security design.
+
+## What changed
+
+- Official campus source URLs accept both `http:` and `https:` but only for
+  `buct.edu.cn` and its subdomains. Credentials, arbitrary protocols, lookalike
+  hosts, and redirects outside that allowlist remain rejected.
+- The loopback API still binds to `127.0.0.1` and remains read-only. Electron
+  `file:` renderers may send the literal `Origin: null`; that exact origin is
+  accepted for CORS. No public bind or wildcard origin was added.
+- IPC still requires the active main window, the exact main frame process and
+  routing identity, and a local application renderer. During startup only, an
+  empty or `about:blank` frame URL is tolerated. Set `THEIA_STRICT_IPC=1` to
+  disable this compatibility tolerance.
+- Automatic authentication actors share a serialized lifecycle. THEIA never
+  opens the THEOL and JWGLXT CAS pages concurrently because the school session
+  can evict the first login. Background recovery stays single-flight until its
+  actor window closes or its bounded timeout expires.
+- A failed hidden browser navigation destroys the hidden window. The next
+  request creates a clean instance instead of reusing a broken renderer.
+- Idempotent GET/HEAD campus requests retry a small number of transient network
+  failures, including Electron's temporary `Redirect was cancelled` condition.
+  POST requests are never retried automatically.
+- If a configured advisor model repeatedly returns malformed output, THEIA
+  returns a deterministic local answer built only from the frozen,
+  evidence-verified catalog. It never accepts the invalid model text.
+
+## Strict mode and future hardening
+
+The compatibility profile is a distribution aid, not a new trust boundary.
+Before a public release, test the strict profile with:
+
+```powershell
+$env:THEIA_STRICT_IPC = '1'
+$env:THEIA_STRICT_ADVISOR = '1'
+npm test
+```
+
+Strict IPC still accepts the exact packaged document (including harmless
+query/hash changes) and the configured loopback development renderer. It
+rejects a blank startup URL. If a packaged build needs that tolerance, capture
+the actual sender/frame URL in the sanitized diagnostics and fix the startup
+ordering rather than permanently widening it.
+
+`THEIA_STRICT_ADVISOR=1` restores a hard error after a model's one constrained
+repair attempt fails. The default distribution profile instead uses the local
+verified fallback described above; provider output is still never accepted
+unless it passes the normal evidence and format verifier.
+
+Never widen these boundaries:
+
+1. Do not bind the local API to `0.0.0.0`, a LAN address, or an external proxy.
+2. Do not allow arbitrary CORS origins, arbitrary campus-looking domains, URL
+   credentials, `file:` source navigation, or user-controlled redirect hosts.
+3. Do not log passwords, cookies, authorization headers, API keys, mail bodies,
+   or raw authenticated URLs with query parameters.
+4. Do not retry course-selection, assignment submission, test submission, or
+   any other non-idempotent POST.
+
+## Release signing
+
+`signAndEditExecutable` lets electron-builder update executable metadata, but
+it is not an Authenticode certificate. A production installer must be signed
+with the project's trusted publisher certificate, including the installer,
+uninstaller, and the main executable. Verify the final artifacts before
+distribution:
+
+```powershell
+Get-AuthenticodeSignature .\release-bin\THEIA-*-x64-win.exe
+Get-AuthenticodeSignature .\release-bin\win-unpacked\THEIA.exe
+```
+
+Do not substitute a locally self-signed certificate. It does not establish
+publisher trust on other machines and can make Windows reputation warnings
+harder to diagnose. Until a trusted certificate is configured, label a build
+as unsigned and expect SmartScreen to require an explicit user decision.
+
+## Recovery diagnostics
+
+The sanitized file `%APPDATA%\\THEIA\\auth-diagnostics.ndjson` records the
+following useful events:
+
+- `auth.open_requested`, `auth.target_loading`, `auth.source_authenticated`;
+- `auth.frame_poll_skipped`, `auth.background_timeout`;
+- `auth.recovery_failed`, `sync.auth_required`;
+- `source.request_retry`, `source.background_window_reset`;
+- `ipc.denied`, `advisor.local_fallback`, and `network.proxy_ready`.
+
+When reporting a distribution failure, include the event names, timestamps,
+source labels, and error codes, but remove account identifiers, URLs with query
+parameters, and all secret values.

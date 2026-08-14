@@ -28,16 +28,17 @@ core/source-client.mjs        session-aware school HTTP client
 core/sync-service.mjs         synchronized collection updates
 core/domain-provenance.mjs    per-source outcomes and derived-domain provenance
 core/catalog-provenance.mjs   atomic local-catalog data/provenance updates
-core/advisor/                 deterministic quality, evidence, claims, risks and agenda
+core/advisor/                 deterministic quality, evidence, agenda, academic and course decisions
 core/adapters/                source-specific acquisition
 core/parsers/                 HTML/JSON normalization
 core/local-api.mjs            loopback read-only API
 core/data-catalog.mjs         nonstandard historical data archive
-electron/advisor-overview-service.mjs one-snapshot offline overview assembly
+electron/advisor-overview-service.mjs one-snapshot overview, what-if and course decisions
+electron/advisor-action-service.mjs revision-bound allowlisted local action resolution
 electron/model-service.mjs    existing model transport/workflows; not AdvisorRuntime
 ```
 
-`core/advisor/` is deliberately Electron-free and network-free. Its main-process service consumes `CampusStore.snapshotWithRevision()` directly; `core/local-api.mjs`, `theia-feed.json`, and `core/ai-export.mjs` are external-consumer paths, not internal Advisor dependencies. See `16-advisor-p0-foundation.md` before extending either path.
+`core/advisor/` is deliberately Electron-free and network-free. Its main-process services consume `CampusStore.snapshotWithRevision()` directly; `core/local-api.mjs`, `theia-feed.json`, and `core/ai-export.mjs` are external-consumer paths, not internal Advisor dependencies. Read [16-advisor-p0-foundation.md](16-advisor-p0-foundation.md) for the P0 contract and [17-advisor-p1-p3-local-workbench.md](17-advisor-p1-p3-local-workbench.md) for the current local workbench before extending either path.
 
 ## Assets and references
 

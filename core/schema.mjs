@@ -63,8 +63,15 @@ export function emptyState() {
         pollIntervalMinutes: 5,
       },
       modelBaseUrl: '',
+      modelProvider: 'openai-compatible',
       modelName: '',
       modelModels: [],
+      modelRouting: {
+        advisorFastModel: null,
+        advisorDeepModel: null,
+        courseworkModel: null,
+        fallbackModel: null,
+      },
     },
   }
 }
@@ -192,12 +199,21 @@ export function normalizeState(input) {
         pollIntervalMinutes: boundedInteger(rawSettings.mail?.pollIntervalMinutes, base.settings.mail.pollIntervalMinutes, 1, 60),
       },
       modelBaseUrl: storedModelBaseUrl(rawSettings.modelBaseUrl),
+      modelProvider: ['openai-compatible', 'anthropic-messages', 'gemini-generate-content', 'ollama-chat'].includes(rawSettings.modelProvider)
+        ? rawSettings.modelProvider
+        : 'openai-compatible',
       modelName: boundedString(rawSettings.modelName, base.settings.modelName, 300),
       modelModels: arrayOrEmpty(rawSettings.modelModels)
         .filter((item) => typeof item === 'string')
         .map((item) => item.trim())
         .filter((item) => item && item.length <= 300)
         .slice(0, 300),
+      modelRouting: {
+        advisorFastModel: boundedString(rawSettings.modelRouting?.advisorFastModel, '', 300) || null,
+        advisorDeepModel: boundedString(rawSettings.modelRouting?.advisorDeepModel, '', 300) || null,
+        courseworkModel: boundedString(rawSettings.modelRouting?.courseworkModel, '', 300) || null,
+        fallbackModel: boundedString(rawSettings.modelRouting?.fallbackModel, '', 300) || null,
+      },
     },
   }
 }

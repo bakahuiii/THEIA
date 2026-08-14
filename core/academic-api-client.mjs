@@ -3,6 +3,7 @@ import iconv from 'iconv-lite'
 import { parseJwAcademicProgress } from './parsers/jwglxt.mjs'
 import { mergeAcademicProgressDetails } from './academic-progress.mjs'
 import { permittedAcademicApiUrl } from './source-url-policy.mjs'
+import { htmlLooksLikeLogin } from './util.mjs'
 
 const BASE = 'https://jwglxt.buct.edu.cn/jwglxt/'
 const LOGIN = new URL('xtgl/login_slogin.html', BASE).toString()
@@ -252,7 +253,7 @@ export class AcademicApiClient {
 
   async page(url, { source = '教务 API' } = {}) {
     const result = await this.request(url)
-    if (/用户登录|统一身份认证|id=["']yhm["']/i.test(result.text)) throw new AcademicApiError(1006, `${source} 会话已失效`)
+    if (htmlLooksLikeLogin(result.text, result.url)) throw new AcademicApiError(1006, `${source} 会话已失效`)
     return result
   }
 
@@ -262,7 +263,7 @@ export class AcademicApiClient {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', Referer: referer, 'X-Requested-With': 'XMLHttpRequest' },
       body: new URLSearchParams(values || {}).toString(),
     })
-    if (/用户登录|统一身份认证|id=["']yhm["']/i.test(result.text)) throw new AcademicApiError(1006, `${source} 会话已失效`)
+    if (htmlLooksLikeLogin(result.text, result.url)) throw new AcademicApiError(1006, `${source} 会话已失效`)
     return result.text
   }
 

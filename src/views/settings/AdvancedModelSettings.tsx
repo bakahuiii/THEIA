@@ -29,8 +29,10 @@ export function AdvancedModelSettings({
   onMessage: (message: string) => void;
 }) {
   const [baseUrl, setBaseUrl] = useState(state.settings.modelBaseUrl || "");
+  const [provider, setProvider] = useState(state.settings.modelProvider || "openai-compatible");
   const [model, setModel] = useState(state.settings.modelName || "");
   const [apiKey, setApiKey] = useState("");
+  const [modelRouting, setModelRouting] = useState(state.settings.modelRouting);
   const [models, setModels] = useState<string[]>(
     status.models || state.settings.modelModels || [],
   );
@@ -51,8 +53,16 @@ export function AdvancedModelSettings({
     [state.settings.modelBaseUrl],
   );
   useEffect(
+    () => setProvider(state.settings.modelProvider || "openai-compatible"),
+    [state.settings.modelProvider],
+  );
+  useEffect(
     () => setModel(state.settings.modelName || ""),
     [state.settings.modelName],
+  );
+  useEffect(
+    () => setModelRouting(state.settings.modelRouting),
+    [state.settings.modelRouting],
   );
   useEffect(() => {
     const next = status.models || state.settings.modelModels || [];
@@ -67,10 +77,10 @@ export function AdvancedModelSettings({
   const detect = useCallback(
     async () => {
       const revision = ++probeRevision.current;
-      if (!baseUrl.trim() || (!apiKey.trim() && !status.apiKeySaved)) return;
+      if (!baseUrl.trim() || (!apiKey.trim() && !status.apiKeySaved && provider !== "ollama-chat")) return;
       setDetecting(true);
       try {
-        const result = await bridge.discoverModels({ baseUrl, apiKey });
+        const result = await bridge.discoverModels({ baseUrl, apiKey, provider });
         if (revision !== probeRevision.current) return;
         setModels(result.models);
         setProbeId(result.probeId);
@@ -99,7 +109,7 @@ export function AdvancedModelSettings({
         if (revision === probeRevision.current) setDetecting(false);
       }
     },
-    [apiKey, baseUrl, onMessage, status.apiKeySaved],
+    [apiKey, baseUrl, onMessage, provider, status.apiKeySaved],
   );
 
   const invalidateProbe = () => {
@@ -114,10 +124,12 @@ export function AdvancedModelSettings({
     try {
       const next = await bridge.saveModelConfig({
         baseUrl,
+        provider,
         model,
         apiKey,
         probeId,
         allowManualModel: manualModel,
+        modelRouting,
       });
       onStatus(next);
       setModels(next.models || []);
@@ -143,6 +155,12 @@ export function AdvancedModelSettings({
   };
   const knownSelection =
     !manualModel && models.includes(model) ? model : "__manual__";
+  const routeOptions = [...new Set([model, ...models].filter(Boolean))];
+  const routeFields = [
+    ["advisorFastModel", "快速顾问", "今日行动、通知与短解释"],
+    ["advisorDeepModel", "深度顾问", "学业风险、邮件与复杂问答"],
+    ["courseworkModel", "课程任务", "作业工作区现有模型流程"],
+  ] as const;
 
   return (
     <section className="settings-section model-service-section">
@@ -152,13 +170,31 @@ export function AdvancedModelSettings({
         </div>
         <div>
           <h2>模型服务</h2>
-          <p>OpenAI 兼容服务。连接只会在你明确点击检测时发起。</p>
+          <p>支持 OpenAI 兼容、Anthropic、Gemini 与 Ollama。连接只会在你明确点击检测或发送时发起。</p>
         </div>
       </div>
       <form
         className="credential-form model-service-form"
         onSubmit={(event) => void save(event)}
       >
+        <label className="model-service-wide">
+          <span>服务协议</span>
+          <select
+            value={provider}
+            onChange={(event) => {
+              invalidateProbe();
+              setProvider(event.target.value as CampusState["settings"]["modelProvider"]);
+              setModels([]);
+              setManualModel(true);
+            }}
+            disabled={saving || detecting}
+          >
+            <option value="openai-compatible">OpenAI-compatible Chat Completions</option>
+            <option value="anthropic-messages">Anthropic Messages</option>
+            <option value="gemini-generate-content">Gemini GenerateContent</option>
+            <option value="ollama-chat">Ollama Chat</option>
+          </select>
+        </label>
         <label className="model-service-wide">
           <span>服务地址</span>
           <input
@@ -233,6 +269,39 @@ export function AdvancedModelSettings({
             />
           )}
         </label>
+        <div className="model-service-wide grid gap-3 rounded-md border border-[var(--line)] bg-[var(--paper)] p-3">
+          <span>
+            <strong className="block text-xs text-[var(--ink)]">模型角色</strong>
+            <span className="mt-1 block text-[11px] text-[var(--muted-foreground)]">
+              留空时使用上方模型 ID；角色切换不会改变服务地址或密钥边界。
+            </span>
+          </span>
+          <div className="grid gap-3 md:grid-cols-3">
+            {routeFields.map(([field, label, description]) => (
+              <label key={field} className="grid min-w-0 gap-1.5">
+                <span className="text-xs font-semibold text-[var(--ink)]">{label}</span>
+                <Select
+                  value={modelRouting[field] || "__fallback__"}
+                  onValueChange={(value) => setModelRouting((current) => ({
+                    ...current,
+                    [field]: value === "__fallback__" ? null : value,
+                  }))}
+                >
+                  <SelectTrigger className="model-service-select" disabled={saving || detecting}>
+                    <SelectValue placeholder="使用默认模型" />
+                  </SelectTrigger>
+                  <SelectContent position="popper">
+                    <SelectItem value="__fallback__">使用默认模型</SelectItem>
+                    {routeOptions.map((item) => (
+                      <SelectItem value={item} key={`${field}-${item}`}>{item}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <span className="text-[10px] leading-4 text-[var(--muted-foreground)]">{description}</span>
+              </label>
+            ))}
+          </div>
+        </div>
         <p
           className={`model-discovery-status ${discoveryError ? "error" : ""}`}
         >
@@ -259,7 +328,7 @@ export function AdvancedModelSettings({
               saving ||
               detecting ||
               !baseUrl.trim() ||
-              (!apiKey.trim() && !status.apiKeySaved)
+              (!apiKey.trim() && !status.apiKeySaved && provider !== "ollama-chat")
             }
           >
             <RefreshCw size={16} /> 检测连接

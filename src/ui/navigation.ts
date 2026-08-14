@@ -7,6 +7,7 @@ import {
   Crosshair,
   GraduationCap,
   LayoutDashboard,
+  Sparkles,
   Map as MapIcon,
   Settings,
   Wrench,
@@ -18,6 +19,7 @@ import type { ViewId } from "./app-shared";
 export const navItems: Array<{ id: ViewId; label: string; icon: LucideIcon }> =
   [
     { id: "dashboard", label: "概览", icon: LayoutDashboard },
+    { id: "advisor", label: "学业顾问", icon: Sparkles },
     { id: "schedule", label: "课表", icon: CalendarDays },
     { id: "exams", label: "考试", icon: ClipboardCheck },
     { id: "grades", label: "成绩", icon: BarChart3 },
@@ -32,7 +34,7 @@ export const navItems: Array<{ id: ViewId; label: string; icon: LucideIcon }> =
   ];
 
 export const navGroups: Array<{ label: string; items: ViewId[] }> = [
-  { label: "WORKSPACE", items: ["dashboard", "schedule", "assignments"] },
+  { label: "WORKSPACE", items: ["dashboard", "advisor", "schedule", "assignments"] },
   { label: "ACADEMIC", items: ["exams", "grades", "progress", "courses"] },
   {
     label: "TOOLS",
@@ -44,6 +46,10 @@ export const viewTitles: Record<ViewId, { title: string; subtitle: string }> = {
   dashboard: {
     title: "校园概览",
     subtitle: "课表、考试和待办集中在一个本地视图",
+  },
+  advisor: {
+    title: "学业顾问",
+    subtitle: "基于本地快照、固定规则与可追溯证据的决策工作台",
   },
   schedule: { title: "本周课表", subtitle: "按照星期和节次查看当前学期课程" },
   map: { title: "校园地图", subtitle: "昌平校区 · 教学地点定位" },

@@ -15,6 +15,8 @@ const SETTINGS_KEYS = [
   'modelBaseUrl',
   'modelModels',
   'modelName',
+  'modelProvider',
+  'modelRouting',
   'openOriginalInApp',
   'syncIntervalMinutes',
 ]
@@ -58,8 +60,16 @@ test('normalizeState retains only explicitly allowed settings', () => {
         authorization: `Bearer ${secret}`,
       },
       modelBaseUrl: 'https://model.example/v1/',
+      modelProvider: 'gemini-generate-content',
       modelName: 'advisor-model',
       modelModels: [' advisor-model ', '', 'fast-model'],
+      modelRouting: {
+        advisorFastModel: ' fast-model ',
+        advisorDeepModel: 'advisor-model',
+        courseworkModel: null,
+        fallbackModel: 'advisor-model',
+        apiKey: secret,
+      },
       modelApiKey: secret,
       mailPassword: secret,
       authorization: `Bearer ${secret}`,
@@ -80,8 +90,15 @@ test('normalizeState retains only explicitly allowed settings', () => {
       pollIntervalMinutes: 17,
     },
     modelBaseUrl: 'https://model.example/v1',
+    modelProvider: 'gemini-generate-content',
     modelName: 'advisor-model',
     modelModels: ['advisor-model', 'fast-model'],
+    modelRouting: {
+      advisorFastModel: 'fast-model',
+      advisorDeepModel: 'advisor-model',
+      courseworkModel: null,
+      fallbackModel: 'advisor-model',
+    },
   })
   assert.equal(JSON.stringify(state).includes(secret), false)
 })

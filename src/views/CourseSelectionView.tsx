@@ -8,6 +8,8 @@ import {
   ChevronRight,
   ChevronUp,
   Crosshair,
+  GitCompareArrows,
+  ListOrdered,
   Play,
   RefreshCw,
   Search,
@@ -15,8 +17,12 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { bridge } from "../bridge";
+import { EvidenceDrawer } from "../components/advisor/EvidenceDrawer";
 import { EmptyState, formatDate, localDateTimeValue, type Term } from "../ui/app-shared";
 import type {
+  AdvisorCourseDecision,
+  AdvisorEvidence,
   CourseSelectionCandidate,
   CourseSelectionCatalogPage,
   CourseSelectionPortal,
@@ -110,10 +116,137 @@ function paginationPages(current: number, total: number) {
     .sort((left, right) => left - right);
 }
 
+const matchBasisLabels: Record<string, string> = {
+  "official-link": "培养方案直接关联",
+  "course-code": "课程号匹配",
+  category: "课程类别匹配",
+  "name-match": "课程名称匹配",
+  unknown: "培养方案匹配未知",
+};
+
+const confidenceLabels = {
+  high: "高置信",
+  medium: "中置信",
+  low: "低置信",
+} as const;
+
+const scheduleStatusLabels = {
+  clear: "未发现冲突",
+  conflict: "存在冲突",
+  unknown: "冲突未知",
+} as const;
+
+const duplicateStatusLabels: Record<string, string> = {
+  "already-completed": "已修或已通过",
+  "currently-selected": "已在当前课表",
+  "previous-attempt": "存在历史修读",
+  none: "未发现重复",
+  unknown: "重复检查未知",
+};
+
+function advisorCandidateRecord(candidate: CourseSelectionCandidate) {
+  return {
+    id: candidate.id,
+    courseId: candidate.courseId,
+    courseCode: candidate.courseCode ?? null,
+    title: candidate.title,
+    credits: candidate.credits ?? null,
+    categoryCode: candidate.categoryCode,
+    blockTitle: candidate.blockTitle ?? null,
+    termId: candidate.termId ?? null,
+    time: candidate.time ?? null,
+  };
+}
+
+function DecisionSummary({
+  decision,
+  onShowEvidence,
+}: {
+  decision: AdvisorCourseDecision;
+  onShowEvidence: (decision: AdvisorCourseDecision) => void;
+}) {
+  const match = decision.requirementMatches[0];
+  const excluded = decision.score === null;
+  const completeness = decision.completeness;
+  return (
+    <div className="min-w-64 max-w-80 whitespace-normal py-1">
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        <span className="inline-flex min-h-5 items-center rounded-sm bg-[var(--teal-soft)] px-1.5 text-[10px] font-bold text-[var(--teal)]">
+          {excluded ? "不参与排名" : `#${decision.rank} · ${decision.score} 分`}
+        </span>
+        <span className="inline-flex min-h-5 items-center rounded-sm border border-[var(--line)] px-1.5 text-[10px] font-semibold text-[var(--muted-foreground)]">
+          {match ? confidenceLabels[match.confidence] : "置信度未知"}
+        </span>
+        <span
+          className={`inline-flex min-h-5 items-center rounded-sm border px-1.5 text-[10px] font-semibold ${
+            decision.scheduleStatus === "conflict"
+              ? "border-red-300 bg-red-50 text-red-800"
+              : decision.scheduleStatus === "clear"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                : "border-zinc-300 bg-zinc-100 text-zinc-700"
+          }`}
+        >
+          {scheduleStatusLabels[decision.scheduleStatus]}
+        </span>
+        <span className="inline-flex min-h-5 items-center rounded-sm border border-[var(--line)] px-1.5 text-[10px] font-semibold text-[var(--muted-foreground)]">
+          {duplicateStatusLabels[decision.duplicateStatus] || "重复状态未知"}
+        </span>
+        {completeness !== "complete" && (
+          <span className="inline-flex min-h-5 items-center rounded-sm border border-fuchsia-200 bg-fuchsia-50 px-1.5 text-[10px] font-semibold text-fuchsia-900">
+            {completeness === "partial" ? "数据部分完整" : "完整性未知"}
+          </span>
+        )}
+      </div>
+      <p className="mt-1.5 break-words text-[10px] leading-4 text-[var(--muted-foreground)] [overflow-wrap:anywhere]">
+        {match
+          ? `${matchBasisLabels[match.basis] || match.basis}：${match.label}`
+          : "培养方案匹配未知"}
+      </p>
+      {decision.scheduleConflicts.length > 0 && (
+        <p className="mt-1 break-words text-[10px] leading-4 text-red-700 [overflow-wrap:anywhere]">
+          {decision.scheduleConflicts.map((conflict) => conflict.reason).join("；")}
+        </p>
+      )}
+      <details
+        className="mt-1 text-[10px] text-[var(--muted-foreground)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <summary className="cursor-pointer select-none font-semibold text-[var(--teal)]">
+          查看排名理由
+        </summary>
+        <ul className="mt-1.5 grid min-w-0 gap-1 border-l border-[var(--line)] pl-2.5">
+          {decision.reasons.map((reason, index) => (
+            <li
+              key={`${decision.id}:reason:${index}`}
+              className="break-words leading-4 [overflow-wrap:anywhere]"
+            >
+              {reason}
+            </li>
+          ))}
+        </ul>
+      </details>
+      {decision.evidenceRefs.length > 0 && (
+        <button
+          type="button"
+          className="mt-2 inline-flex min-h-7 items-center gap-1.5 rounded-md border border-[var(--line-strong)] px-2 text-[10px] font-semibold text-[var(--ink)] hover:bg-[var(--canvas)]"
+          onClick={(event) => {
+            event.stopPropagation();
+            onShowEvidence(decision);
+          }}
+        >
+          <ShieldCheck size={12} aria-hidden="true" />
+          查看证据
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function CourseSelectionView({
   portal,
   candidates,
   candidateCatalogPage,
+  advisorSnapshotRevision,
   snapshot,
   loading,
   schoolSchedule,
@@ -135,6 +268,7 @@ export function CourseSelectionView({
   portal: CourseSelectionPortal | null;
   candidates: CourseSelectionCandidate[];
   candidateCatalogPage: CourseSelectionCatalogPage;
+  advisorSnapshotRevision: string | null;
   snapshot: CourseSelectionSnapshot;
   loading: boolean;
   schoolSchedule: SchoolScheduleResult | null;
@@ -165,6 +299,18 @@ export function CourseSelectionView({
   const [maxAttempts, setMaxAttempts] = useState(120);
   const [concurrency, setConcurrency] = useState(2);
   const [candidateKeyword, setCandidateKeyword] = useState("");
+  const [advisorDecisions, setAdvisorDecisions] = useState<AdvisorCourseDecision[]>([]);
+  const [advisorEvidence, setAdvisorEvidence] = useState<AdvisorEvidence[]>([]);
+  const [advisorEvidenceSelection, setAdvisorEvidenceSelection] = useState<{
+    title: string;
+    entries: AdvisorEvidence[];
+  } | null>(null);
+  const [advisorDecisionInputKey, setAdvisorDecisionInputKey] = useState("");
+  const [advisorDecisionRevision, setAdvisorDecisionRevision] = useState("");
+  const [advisorDecisionLoading, setAdvisorDecisionLoading] = useState(false);
+  const [advisorDecisionError, setAdvisorDecisionError] = useState(false);
+  const [advisorDecisionRetry, setAdvisorDecisionRetry] = useState(0);
+  const advisorDecisionRequest = useRef(0);
   const [schoolYear, setSchoolYear] = useState("");
   const [schoolTerm, setSchoolTerm] = useState("");
   const [schoolKeyword, setSchoolKeyword] = useState("");
@@ -261,7 +407,46 @@ export function CourseSelectionView({
     setEndAt(automaticSelectionWindow.endAt);
     persistSelectionWindow(automaticSelectionWindow.startAt, automaticSelectionWindow.endAt);
   };
-  const visibleCandidates = candidates.filter((candidate) => {
+  const advisorCandidateInput = useMemo(
+    () => candidates.map(advisorCandidateRecord),
+    [candidates],
+  );
+  const advisorCandidateInputKey = useMemo(
+    () => JSON.stringify(advisorCandidateInput),
+    [advisorCandidateInput],
+  );
+  const advisorDecisionsCurrent =
+    Boolean(advisorSnapshotRevision && advisorDecisionInputKey) &&
+    advisorDecisionInputKey === advisorCandidateInputKey &&
+    advisorDecisionRevision === advisorSnapshotRevision;
+  const advisorDecisionByCandidate = useMemo(
+    () =>
+      new Map(
+        (advisorDecisionsCurrent ? advisorDecisions : []).map((decision) => [
+          decision.candidateId,
+          decision,
+        ]),
+      ),
+    [advisorDecisions, advisorDecisionsCurrent],
+  );
+  const rankedCandidates = useMemo(
+    () =>
+      candidates
+        .map((candidate, index) => ({
+          candidate,
+          index,
+          rank: advisorDecisionByCandidate.get(candidate.id)?.rank,
+        }))
+        .sort(
+          (left, right) =>
+            (left.rank ?? Number.POSITIVE_INFINITY) -
+              (right.rank ?? Number.POSITIVE_INFINITY) ||
+            left.index - right.index,
+        )
+        .map(({ candidate }) => candidate),
+    [advisorDecisionByCandidate, candidates],
+  );
+  const visibleCandidates = rankedCandidates.filter((candidate) => {
     const keyword = candidateKeyword.trim().toLocaleLowerCase();
     if (!keyword) return true;
     return [candidate.title, candidate.courseCode, candidate.teacher]
@@ -309,6 +494,50 @@ export function CourseSelectionView({
   }, [portal]);
   useEffect(() => setCandidateId(""), [blockId, candidates]);
   useEffect(() => setCandidateKeyword(""), [blockId]);
+  useEffect(() => {
+    const requestId = ++advisorDecisionRequest.current;
+    setAdvisorDecisions([]);
+    setAdvisorEvidence([]);
+    setAdvisorEvidenceSelection(null);
+    setAdvisorDecisionInputKey("");
+    setAdvisorDecisionRevision("");
+    if (!candidates.length || !advisorSnapshotRevision) {
+      setAdvisorDecisionLoading(false);
+      setAdvisorDecisionError(false);
+      return;
+    }
+
+    setAdvisorDecisionLoading(true);
+    setAdvisorDecisionError(false);
+    void (async () => {
+      try {
+        const result = await bridge.getAdvisorCourseDecisions({
+          snapshotRevision: advisorSnapshotRevision,
+          candidates: advisorCandidateInput,
+        });
+        if (advisorDecisionRequest.current !== requestId) return;
+        if (result.snapshotRevision !== advisorSnapshotRevision) {
+          setAdvisorDecisionError(true);
+          return;
+        }
+        setAdvisorDecisions(result.decisions);
+        setAdvisorEvidence(result.evidence);
+        setAdvisorDecisionInputKey(advisorCandidateInputKey);
+        setAdvisorDecisionRevision(advisorSnapshotRevision);
+      } catch {
+        if (advisorDecisionRequest.current !== requestId) return;
+        setAdvisorDecisions([]);
+        setAdvisorEvidence([]);
+        setAdvisorDecisionInputKey("");
+        setAdvisorDecisionRevision("");
+        setAdvisorDecisionError(true);
+      } finally {
+        if (advisorDecisionRequest.current === requestId) {
+          setAdvisorDecisionLoading(false);
+        }
+      }
+    })();
+  }, [advisorCandidateInput, advisorCandidateInputKey, advisorDecisionRetry, advisorSnapshotRevision, candidates.length]);
   useEffect(() => {
     const preferred = schoolTermParts(portal?.term.id || terms[0]?.id || "");
     setSchoolYear((current) => schoolYears.includes(current) ? current : preferred.year);
@@ -554,7 +783,26 @@ export function CourseSelectionView({
               {candidates.length ? (
                 <div className="selection-catalog-results">
                   <div className="selection-catalog-toolbar">
-                    <span>{candidateTotal} 门课程 · 第 {candidateCatalogPage.page} / {candidatePages} 页</span>
+                    <span className="flex min-w-0 flex-wrap items-center gap-2">
+                      <span>{candidateTotal} 门课程 · 第 {candidateCatalogPage.page} / {candidatePages} 页</span>
+                      {advisorDecisionLoading ? (
+                        <span className="inline-flex items-center gap-1 text-[var(--teal)]" role="status">
+                          <RefreshCw size={12} className="spinning" /> 正在计算本页排名
+                        </span>
+                      ) : advisorDecisionError ? (
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 text-[var(--red)]"
+                          onClick={() => setAdvisorDecisionRetry((value) => value + 1)}
+                        >
+                          <RefreshCw size={12} /> 排名不可用，重试
+                        </button>
+                      ) : advisorDecisionsCurrent ? (
+                        <span className="inline-flex items-center gap-1 text-[var(--teal)]">
+                          <ShieldCheck size={12} /> 本页只读排名
+                        </span>
+                      ) : null}
+                    </span>
                     <label className="selection-catalog-filter">
                       <Search size={14} />
                       <input
@@ -574,6 +822,7 @@ export function CourseSelectionView({
                           <th>时间地点</th>
                           <th>余量</th>
                           <th>学分</th>
+                          <th>本地顾问排名</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -606,10 +855,32 @@ export function CourseSelectionView({
                                 : <span className={candidate.remainingSeats > 0 ? "seat-open" : "seat-full"}>{candidate.remainingSeats} / {candidate.capacity ?? "--"}</span>}
                             </td>
                             <td>{candidate.credits ?? "--"}</td>
+                            <td>
+                              {advisorDecisionByCandidate.has(candidate.id) ? (
+                                <DecisionSummary
+                                  decision={advisorDecisionByCandidate.get(candidate.id)!}
+                                  onShowEvidence={(decision) => {
+                                    const references = new Set(decision.evidenceRefs);
+                                    setAdvisorEvidenceSelection({
+                                      title: `${candidate.title} · 排名证据`,
+                                      entries: advisorEvidence.filter((entry) => references.has(entry.id)),
+                                    });
+                                  }}
+                                />
+                              ) : advisorDecisionLoading ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]">
+                                  <ListOrdered size={13} /> 计算中
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]">
+                                  <GitCompareArrows size={13} /> 按原顺序显示
+                                </span>
+                              )}
+                            </td>
                           </tr>
                         ))}
                         {!visibleCandidates.length && (
-                          <tr className="selection-filter-empty"><td colSpan={6}>本页没有符合筛选条件的教学班</td></tr>
+                          <tr className="selection-filter-empty"><td colSpan={7}>本页没有符合筛选条件的教学班</td></tr>
                         )}
                       </tbody>
                     </table>
@@ -892,6 +1163,12 @@ export function CourseSelectionView({
           </DialogFooter>
         </DialogContent>}
       </Dialog>
+      <EvidenceDrawer
+        open={Boolean(advisorEvidenceSelection)}
+        onOpenChange={(open) => { if (!open) setAdvisorEvidenceSelection(null); }}
+        evidence={advisorEvidenceSelection?.entries || []}
+        title={advisorEvidenceSelection?.title || "选课排名证据"}
+      />
     </div>
   );
 }

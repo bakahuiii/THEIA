@@ -48,7 +48,7 @@ export function AboutSettings({
           <HeartHandshake size={17} />
           <span>
             <strong>版本</strong>
-            <small>THEIA {state.appVersion || "0.4.1"}</small>
+            <small>THEIA {state.appVersion || "0.4.2"}</small>
           </span>
         </div>
       </div>

@@ -97,6 +97,7 @@ export function buildAgenda(risks, options) {
     const item = Object.freeze({
       id,
       kind: risk.kind,
+      domain: risk.domain || null,
       entityId: risk.entityId,
       title: risk.title,
       dueAt: risk.dueAt || null,

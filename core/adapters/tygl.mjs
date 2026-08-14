@@ -4,6 +4,19 @@ import { AuthRequiredError } from '../source-client.mjs'
 const BASE = 'https://tygl.buct.edu.cn/'
 const FITNESS_KEYWORDS = /体质测试|体测成绩|体质健康|国家学生体质/i
 
+export function upgradeTyglRedirectUrl(value) {
+  try {
+    const url = new URL(String(value || ''))
+    if (url.protocol !== 'http:' || url.hostname !== 'tygl.buct.edu.cn') return null
+    if (url.username || url.password || (url.port && url.port !== '80')) return null
+    url.protocol = 'https:'
+    url.port = ''
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
 function plainText(value) {
   return String(value || '')
     .replace(/<[^>]+>/g, ' ')

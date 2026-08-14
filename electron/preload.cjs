@@ -3,6 +3,20 @@ const { contextBridge, ipcRenderer } = require('electron')
 const api = {
   getSnapshot: () => ipcRenderer.invoke('theia:get-snapshot'),
   getAdvisorOverview: () => ipcRenderer.invoke('theia:advisor:get-overview'),
+  getAdvisorAcademicWhatIf: (scenario) => ipcRenderer.invoke('theia:advisor:academic-what-if', scenario),
+  getAdvisorCourseDecisions: (request) => ipcRenderer.invoke('theia:advisor:course-decisions', request),
+  executeAdvisorAction: (request) => ipcRenderer.invoke('theia:advisor:execute-action', request),
+  listAdvisorThreads: () => ipcRenderer.invoke('theia:advisor:list-threads'),
+  createAdvisorThread: () => ipcRenderer.invoke('theia:advisor:create-thread'),
+  prepareAdvisorRequest: (request) => ipcRenderer.invoke('theia:advisor:prepare', request),
+  sendAdvisorRequest: (request) => ipcRenderer.invoke('theia:advisor:send', request),
+  cancelAdvisorRequest: (request) => ipcRenderer.invoke('theia:advisor:cancel', request),
+  deleteAdvisorThread: (threadId) => ipcRenderer.invoke('theia:advisor:delete-thread', threadId),
+  onAdvisorStream: (callback) => {
+    const listener = (_event, payload) => callback(payload)
+    ipcRenderer.on('theia:advisor:stream', listener)
+    return () => ipcRenderer.removeListener('theia:advisor:stream', listener)
+  },
   getActivityLog: () => ipcRenderer.invoke('theia:get-activity-log'),
   getAuthStatus: () => ipcRenderer.invoke('theia:get-auth-status'),
   getCredentialStatus: () => ipcRenderer.invoke('theia:get-credential-status'),

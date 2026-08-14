@@ -590,6 +590,19 @@ test('loopback API exposes read-only collections and THEIA feed', async () => {
     const api = await startLocalApi({ store, root, preferredPort: 19675 })
     try {
       const health = await fetch(`${api.baseUrl}/v1/health`).then((response) => response.json())
+      const packagedOrigin = await rawHttpRequest({
+        port: api.port,
+        path: '/v1/health',
+        headers: { Host: `127.0.0.1:${api.port}`, Origin: 'null' },
+      })
+      assert.equal(packagedOrigin.status, 200)
+      const packagedPreflight = await rawHttpRequest({
+        port: api.port,
+        path: '/v1/health',
+        method: 'OPTIONS',
+        headers: { Host: `127.0.0.1:${api.port}`, Origin: 'null' },
+      })
+      assert.equal(packagedPreflight.status, 204)
       const rebound = await rawHttpRequest({
         port: api.port,
         path: '/v1/snapshot',
@@ -686,5 +699,5 @@ test('loopback API streams locally cached academic-calendar assets', async () =>
   }
 })
 test('normalizing an older snapshot reports the current application version', () => {
-  assert.equal(normalizeState({ appVersion: '0.1.0' }).appVersion, '0.4.1')
+  assert.equal(normalizeState({ appVersion: '0.1.0' }).appVersion, '0.4.2')
 })

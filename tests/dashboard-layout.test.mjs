@@ -31,19 +31,19 @@ test('overview stacks schedule and assignments beside the unchanged right rail',
   )
   assert.match(
     styles,
-    /\.view-dashboard \.dashboard-schedule-panel\s*\{[^}]*grid-column:\s*1 \/ 3;[^}]*grid-row:\s*3;/s,
+    /\.view-dashboard \.dashboard-schedule-panel\s*\{[^}]*grid-column:\s*1 \/ 3;[^}]*grid-row:\s*4;/s,
   )
   assert.match(
     styles,
-    /\.view-dashboard \.dashboard-assignments-panel\s*\{[^}]*grid-column:\s*1 \/ 3;[^}]*grid-row:\s*4;/s,
+    /\.view-dashboard \.dashboard-assignments-panel\s*\{[^}]*grid-column:\s*1 \/ 3;[^}]*grid-row:\s*5;/s,
   )
   assert.match(
     styles,
-    /\.view-dashboard \.dashboard-exam-panel\s*\{[^}]*grid-column:\s*3;[^}]*grid-row:\s*3;/s,
+    /\.view-dashboard \.dashboard-exam-panel\s*\{[^}]*grid-column:\s*3;[^}]*grid-row:\s*4;/s,
   )
   assert.match(
     styles,
-    /\.view-dashboard \.dashboard-notices-panel\s*\{[^}]*grid-column:\s*3;[^}]*grid-row:\s*4;/s,
+    /\.view-dashboard \.dashboard-notices-panel\s*\{[^}]*grid-column:\s*3;[^}]*grid-row:\s*5;/s,
   )
   assert.match(
     styles,

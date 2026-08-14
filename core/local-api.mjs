@@ -9,6 +9,9 @@ const COLLECTION_ALIASES = new Map([['selected-courses', 'selectedCourses']])
 
 function allowedOrigin(origin) {
   if (!origin) return null
+  // Packaged file:// renderers send the literal null origin. Echo only that
+  // exact value; this server remains loopback-only and read-only.
+  if (String(origin).toLowerCase() === 'null') return 'null'
   try {
     const url = new URL(origin)
     if (url.protocol === 'theia:' || url.protocol === 'theia:') return origin

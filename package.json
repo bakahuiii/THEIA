@@ -1,9 +1,10 @@
 {
   "name": "theia-campus-client",
   "private": true,
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "THEIA, a local-first desktop workspace for Beijing University of Chemical Technology campus services.",
   "author": "bakahuiii",
+  "license": "MIT",
   "type": "module",
   "main": "electron/main.mjs",
   "engines": {
@@ -24,7 +25,8 @@
     "dist:unpacked": "npm run build && electron-builder --win dir --x64",
     "dist:source": "node scripts/package-source.mjs",
     "dist:installer": "npm run build && electron-builder --win nsis --x64 && npm run dist:source",
-    "smoke:packaged": "node scripts/smoke-packaged.mjs"
+    "smoke:packaged": "node scripts/smoke-packaged.mjs",
+    "visual:advisor": "node scripts/visual-advisor.mjs"
   },
   "dependencies": {
     "@tesseract.js-data/chi_sim": "^1.0.0",

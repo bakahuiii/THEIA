@@ -1,7 +1,8 @@
 import { readFile } from 'node:fs/promises'
 import { fetch as undiciFetch } from 'undici'
 import { normalizeAnswerKey } from '../core/parsers/theol-work.mjs'
-import { modelServiceIdentity, normalizeModelServiceBaseUrl } from '../core/model-url-policy.mjs'
+import { isLiteralLoopbackModelService, modelServiceIdentity, normalizeModelServiceBaseUrl } from '../core/model-url-policy.mjs'
+import { normalizeModelProvider } from '../core/model-provider-policy.mjs'
 import { prepareModelEndpoint } from './model-network-policy.mjs'
 
 const MAX_CONTEXT_CHARS = 48_000
@@ -9,6 +10,12 @@ const MODEL_DISCOVERY_TIMEOUT_MS = 15_000
 export const MAX_MODEL_REQUEST_BYTES = 2 * 1024 * 1024
 export const MAX_MODEL_LIST_RESPONSE_BYTES = 2 * 1024 * 1024
 export const MAX_MODEL_COMPLETION_RESPONSE_BYTES = 8 * 1024 * 1024
+
+function completionResponseByteLimit(value) {
+  if (value === undefined) return MAX_MODEL_COMPLETION_RESPONSE_BYTES
+  if (!Number.isSafeInteger(value) || value < 1) throw new TypeError('Model completion response byte limit is invalid')
+  return Math.min(value, MAX_MODEL_COMPLETION_RESPONSE_BYTES)
+}
 
 function contentLength(response) {
   const raw = response?.headers?.get?.('content-length')
@@ -57,6 +64,114 @@ export async function readBoundedResponseText(response, maximumBytes, label = 'M
   return new TextDecoder().decode(combined)
 }
 
+function streamEvents(chunk, pending) {
+  const lines = `${pending}${chunk}`.split(/\r?\n/)
+  const remainder = lines.pop() || ''
+  const events = []
+  for (const line of lines) {
+    if (!line.startsWith('data:')) continue
+    const data = line.slice(5).trim()
+    if (data) events.push(data)
+  }
+  return { events, remainder }
+}
+
+export async function readBoundedEventStream(response, maximumBytes, { extractDelta, onDelta = () => {} } = {}) {
+  if (typeof extractDelta !== 'function') throw new TypeError('Model event-stream parser is required')
+  const declared = contentLength(response)
+  if (declared !== null && declared > maximumBytes) {
+    response?.body?.cancel?.().catch?.(() => {})
+    throw new Error(`Model stream exceeds the ${maximumBytes}-byte limit`)
+  }
+  const reader = response?.body?.getReader?.()
+  if (!reader) throw new Error('Model stream did not return a readable byte stream')
+  const decoder = new TextDecoder()
+  let bytes = 0
+  let pending = ''
+  let text = ''
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (!(value instanceof Uint8Array)) throw new Error('Model stream returned an invalid byte stream')
+      bytes += value.byteLength
+      if (bytes > maximumBytes) {
+        await reader.cancel().catch(() => {})
+        throw new Error(`Model stream exceeds the ${maximumBytes}-byte limit`)
+      }
+      const parsed = streamEvents(decoder.decode(value, { stream: true }), pending)
+      pending = parsed.remainder
+      for (const event of parsed.events) {
+        if (event === '[DONE]') continue
+        let payload
+        try { payload = JSON.parse(event) } catch { throw new Error('Model stream returned invalid JSON') }
+        const delta = streamDeltaContent(extractDelta(payload))
+        if (!delta) continue
+        text += delta
+        onDelta(delta)
+      }
+    }
+    const tail = streamEvents(`${decoder.decode()}\n`, pending)
+    for (const event of tail.events) {
+      if (event === '[DONE]') continue
+      let payload
+      try { payload = JSON.parse(event) } catch { throw new Error('Model stream returned invalid JSON') }
+      const delta = streamDeltaContent(extractDelta(payload))
+      if (delta) { text += delta; onDelta(delta) }
+    }
+  } finally {
+    reader.releaseLock?.()
+  }
+  if (!text) throw new Error('Model stream returned no answer content')
+  return text
+}
+
+export async function readBoundedSse(response, maximumBytes, { onDelta = () => {} } = {}) {
+  return readBoundedEventStream(response, maximumBytes, {
+    onDelta,
+    extractDelta: (payload) => payload?.choices?.[0]?.delta?.content,
+  })
+}
+
+export async function readBoundedNdjson(response, maximumBytes, { extractDelta, onDelta = () => {} } = {}) {
+  if (typeof extractDelta !== 'function') throw new TypeError('Model NDJSON parser is required')
+  const declared = contentLength(response)
+  if (declared !== null && declared > maximumBytes) {
+    response?.body?.cancel?.().catch?.(() => {})
+    throw new Error(`Model stream exceeds the ${maximumBytes}-byte limit`)
+  }
+  const reader = response?.body?.getReader?.()
+  if (!reader) throw new Error('Model stream did not return a readable byte stream')
+  const decoder = new TextDecoder()
+  let bytes = 0
+  let pending = ''
+  let text = ''
+  const consume = (line) => {
+    if (!line.trim()) return
+    let payload
+    try { payload = JSON.parse(line) } catch { throw new Error('Model stream returned invalid JSON') }
+    const delta = streamDeltaContent(extractDelta(payload))
+    if (delta) { text += delta; onDelta(delta) }
+  }
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (!(value instanceof Uint8Array)) throw new Error('Model stream returned an invalid byte stream')
+      bytes += value.byteLength
+      if (bytes > maximumBytes) { await reader.cancel().catch(() => {}); throw new Error(`Model stream exceeds the ${maximumBytes}-byte limit`) }
+      const lines = `${pending}${decoder.decode(value, { stream: true })}`.split(/\r?\n/)
+      pending = lines.pop() || ''
+      for (const line of lines) consume(line)
+    }
+    consume(`${pending}${decoder.decode()}`)
+  } finally {
+    reader.releaseLock?.()
+  }
+  if (!text) throw new Error('Model stream returned no answer content')
+  return text
+}
+
 function listedModels(value) {
   return [...new Set((Array.isArray(value) ? value : []).map((item) => String(item || '').trim()).filter((item) => item && item.length <= 300))]
     .sort((left, right) => left.localeCompare(right))
@@ -76,6 +191,12 @@ export function preferredModel(models, requested = '') {
 function textContent(content) {
   if (typeof content === 'string') return content.trim()
   if (Array.isArray(content)) return content.map((part) => typeof part?.text === 'string' ? part.text : '').join('').trim()
+  return ''
+}
+
+function streamDeltaContent(content) {
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) return content.map((part) => typeof part?.text === 'string' ? part.text : '').join('')
   return ''
 }
 
@@ -99,6 +220,94 @@ function modelsUrl(baseUrl) {
   url.search = ''
   url.hash = ''
   return url.toString()
+}
+
+function protocolPath(pathname, suffix, { aliases = [] } = {}) {
+  const base = pathname.replace(/\/+$/, '') || ''
+  if (aliases.some((alias) => base.endsWith(alias))) return base
+  return `${base}/${suffix}`.replace(/^\/\/+/, '/')
+}
+
+export function protocolUrl(protocol, baseUrl, model, streaming = false) {
+  const url = new URL(normalizeModelServiceBaseUrl(baseUrl))
+  const pathname = url.pathname.replace(/\/+$/, '')
+  if (protocol === 'anthropic-messages') {
+    url.pathname = pathname.endsWith('/v1/messages')
+      ? pathname
+      : pathname.endsWith('/v1')
+        ? `${pathname}/messages`
+        : protocolPath(pathname, 'v1/messages')
+  } else if (protocol === 'gemini-generate-content') {
+    const prefix = protocolPath(pathname, 'v1beta', { aliases: ['/v1beta'] })
+    url.pathname = `${prefix}/models/${encodeURIComponent(model)}:${streaming ? 'streamGenerateContent' : 'generateContent'}`
+    if (streaming) url.search = 'alt=sse'
+  } else if (protocol === 'ollama-chat') {
+    url.pathname = pathname.endsWith('/api/chat')
+      ? pathname
+      : pathname.endsWith('/api')
+        ? `${pathname}/chat`
+        : protocolPath(pathname, 'api/chat')
+  } else {
+    throw new Error('Unsupported model provider protocol')
+  }
+  url.hash = ''
+  return url.toString()
+}
+
+function providerMessages(messages, protocol) {
+  const normalized = Array.isArray(messages) ? messages : []
+  const system = normalized.filter((message) => message?.role === 'system').map((message) => String(message.content || '')).filter(Boolean)
+  const turnMessages = normalized.filter((message) => message?.role !== 'system')
+  if (protocol === 'anthropic-messages') {
+    return {
+      system: system.join('\n\n') || undefined,
+      messages: turnMessages.map((message) => ({ role: message.role === 'assistant' ? 'assistant' : 'user', content: String(message.content || '') })),
+    }
+  }
+  if (protocol === 'gemini-generate-content') {
+    return {
+      ...(system.length ? { systemInstruction: { parts: [{ text: system.join('\n\n') }] } } : {}),
+      contents: turnMessages.map((message) => ({ role: message.role === 'assistant' ? 'model' : 'user', parts: [{ text: String(message.content || '') }] })),
+    }
+  }
+  return { messages: normalized.map((message) => ({ role: message.role, content: String(message.content || '') })) }
+}
+
+export function protocolRequest(protocol, apiKey, model, messages, temperature, maxTokens, streaming) {
+  const projected = providerMessages(messages, protocol)
+  if (protocol === 'anthropic-messages') {
+    return {
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: { model, max_tokens: maxTokens, temperature, stream: streaming, ...projected },
+    }
+  }
+  if (protocol === 'gemini-generate-content') {
+    return {
+      headers: { 'x-goog-api-key': apiKey },
+      body: { ...projected, generationConfig: { temperature, maxOutputTokens: maxTokens } },
+    }
+  }
+  if (protocol === 'ollama-chat') {
+    return {
+      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+      body: { model, stream: streaming, options: { temperature, num_predict: maxTokens }, ...projected },
+    }
+  }
+  throw new Error('Unsupported model provider protocol')
+}
+
+export function protocolText(protocol, payload) {
+  if (protocol === 'anthropic-messages') return textContent(payload?.content)
+  if (protocol === 'gemini-generate-content') return textContent(payload?.candidates?.[0]?.content?.parts)
+  if (protocol === 'ollama-chat') return textContent(payload?.message?.content)
+  return ''
+}
+
+export function protocolDelta(protocol, payload) {
+  if (protocol === 'anthropic-messages') return payload?.delta?.text || payload?.content_block?.text || ''
+  if (protocol === 'gemini-generate-content') return payload?.candidates?.[0]?.content?.parts?.map((part) => part?.text || '').join('') || ''
+  if (protocol === 'ollama-chat') return payload?.message?.content || ''
+  return ''
 }
 
 function extractJson(text) {
@@ -199,21 +408,42 @@ export class ModelService {
       serviceIdentity = modelServiceIdentity(baseUrl)
     } catch { /* An invalid legacy URL is treated as unconfigured. */ }
     const model = String(settings?.modelName || '').trim()
-    const apiKeySaved = Boolean(vault.saved && vault.bound && vault.serviceIdentity === serviceIdentity)
+    const provider = normalizeModelProvider(settings?.modelProvider)
+    const keylessOllama = normalizeModelProvider(settings?.modelProvider) === 'ollama-chat'
+      && isLiteralLoopbackModelService(baseUrl)
+    const apiKeySaved = keylessOllama || Boolean(vault.saved && vault.bound && vault.serviceIdentity === serviceIdentity)
     return {
       configured: Boolean(baseUrl && model && apiKeySaved),
       baseUrl,
+      provider,
       model,
       apiKeySaved,
+      keylessOllama,
       encryptionAvailable: vault.encryptionAvailable,
       updatedAt: vault.updatedAt,
       error: vault.error,
       requiresApiKeyReentry: Boolean(vault.saved && !apiKeySaved),
       models: listedModels(settings?.modelModels),
+      modelRouting: {
+        advisorFastModel: String(settings?.modelRouting?.advisorFastModel || '').trim() || null,
+        advisorDeepModel: String(settings?.modelRouting?.advisorDeepModel || '').trim() || null,
+        courseworkModel: String(settings?.modelRouting?.courseworkModel || '').trim() || null,
+        fallbackModel: String(settings?.modelRouting?.fallbackModel || '').trim() || null,
+      },
     }
   }
 
-  async request(settings, messages, { temperature = 0.2, maxTokens = 3_500, signal } = {}) {
+  async request(settings, messages, {
+    temperature = 0.2,
+    maxTokens = 3_500,
+    maxResponseBytes,
+    signal,
+  } = {}) {
+    if (normalizeModelProvider(settings?.modelProvider) !== 'openai-compatible') {
+      return this.requestProtocol(settings, normalizeModelProvider(settings?.modelProvider), messages, {
+        temperature, maxTokens, maxResponseBytes, signal,
+      })
+    }
     const baseUrl = normalizeModelServiceBaseUrl(settings?.modelBaseUrl)
     const model = String(settings?.modelName || '').trim()
     if (!baseUrl || !model) throw new Error('Configure the model service URL and model name first')
@@ -240,7 +470,11 @@ export class ModelService {
           signal: controller.signal,
           dispatcher: endpoint.dispatcher,
         })
-        const body = await readBoundedResponseText(response, MAX_MODEL_COMPLETION_RESPONSE_BYTES, 'Model completion response')
+        const body = await readBoundedResponseText(
+          response,
+          completionResponseByteLimit(maxResponseBytes),
+          'Model completion response',
+        )
         if (!response.ok) throw new Error(`Model service returned HTTP ${response.status}`)
         let parsed
         try { parsed = JSON.parse(body) } catch { throw new Error('Model service returned invalid JSON') }
@@ -260,6 +494,165 @@ export class ModelService {
       clearTimeout(timer)
       release()
     }
+  }
+
+  async requestStream(settings, messages, {
+    temperature = 0.2,
+    maxTokens = 3_500,
+    maxResponseBytes,
+    signal,
+    onDelta,
+  } = {}) {
+    if (normalizeModelProvider(settings?.modelProvider) !== 'openai-compatible') {
+      return this.requestProtocolStream(settings, normalizeModelProvider(settings?.modelProvider), messages, {
+        temperature, maxTokens, maxResponseBytes, signal, onDelta,
+      })
+    }
+    const baseUrl = normalizeModelServiceBaseUrl(settings?.modelBaseUrl)
+    const model = String(settings?.modelName || '').trim()
+    if (!baseUrl || !model) throw new Error('Configure the model service URL and model name first')
+    const apiKey = await this.vault.readApiKey(baseUrl)
+    if (!apiKey) throw new Error('Save a model API key before processing a task')
+    const { controller, release } = this.requestController(signal)
+    let timedOut = false
+    const timer = setTimeout(() => { timedOut = true; controller.abort() }, 90_000)
+    try {
+      const requestBody = JSON.stringify({ model, messages, temperature, max_tokens: maxTokens, stream: true })
+      if (Buffer.byteLength(requestBody, 'utf8') > MAX_MODEL_REQUEST_BYTES) throw new Error(`Model request exceeds the ${MAX_MODEL_REQUEST_BYTES}-byte limit`)
+      const targetUrl = completionUrl(baseUrl)
+      const endpoint = await this.prepareEndpoint(targetUrl, controller.signal)
+      try {
+        const response = await this.fetchFn(targetUrl, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+          body: requestBody,
+          redirect: 'error', signal: controller.signal, dispatcher: endpoint.dispatcher,
+        })
+        if (!response.ok) {
+          await readBoundedResponseText(response, completionResponseByteLimit(maxResponseBytes), 'Model stream error response')
+          throw new Error(`Model service returned HTTP ${response.status}`)
+        }
+        return await readBoundedSse(response, completionResponseByteLimit(maxResponseBytes), { onDelta })
+      } finally {
+        await endpoint.close({ force: controller.signal.aborted }).catch(() => {})
+      }
+    } catch (error) {
+      if (controller.signal.aborted || error?.name === 'AbortError') {
+        if (timedOut) throw new Error('Model request timed out after 90 seconds')
+        throw new Error('Model request was cancelled')
+      }
+      throw error
+    } finally {
+      clearTimeout(timer)
+      release()
+    }
+  }
+
+  async requestProtocol(settings, protocol, messages, {
+    temperature = 0.2,
+    maxTokens = 3_500,
+    maxResponseBytes,
+    signal,
+  } = {}) {
+    const provider = normalizeModelProvider(protocol)
+    if (provider === 'openai-compatible') return this.request({ ...settings, modelProvider: provider }, messages, { temperature, maxTokens, maxResponseBytes, signal })
+    const baseUrl = normalizeModelServiceBaseUrl(settings?.modelBaseUrl)
+    const model = String(settings?.modelName || '').trim()
+    if (!baseUrl || !model) throw new Error('Configure the model service URL and model name first')
+    const apiKey = await this.protocolApiKey(provider, baseUrl)
+    const spec = protocolRequest(provider, apiKey, model, messages, temperature, maxTokens, false)
+    const requestBody = JSON.stringify(spec.body)
+    if (Buffer.byteLength(requestBody, 'utf8') > MAX_MODEL_REQUEST_BYTES) throw new Error(`Model request exceeds the ${MAX_MODEL_REQUEST_BYTES}-byte limit`)
+    const { controller, release } = this.requestController(signal)
+    let timedOut = false
+    const timer = setTimeout(() => { timedOut = true; controller.abort() }, 90_000)
+    try {
+      const targetUrl = protocolUrl(provider, baseUrl, model)
+      const endpoint = await this.prepareEndpoint(targetUrl, controller.signal)
+      try {
+        const response = await this.fetchFn(targetUrl, {
+          method: 'POST',
+          headers: { ...spec.headers, 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: requestBody, redirect: 'error', signal: controller.signal, dispatcher: endpoint.dispatcher,
+        })
+        const body = await readBoundedResponseText(response, completionResponseByteLimit(maxResponseBytes), 'Model completion response')
+        if (!response.ok) throw new Error(`Model service returned HTTP ${response.status}`)
+        let payload
+        try { payload = JSON.parse(body) } catch { throw new Error('Model service returned invalid JSON') }
+        const content = protocolText(provider, payload)
+        if (!content) throw new Error('Model service returned no answer content')
+        return content
+      } finally {
+        await endpoint.close({ force: controller.signal.aborted }).catch(() => {})
+      }
+    } catch (error) {
+      if (controller.signal.aborted || error?.name === 'AbortError') {
+        if (timedOut) throw new Error('Model request timed out after 90 seconds')
+        throw new Error('Model request was cancelled')
+      }
+      throw error
+    } finally {
+      clearTimeout(timer)
+      release()
+    }
+  }
+
+  async requestProtocolStream(settings, protocol, messages, {
+    temperature = 0.2,
+    maxTokens = 3_500,
+    maxResponseBytes,
+    signal,
+    onDelta,
+  } = {}) {
+    const provider = normalizeModelProvider(protocol)
+    if (provider === 'openai-compatible') return this.requestStream({ ...settings, modelProvider: provider }, messages, { temperature, maxTokens, maxResponseBytes, signal, onDelta })
+    const baseUrl = normalizeModelServiceBaseUrl(settings?.modelBaseUrl)
+    const model = String(settings?.modelName || '').trim()
+    if (!baseUrl || !model) throw new Error('Configure the model service URL and model name first')
+    const apiKey = await this.protocolApiKey(provider, baseUrl)
+    const spec = protocolRequest(provider, apiKey, model, messages, temperature, maxTokens, true)
+    const requestBody = JSON.stringify(spec.body)
+    if (Buffer.byteLength(requestBody, 'utf8') > MAX_MODEL_REQUEST_BYTES) throw new Error(`Model request exceeds the ${MAX_MODEL_REQUEST_BYTES}-byte limit`)
+    const { controller, release } = this.requestController(signal)
+    let timedOut = false
+    const timer = setTimeout(() => { timedOut = true; controller.abort() }, 90_000)
+    try {
+      const targetUrl = protocolUrl(provider, baseUrl, model, true)
+      const endpoint = await this.prepareEndpoint(targetUrl, controller.signal)
+      try {
+        const response = await this.fetchFn(targetUrl, {
+          method: 'POST',
+          headers: { ...spec.headers, 'Content-Type': 'application/json', Accept: provider === 'ollama-chat' ? 'application/x-ndjson' : 'text/event-stream' },
+          body: requestBody, redirect: 'error', signal: controller.signal, dispatcher: endpoint.dispatcher,
+        })
+        if (!response.ok) {
+          await readBoundedResponseText(response, completionResponseByteLimit(maxResponseBytes), 'Model stream error response')
+          throw new Error(`Model service returned HTTP ${response.status}`)
+        }
+        const options = { extractDelta: (payload) => protocolDelta(provider, payload), onDelta }
+        return provider === 'ollama-chat'
+          ? readBoundedNdjson(response, completionResponseByteLimit(maxResponseBytes), options)
+          : readBoundedEventStream(response, completionResponseByteLimit(maxResponseBytes), options)
+      } finally {
+        await endpoint.close({ force: controller.signal.aborted }).catch(() => {})
+      }
+    } catch (error) {
+      if (controller.signal.aborted || error?.name === 'AbortError') {
+        if (timedOut) throw new Error('Model request timed out after 90 seconds')
+        throw new Error('Model request was cancelled')
+      }
+      throw error
+    } finally {
+      clearTimeout(timer)
+      release()
+    }
+  }
+
+  async protocolApiKey(provider, baseUrl) {
+    const apiKey = await this.vault.readApiKey(baseUrl)
+    if (apiKey) return apiKey
+    if (provider === 'ollama-chat' && isLiteralLoopbackModelService(baseUrl)) return ''
+    throw new Error('Save a model API key before processing a task')
   }
 
   async validate(settings) {

@@ -211,6 +211,92 @@ test('model service discovers OpenAI-compatible models and selects a useful defa
   assert.equal(discovered.selectedModel, 'gpt-4.1-mini')
 })
 
+test('model service maps Anthropic, Gemini, and Ollama requests to their explicit protocols', async (t) => {
+  const cases = [
+    {
+      provider: 'anthropic-messages', baseUrl: 'https://api.example/v1', model: 'claude-test',
+      expectedUrl: 'https://api.example/v1/messages', response: { content: [{ type: 'text', text: 'anthropic answer' }] },
+      verify(request) {
+        assert.equal(request.headers['x-api-key'], 'test-key')
+        assert.equal(request.headers['anthropic-version'], '2023-06-01')
+        const body = JSON.parse(request.body)
+        assert.equal(body.model, 'claude-test')
+        assert.equal(body.system, 'system')
+        assert.deepEqual(body.messages, [{ role: 'user', content: 'question' }])
+      },
+    },
+    {
+      provider: 'gemini-generate-content', baseUrl: 'https://api.example/v1beta', model: 'gemini-test',
+      expectedUrl: 'https://api.example/v1beta/models/gemini-test:generateContent', response: { candidates: [{ content: { parts: [{ text: 'gemini answer' }] } }] },
+      verify(request) {
+        assert.equal(request.headers['x-goog-api-key'], 'test-key')
+        const body = JSON.parse(request.body)
+        assert.deepEqual(body.systemInstruction, { parts: [{ text: 'system' }] })
+        assert.deepEqual(body.contents, [{ role: 'user', parts: [{ text: 'question' }] }])
+      },
+    },
+    {
+      provider: 'ollama-chat', baseUrl: 'http://127.0.0.1:11434/api', model: 'qwen-test',
+      expectedUrl: 'http://127.0.0.1:11434/api/chat', response: { message: { content: 'ollama answer' } },
+      vault: { async status() { return { saved: false, bound: false } }, async readApiKey() { return '' } },
+      verify(request) {
+        assert.equal(request.headers.Authorization, undefined)
+        const body = JSON.parse(request.body)
+        assert.equal(body.model, 'qwen-test')
+        assert.equal(body.stream, false)
+      },
+    },
+  ]
+  for (const item of cases) {
+    await t.test(item.provider, async () => {
+      const service = new ModelService({
+        ...modelNetwork(), vault: item.vault || fakeVault(), courseWork: {},
+        fetchFn: async (url, request) => {
+          assert.equal(url, item.expectedUrl)
+          item.verify(request)
+          return { ok: true, status: 200, text: async () => JSON.stringify(item.response) }
+        },
+      })
+      const content = await service.request({ modelProvider: item.provider, modelBaseUrl: item.baseUrl, modelName: item.model }, [
+        { role: 'system', content: 'system' }, { role: 'user', content: 'question' },
+      ])
+      assert.match(content, /answer/)
+    })
+  }
+})
+
+test('model service decodes Anthropic and Gemini SSE plus Ollama NDJSON streams', async (t) => {
+  const cases = [
+    {
+      provider: 'anthropic-messages', baseUrl: 'https://api.example', model: 'claude-test',
+      chunks: ['data: {"type":"content_block_delta","delta":{"text":"hello "}}\n\n', 'data: {"type":"content_block_delta","delta":{"text":"world"}}\n\n'],
+    },
+    {
+      provider: 'gemini-generate-content', baseUrl: 'https://api.example', model: 'gemini-test',
+      chunks: ['data: {"candidates":[{"content":{"parts":[{"text":"hello "}]}}]}\n\n', 'data: {"candidates":[{"content":{"parts":[{"text":"world"}]}}]}\n\n'],
+    },
+    {
+      provider: 'ollama-chat', baseUrl: 'http://localhost:11434', model: 'qwen-test',
+      vault: { async status() { return { saved: false, bound: false } }, async readApiKey() { return '' } },
+      network: { resolver: async () => [{ address: '127.0.0.1', family: 4 }], dispatcherFactory: fakeDispatcherFactory },
+      chunks: ['{"message":{"content":"hello "}}\n', '{"message":{"content":"world"},"done":true}\n'],
+    },
+  ]
+  for (const item of cases) {
+    await t.test(item.provider, async () => {
+      const deltas = []
+      const service = new ModelService({
+        ...(item.network || modelNetwork()), vault: item.vault || fakeVault(), courseWork: {},
+        fetchFn: async () => byteResponse(item.chunks),
+      })
+      assert.equal(await service.requestStream({ modelProvider: item.provider, modelBaseUrl: item.baseUrl, modelName: item.model }, [
+        { role: 'user', content: 'question' },
+      ], { onDelta: (delta) => deltas.push(delta) }), 'hello world')
+      assert.deepEqual(deltas, ['hello ', 'world'])
+    })
+  }
+})
+
 test('model service URL policy rejects embedded credentials and secret-bearing URLs', () => {
   assert.equal(normalizeModelServiceBaseUrl('https://model.example/v1/'), 'https://model.example/v1')
   assert.equal(normalizeModelServiceBaseUrl('http://127.0.0.1:11434/v1'), 'http://127.0.0.1:11434/v1')
@@ -236,6 +322,8 @@ test('model service URL policy rejects embedded credentials and secret-bearing U
 
   assert.equal(normalizeState({ settings: { modelBaseUrl: 'https://model.example/v1?token=secret' } }).settings.modelBaseUrl, '')
   assert.equal(normalizeState({ settings: { modelBaseUrl: 'https://model.example/v1/' } }).settings.modelBaseUrl, 'https://model.example/v1')
+  assert.equal(normalizeState({ settings: { modelProvider: 'ollama-chat' } }).settings.modelProvider, 'ollama-chat')
+  assert.equal(normalizeState({ settings: { modelProvider: 'unknown-provider' } }).settings.modelProvider, 'openai-compatible')
 })
 
 test('model endpoint address policy allows only public unicast addresses outside explicit loopback', () => {
@@ -603,7 +691,18 @@ test('model configuration transaction rolls back both settings and vault ciphert
         published.push(snapshot)
       },
     }), /snapshot publish failed/)
-    assert.deepEqual(settings, { modelBaseUrl: 'https://old.example/v1', modelName: 'old-model', modelModels: ['old-model'] })
+    assert.deepEqual(settings, {
+      modelBaseUrl: 'https://old.example/v1',
+      modelProvider: 'openai-compatible',
+      modelName: 'old-model',
+      modelModels: ['old-model'],
+      modelRouting: {
+        advisorFastModel: null,
+        advisorDeepModel: null,
+        courseworkModel: null,
+        fallbackModel: null,
+      },
+    })
     assert.equal(vaultFile, 'OLD-CIPHERTEXT\n')
     assert.equal(published.length, 1)
     assert.deepEqual(published[0].settings, settings)
@@ -835,6 +934,17 @@ test('model service rejects oversized Content-Length before reading the response
   assert.equal(oversized.cancelled, true)
 })
 
+test('model service applies a caller-specific completion response limit while streaming', async () => {
+  const oversized = byteResponse([new Uint8Array(1_025)])
+  const service = new ModelService({ ...modelNetwork(), vault: fakeVault(), courseWork: {}, fetchFn: async () => oversized })
+  await assert.rejects(service.request(
+    { modelBaseUrl: 'https://model.example/v1', modelName: 'test-model' },
+    [{ role: 'user', content: 'hello' }],
+    { maxResponseBytes: 1_024 },
+  ), /exceeds the 1024-byte limit/i)
+  assert.equal(oversized.cancelled, true)
+})
+
 test('model discovery rejects a streamed response that grows beyond its byte limit', async () => {
   const chunk = new Uint8Array(1024 * 1024 + 1)
   const streamed = byteResponse([chunk, chunk])
@@ -861,6 +971,11 @@ test('model probe tickets are successful, one-use, expiring, and bound to URL an
   const expired = issue()
   now += 101
   assert.throws(() => tickets.consume({ probeId: expired, baseUrl: 'https://model.example/v1', apiKey: 'key-one', modelName: 'model-a' }), /detect.*again/i)
+
+  const providerBound = issue({ provider: 'gemini-generate-content' })
+  assert.throws(() => tickets.consume({
+    probeId: providerBound, baseUrl: 'https://model.example/v1', apiKey: 'key-one', modelName: 'model-a', provider: 'anthropic-messages',
+  }), /protocol.*changed/i)
 })
 
 test('failed probe tickets require explicit manual model fallback', () => {

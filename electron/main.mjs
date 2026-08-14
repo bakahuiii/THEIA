@@ -10,7 +10,7 @@ import { JwglxtAdapter, JWGLXT_URLS } from '../core/adapters/jwglxt.mjs'
 import { AcademicApiFirstAdapter } from '../core/academic-api-adapter.mjs'
 import { AcademicApiClient } from '../core/academic-api-client.mjs'
 import { TheolAdapter, THEOL_URLS } from '../core/adapters/theol.mjs'
-import { TyglAdapter } from '../core/adapters/tygl.mjs'
+import { TyglAdapter, upgradeTyglRedirectUrl } from '../core/adapters/tygl.mjs'
 import { SyncService } from '../core/sync-service.mjs'
 import { startLocalApi } from '../core/local-api.mjs'
 import { AcademicCalendarAssetsService } from '../core/academic-calendar-assets.mjs'
@@ -50,11 +50,15 @@ import {
 import { renderMarkdownToPdf } from './pdf-renderer.mjs'
 import { updateSettingsTransaction } from '../core/settings-transaction.mjs'
 import { normalizeModelServiceBaseUrl } from '../core/model-url-policy.mjs'
+import { normalizeModelProvider } from '../core/model-provider-policy.mjs'
 import { compactError, sanitizeDiagnosticValue } from '../core/util.mjs'
 import { createTrustedIpc } from './ipc-security.mjs'
 import { mainRendererCsp } from './renderer-security.mjs'
 import { CALENDAR_ASSET_PROTOCOL, calendarAssetUrl, parseCalendarAssetUrl } from './calendar-asset-protocol.mjs'
-import { advisorOverviewFromStore } from './advisor-overview-service.mjs'
+import { advisorAcademicWhatIfFromStore, advisorCourseDecisionsFromStore, advisorOverviewFromStore } from './advisor-overview-service.mjs'
+import { ADVISOR_ACTION_ERROR, advisorActionFailure, assertAdvisorSnapshotRevision, resolveAdvisorActionFromStore } from './advisor-action-service.mjs'
+import { AdvisorRuntime } from './advisor-runtime.mjs'
+import { AdvisorStore } from './advisor-store.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const PARTITION = 'persist:theia'
@@ -217,6 +221,8 @@ let webmailService
 let courseWorkService
 let modelVault
 let modelService
+let advisorRuntime
+let advisorThreadStore
 let courseSelectionService
 let courseSelectionJournal
 let courseSelectionApiClient
@@ -322,6 +328,11 @@ const authRecovery = Object.fromEntries(AUTH_SOURCES.map((source) => [source, {
 const statusChecks = { jwglxt: null, theol: null }
 const AUTH_RECOVERY_COOLDOWN_MS = 60_000
 const AUTH_RECOVERY_MAX_ATTEMPTS = 3
+const AUTH_BACKGROUND_TIMEOUT_MS = 180_000
+// CAS invalidates or overwrites the shared browser session when two campus
+// entry points authenticate at once. Serialize actor lifecycles globally so
+// a second source never opens until the first source has completed or closed.
+let authActorQueue = Promise.resolve()
 
 function schoolScheduleArchiveTerms() {
   const snapshot = store?.snapshot()
@@ -910,14 +921,18 @@ async function validateTheolNavigationStep(window, check) {
 }
 
 async function runTheolInteractiveActor(actor) {
+  actor.assertCurrentSnapshot?.()
   actor.resumeAssignments = syncService.pauseAssignmentScan()
   await syncService.waitForAssignmentScan()
   if (!isCurrentTheolInteractiveActor(actor)) return
+  actor.assertCurrentSnapshot?.()
 
   await syncService.runTheolExclusive(async () => {
     if (!isCurrentTheolInteractiveActor(actor)) return
+    actor.assertCurrentSnapshot?.()
     let window = null
     try {
+      actor.assertCurrentSnapshot?.()
       window = new BrowserWindow(sourceWindowOptions({ title: actor.title, show: false }))
       actor.root = window
       guardSourceWindow(window, {
@@ -926,13 +941,19 @@ async function runTheolInteractiveActor(actor) {
         theolLease: true,
       })
       for (const [index, url] of actor.navigationUrls.entries()) {
+        actor.assertCurrentSnapshot?.()
         await window.loadURL(url)
+        actor.assertCurrentSnapshot?.()
         if (!isCurrentTheolInteractiveActor(actor) || window.isDestroyed()) {
           throw new Error('北化在线THEOL交互窗口已关闭')
         }
         const check = actor.navigationChecks[index]
-        if (check) await validateTheolNavigationStep(window, check)
+        if (check) {
+          await validateTheolNavigationStep(window, check)
+          actor.assertCurrentSnapshot?.()
+        }
       }
+      actor.assertCurrentSnapshot?.()
       actor.validated = true
       actor.resolveOpened(window)
       await actor.closed
@@ -963,6 +984,7 @@ function createTheolInteractiveActor(url, title, {
   navigationUrls = [url],
   navigationChecks = [],
   interactionKey = url,
+  assertCurrentSnapshot = null,
 } = {}) {
   let resolveOpened
   let rejectOpened
@@ -981,6 +1003,7 @@ function createTheolInteractiveActor(url, title, {
     navigationUrls,
     navigationChecks,
     interactionKey,
+    assertCurrentSnapshot: typeof assertCurrentSnapshot === 'function' ? assertCurrentSnapshot : null,
     title,
     root: null,
     windows: new Set(),
@@ -1009,6 +1032,10 @@ function createTheolInteractiveActor(url, title, {
 async function openTheolInteractiveWindow(rawUrl, title, options = {}) {
   const epoch = authEpoch
   assertAuthEpoch(epoch)
+  const assertCurrentSnapshot = typeof options.assertCurrentSnapshot === 'function'
+    ? options.assertCurrentSnapshot
+    : null
+  assertCurrentSnapshot?.()
   const url = permittedSourceUrl(rawUrl)
   const navigationUrls = (options.navigationUrls?.length ? options.navigationUrls : [url])
     .map((candidate) => permittedSourceUrl(candidate))
@@ -1027,15 +1054,24 @@ async function openTheolInteractiveWindow(rawUrl, title, options = {}) {
     }
     await current.opened
     assertAuthEpoch(epoch)
+    assertCurrentSnapshot?.()
     if (!isCurrentTheolInteractiveActor(current)) throw new Error('北化在线THEOL交互窗口已关闭，请重试')
+    assertCurrentSnapshot?.()
     const reused = focusTheolInteractiveWindow(current)
     if (!reused) throw new Error('北化在线THEOL交互窗口已关闭，请重试')
     return reused
   }
   if (explicitlyLoggedOut) throw new Error('请先登录北化在线THEOL')
-  const actor = createTheolInteractiveActor(url, title, { navigationUrls, navigationChecks, interactionKey })
+  assertCurrentSnapshot?.()
+  const actor = createTheolInteractiveActor(url, title, {
+    navigationUrls,
+    navigationChecks,
+    interactionKey,
+    assertCurrentSnapshot,
+  })
   const window = await actor.opened
   assertAuthEpoch(epoch)
+  assertCurrentSnapshot?.()
   return focusTheolInteractiveWindow(actor) || window
 }
 
@@ -1044,9 +1080,11 @@ function guardSourceWindow(window, {
   pauseAssignments = false,
   theolActor = null,
   theolLease = false,
+  upgradeTyglRedirects = false,
 } = {}) {
   sourceWindows.add(window)
   if (source) window.__theiaSource = source
+  if (upgradeTyglRedirects) window.__theiaUpgradeTyglRedirects = true
   if (theolActor) {
     window.__theiaTheolInteractiveActor = theolActor
     theolActor.windows.add(window)
@@ -1070,6 +1108,15 @@ function guardSourceWindow(window, {
   const preventUnsafeNavigation = (event, legacyUrl) => {
     if (event.isMainFrame === false) return
     const target = event.url || legacyUrl
+    const upgradedTarget = window.__theiaUpgradeTyglRedirects
+      ? upgradeTyglRedirectUrl(target)
+      : null
+    if (upgradedTarget) {
+      event.preventDefault()
+      window.__theiaPendingNavigationUpgrade = upgradedTarget
+      void writeDiagnostic('fitness.navigation_upgraded', { url: diagnosticUrl(upgradedTarget) })
+      return
+    }
     try {
       permittedSourceUrl(target)
     } catch {
@@ -1119,10 +1166,27 @@ function guardSourceWindow(window, {
       pauseAssignments: childSource === 'theol' && !window.__theiaTheolLease,
       theolActor: interactiveActor,
       theolLease: Boolean(window.__theiaTheolLease),
+      upgradeTyglRedirects: Boolean(window.__theiaUpgradeTyglRedirects),
     })
   })
   if (theolActor?.invalidated) void closeWindowAndWait(window)
   return window
+}
+
+async function loadSourceWindowUrl(window, target, { signal = null } = {}) {
+  let navigationTarget = target
+  for (let upgrades = 0; ; upgrades += 1) {
+    window.__theiaPendingNavigationUpgrade = null
+    try {
+      await window.loadURL(navigationTarget)
+      return
+    } catch (error) {
+      const upgradedTarget = window.__theiaPendingNavigationUpgrade
+      window.__theiaPendingNavigationUpgrade = null
+      if (signal?.aborted || !upgradedTarget || upgrades >= 3) throw error
+      navigationTarget = upgradedTarget
+    }
+  }
 }
 
 async function createSourceWindow(rawUrl, title = '学校原站', { pauseAssignments = false } = {}) {
@@ -1130,9 +1194,9 @@ async function createSourceWindow(rawUrl, title = '学校原站', { pauseAssignm
   const source = sourceFromUrl(url)
   if (source === 'theol') return openTheolInteractiveWindow(url, title)
   const window = new BrowserWindow(sourceWindowOptions({ title }))
-  guardSourceWindow(window, { source, pauseAssignments })
+  guardSourceWindow(window, { source, pauseAssignments, upgradeTyglRedirects: source === 'tygl' })
   try {
-    await window.loadURL(url)
+    await loadSourceWindowUrl(window, url)
     return window
   } catch (error) {
     if (!window.isDestroyed()) window.close()
@@ -1282,36 +1346,46 @@ async function openSchedulePdf(expectedEpoch = authEpoch) {
   }
 }
 
-async function openCourseWorkWindow(entry, expectedEpoch = authEpoch) {
+async function openCourseWorkWindow(entry, expectedEpoch = authEpoch, assertCurrentSnapshot = null) {
   const source = 'theol'
   const { assignment } = entry
   const epoch = expectedEpoch
   assertAuthEpoch(epoch)
+  const assertSnapshot = typeof assertCurrentSnapshot === 'function' ? assertCurrentSnapshot : () => {}
+  assertSnapshot()
   const resumeWhileOpening = syncService.pauseAssignmentScan()
   try {
     await syncService.waitForAssignmentScan()
     assertAuthEpoch(epoch)
+    assertSnapshot()
     let status = await verifiedStatus(source)
     assertAuthEpoch(epoch)
+    assertSnapshot()
     if (!status) {
       status = await syncService.runTheolExclusive(() => {
         assertAuthEpoch(epoch)
+        assertSnapshot()
         return syncService.theol.status()
       })
       assertAuthEpoch(epoch)
+      assertSnapshot()
     }
     if (!status.connected) {
       resumeWhileOpening({ schedule: false })
       assertAuthEpoch(epoch)
+      assertSnapshot()
       await openLoginWindow({ sources: [source], expectedEpoch: epoch })
       assertAuthEpoch(epoch)
+      assertSnapshot()
       throw new Error('北化在线THEOL会话已失效，请完成登录后重试')
     }
     if (!verifiedSessions[source]) {
       await rememberVerifiedSession(source, status.url || entry.courseSourceUrl, epoch)
       assertAuthEpoch(epoch)
+      assertSnapshot()
     }
     assertAuthEpoch(epoch)
+    assertSnapshot()
     const window = await openTheolInteractiveWindow(
       entry.assignmentSourceUrl,
       `${assignment.kind === 'online-test' ? '在线测试' : '课程作业'} · ${assignment.title}`,
@@ -1327,9 +1401,11 @@ async function openCourseWorkWindow(entry, expectedEpoch = authEpoch) {
           },
         ],
         interactionKey: `task:${entry.uniqueTaskId}:${entry.courseSourceUrl}`,
+        assertCurrentSnapshot: assertSnapshot,
       },
     )
     assertAuthEpoch(epoch)
+    assertSnapshot()
     resumeWhileOpening({ schedule: false })
     return window
   } catch (error) {
@@ -1440,6 +1516,7 @@ async function loadWithBackgroundBrowser(url, {
   setCurrentWindow,
   title,
   allowTheol = false,
+  upgradeTyglRedirects = false,
 } = {}) {
   const target = permittedSourceUrl(url)
   if (!allowTheol && sourceFromUrl(target) === 'theol') {
@@ -1448,12 +1525,13 @@ async function loadWithBackgroundBrowser(url, {
   let window = currentWindow()
   if (!window || window.isDestroyed()) {
     window = new BrowserWindow(sourceWindowOptions({ title, width: 1, height: 1, show: false }))
-    guardSourceWindow(window)
+    guardSourceWindow(window, { upgradeTyglRedirects })
     setCurrentWindow(window)
     window.on('closed', () => {
       if (currentWindow() === window) setCurrentWindow(null)
     })
   }
+  if (upgradeTyglRedirects) window.__theiaUpgradeTyglRedirects = true
   let timeout
   let rejectAborted
   const cancelNavigation = () => {
@@ -1467,13 +1545,13 @@ async function loadWithBackgroundBrowser(url, {
   try {
     try {
       await Promise.race([
-        window.loadURL(target),
+        loadSourceWindowUrl(window, target, { signal }),
         new Promise((_, reject) => { rejectAborted = reject }),
         new Promise((_, reject) => {
           timeout = setTimeout(() => {
             try { window.webContents.stop() } catch { /* the window may already be closing */ }
             reject(new Error('Background page navigation timed out'))
-          }, 20_000)
+          }, 45_000)
         }),
       ])
     } finally {
@@ -1486,6 +1564,18 @@ async function loadWithBackgroundBrowser(url, {
     const finalUrl = permittedSourceUrl(window.webContents.getURL() || target)
     await captureRenderedPage(finalUrl, text)
     return { url: finalUrl, text }
+  } catch (error) {
+    // A timed-out or failed navigation can leave a hidden BrowserWindow with
+    // a broken renderer. Reusing it causes every later sync to fail in the
+    // same way, so discard it and let the next request create a clean window.
+    if (currentWindow() === window) setCurrentWindow(null)
+    await closeWindowAndWait(window)
+    void writeDiagnostic('source.background_window_reset', {
+      source: sourceFromUrl(target),
+      url: diagnosticUrl(target),
+      error: diagnosticError(error),
+    })
+    throw error
   } finally {
     signal?.removeEventListener?.('abort', cancelNavigation)
     if (theolLease && !window.isDestroyed()) window.__theiaTheolLease = false
@@ -1508,6 +1598,7 @@ function loadWithFitnessBrowser(url, options = {}) {
     currentWindow: () => fitnessPageWindow,
     setCurrentWindow: (window) => { fitnessPageWindow = window },
     title: 'THEIA fitness sync',
+    upgradeTyglRedirects: true,
   })
 }
 
@@ -1901,6 +1992,8 @@ function isCurrentAuthActor(actor, window = actor?.window) {
 function clearAuthActorTimers(actor) {
   if (actor.pollTimer) clearInterval(actor.pollTimer)
   actor.pollTimer = null
+  if (actor.timeoutTimer) clearTimeout(actor.timeoutTimer)
+  actor.timeoutTimer = null
   for (const timer of actor.credentialTimers) clearTimeout(timer)
   actor.credentialTimers.clear()
 }
@@ -2021,13 +2114,25 @@ async function pollAuthStatus(actor) {
       : source === 'tygl'
         ? 'tygl.buct.edu.cn'
         : 'course.buct.edu.cn'
-    const sourceFrames = window.webContents.mainFrame.framesInSubtree.filter((frame) => {
+    const sourceFrames = [...(window.webContents.mainFrame.framesInSubtree || [])].filter((frame) => {
+      if (!frame) return false
       try { return new URL(frame.url).hostname === sourceHost }
       catch { return false }
     })
     let authenticatedUrl = null
     for (const frame of sourceFrames) {
-      const html = await frame.executeJavaScript('document.documentElement ? document.documentElement.outerHTML : ""')
+      let html
+      try {
+        html = await frame.executeJavaScript('document.documentElement ? document.documentElement.outerHTML : ""')
+      } catch (error) {
+        // A frame can disappear between framesInSubtree and evaluation while
+        // CAS is redirecting. Ignore that frame and keep polling the others.
+        if (isCurrentAuthActor(actor, window) && diagnosticError(error) !== actor.lastPollError) {
+          actor.lastPollError = diagnosticError(error)
+          void writeDiagnostic('auth.frame_poll_skipped', { source, error: actor.lastPollError })
+        }
+        continue
+      }
       if (!isCurrentAuthActor(actor, window) || actor.epoch !== epoch) return
       if (!html) continue
       const loggedIn = source === 'jwglxt'
@@ -2069,7 +2174,8 @@ async function sourceAlreadyAuthenticated(actor) {
 }
 
 async function runAuthActor(actor) {
-  if (actor.source === 'theol') {
+  const run = async () => {
+    if (actor.source === 'theol') {
     actor.resumeAssignments = syncService.pauseAssignmentScan()
     await syncService.waitForAssignmentScan()
     if (actor.invalidated || actor.epoch !== authEpoch) return
@@ -2096,6 +2202,7 @@ async function runAuthActor(actor) {
       source: actor.source,
       theolActor: actor.source === 'theol' ? actor : null,
       theolLease: actor.source === 'theol',
+      upgradeTyglRedirects: actor.source === 'tygl',
     })
     const webContentsId = window.webContents.id
     window.on('closed', () => {
@@ -2134,7 +2241,7 @@ async function runAuthActor(actor) {
     window.webContents.on('did-frame-finish-load', () => scheduleCredentialFill(actor))
     actor.pollTimer = setInterval(() => { void pollAuthStatus(actor) }, 800)
     void writeDiagnostic('auth.target_loading', { source: actor.source, url: diagnosticUrl(target.url) })
-    void window.loadURL(target.url).catch((error) => {
+    void loadSourceWindowUrl(window, target.url).catch((error) => {
       if (error?.code === 'ERR_ABORTED' || !isCurrentAuthActor(actor, window)) return
       void writeDiagnostic('auth.target_load_failed', { source: actor.source, error: diagnosticError(error) })
       console.error('[THEIA] authentication page failed to load', error)
@@ -2148,14 +2255,26 @@ async function runAuthActor(actor) {
         if (isCurrentAuthActor(actor, window)) window.show()
       }, 1_500)
       actor.credentialTimers.add(timer)
+      actor.timeoutTimer = setTimeout(() => {
+        if (!isCurrentAuthActor(actor, window)) return
+        void writeDiagnostic('auth.background_timeout', {
+          source: actor.source,
+          timeoutMs: AUTH_BACKGROUND_TIMEOUT_MS,
+        })
+        void closeWindowAndWait(window)
+      }, AUTH_BACKGROUND_TIMEOUT_MS)
     }
     await actor.closed
   }
 
   // Holding this lease for the complete THEOL login window lifetime also
   // serializes requests caused by form submission and redirect navigation.
-  if (actor.source === 'theol') await syncService.runTheolExclusive(runLifecycle)
-  else await runLifecycle()
+    if (actor.source === 'theol') await syncService.runTheolExclusive(runLifecycle)
+    else await runLifecycle()
+  }
+  const queued = authActorQueue.catch(() => {}).then(run)
+  authActorQueue = queued.catch(() => {})
+  return queued
 }
 
 async function finishAuthActor(actor) {
@@ -2200,6 +2319,7 @@ function createAuthActor(source, { background }) {
     windows: new Set(),
     pollTimer: null,
     pollActive: false,
+    timeoutTimer: null,
     credentialTimers: new Set(),
     lastPollError: null,
     resumeAssignments: null,
@@ -2215,6 +2335,10 @@ function createAuthActor(source, { background }) {
   authPendingSources.add(source)
   actor.lifecycle = runAuthActor(actor)
     .catch((error) => {
+      // Never leave callers waiting forever when the initial status check or
+      // queued actor fails before a BrowserWindow exists.
+      actor.resolveOpened()
+      actor.resolveClosed()
       if (!actor.invalidated && actor.epoch === authEpoch) {
         void writeDiagnostic('auth.actor_failed', { source, error: diagnosticError(error) })
       }
@@ -2395,6 +2519,22 @@ async function startServices() {
     void writeDiagnostic('model.configuration_recovery_failed', { error: diagnosticError(error) })
   }
   modelService = new ModelService({ vault: modelVault, courseWork: courseWorkService })
+  advisorThreadStore = new AdvisorStore({
+    root: app.getPath('userData'),
+    storage: safeStorage,
+    onDiagnostic: (event, fields) => writeDiagnostic(event, fields),
+  })
+  const persistedAdvisorThreads = await advisorThreadStore.load()
+  advisorRuntime = new AdvisorRuntime({
+    store,
+    modelService,
+    onDiagnostic: (event, fields) => writeDiagnostic(event, fields),
+    threadStore: advisorThreadStore,
+    initialThreads: persistedAdvisorThreads,
+    onStream: (event) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('theia:advisor:stream', event)
+    },
+  })
   webmailService = new WebmailService({
     store,
     vault: mailVault,
@@ -2499,7 +2639,13 @@ async function startServices() {
       if (!eligibleSources.length) return
       void credentialVault.status().then((status) => {
         if (!status.saved || explicitlyLoggedOut || epoch !== authEpoch) return
-        void openLoginWindow({ background: true, sources: eligibleSources, expectedEpoch: epoch })
+        return openLoginWindow({ background: true, sources: eligibleSources, expectedEpoch: epoch })
+          .then(async () => {
+            // openLoginWindow resolves when the windows are ready. Keep the
+            // recovery single-flight occupied until every actor actually
+            // closes, otherwise each failed sync opens another CAS window.
+            await Promise.all(eligibleSources.map((source) => authActors.get(source)?.lifecycle || Promise.resolve()))
+          })
           .catch((error) => writeDiagnostic('auth.recovery_failed', { sources: eligibleSources, error: diagnosticError(error) }))
       }).finally(() => {
         for (const source of eligibleSources) authRecovery[source].inFlight = false
@@ -2565,6 +2711,42 @@ async function startServices() {
     return snapshot
   })
   ipcMain.handle('theia:advisor:get-overview', () => advisorOverviewFromStore(store))
+  ipcMain.handle('theia:advisor:list-threads', () => advisorRuntime.listThreads())
+  ipcMain.handle('theia:advisor:create-thread', () => advisorRuntime.createThread())
+  ipcMain.handle('theia:advisor:prepare', (_event, request) => advisorRuntime.prepare(request))
+  ipcMain.handle('theia:advisor:send', (_event, request) => advisorRuntime.send(request))
+  ipcMain.handle('theia:advisor:cancel', (_event, request) => advisorRuntime.cancel(request))
+  ipcMain.handle('theia:advisor:delete-thread', (_event, threadId) => advisorRuntime.deleteThread(threadId))
+  ipcMain.handle('theia:advisor:academic-what-if', (_event, scenario) => advisorAcademicWhatIfFromStore(store, scenario))
+  ipcMain.handle('theia:advisor:course-decisions', (_event, request) => advisorCourseDecisionsFromStore(store, request))
+  ipcMain.handle('theia:advisor:execute-action', async (_event, request) => {
+    const resolution = resolveAdvisorActionFromStore(store, request)
+    if (!resolution.ok) return resolution
+    const epoch = authEpoch
+    const assertCurrentSnapshot = () => assertAdvisorSnapshotRevision(store, resolution.snapshotRevision)
+    try {
+      assertAuthEpoch(epoch)
+      assertCurrentSnapshot()
+      const entry = courseWorkService.assignmentEntry(resolution.target.assignmentId, { requireCurrent: false })
+      await schoolProxyReady.catch(() => undefined)
+      assertAuthEpoch(epoch)
+      assertCurrentSnapshot()
+      await openCourseWorkWindow(entry, epoch, assertCurrentSnapshot)
+      assertAuthEpoch(epoch)
+      assertCurrentSnapshot()
+      return { ok: true, snapshotRevision: resolution.snapshotRevision, actionId: resolution.actionId }
+    } catch (error) {
+      const code = error?.code === ADVISOR_ACTION_ERROR.STALE_SNAPSHOT
+        ? ADVISOR_ACTION_ERROR.STALE_SNAPSHOT
+        : ADVISOR_ACTION_ERROR.EXECUTION_FAILED
+      void writeDiagnostic('advisor.action_failed', {
+        actionId: resolution.actionId,
+        code,
+        error: diagnosticError(error),
+      })
+      return advisorActionFailure(code, resolution.actionId)
+    }
+  })
   ipcMain.handle('theia:get-activity-log', () => recentActivityLog())
   ipcMain.handle('theia:get-auth-status', () => getStatus())
   ipcMain.handle('theia:get-credential-status', () => credentialVault.status())
@@ -2935,15 +3117,19 @@ async function startServices() {
     const baseUrl = normalizeModelServiceBaseUrl(next.baseUrl)
     const apiKey = typeof next.apiKey === 'string' ? next.apiKey.trim() : ''
     if (!baseUrl) throw new Error('Enter a model service URL before detecting models')
+    const provider = normalizeModelProvider(next.provider)
     try {
+      if (provider !== 'openai-compatible') {
+        throw new Error('This provider does not expose a portable model-list contract. Enter the exact model ID manually after testing the connection.')
+      }
       const result = await modelService.discover({ baseUrl, apiKey })
-      return { ...result, probeId: modelProbeTickets.issue({ baseUrl, apiKey, models: result.models, succeeded: true }) }
+      return { ...result, probeId: modelProbeTickets.issue({ baseUrl, apiKey, provider, models: result.models, succeeded: true }) }
     } catch (error) {
       const warning = error instanceof Error ? error.message : String(error)
       return {
         models: [],
         selectedModel: null,
-        probeId: modelProbeTickets.issue({ baseUrl, apiKey, models: [], succeeded: false }),
+        probeId: modelProbeTickets.issue({ baseUrl, apiKey, provider, models: [], succeeded: false }),
         warning: warning.slice(0, 1_000),
       }
     }
@@ -2952,6 +3138,7 @@ async function startServices() {
     const next = config && typeof config === 'object' ? config : {}
     const baseUrl = normalizeModelServiceBaseUrl(next.baseUrl)
     const requestedModel = String(next.model || '').trim()
+    const provider = normalizeModelProvider(next.provider)
     if (baseUrl.length > 1_000 || requestedModel.length > 300) throw new Error('Model service configuration is too long')
     const explicitApiKey = typeof next.apiKey === 'string' ? next.apiKey.trim() : ''
     const models = modelProbeTickets.consume({
@@ -2960,6 +3147,7 @@ async function startServices() {
       apiKey: explicitApiKey,
       modelName: requestedModel,
       allowManualModel: next.allowManualModel,
+      provider,
     })
     const modelName = preferredModel(models, requestedModel)
     if (!modelName) throw new Error('No selectable model was detected. Enter a model ID manually.')
@@ -2969,6 +3157,9 @@ async function startServices() {
       baseUrl,
       modelName,
       models,
+      modelRouting: next.modelRouting,
+      modelProvider: provider,
+      allowKeyless: provider === 'ollama-chat' && !explicitApiKey,
       apiKey: explicitApiKey,
       publishSnapshot: sendSnapshot,
     })
@@ -3210,10 +3401,16 @@ async function createMainWindow() {
         const api = window.theia || window.buct
         const requiredMethods = [
           'getSnapshot', 'getAdvisorOverview', 'getAuthStatus', 'login', 'logout', 'syncNow', 'retrySyncDomain',
-          'getCourseSelection', 'discoverCourseSelection', 'getCourseSelectionCandidates', 'startCourseSelection', 'stopCourseSelection',
+          'getAdvisorAcademicWhatIf', 'getAdvisorCourseDecisions', 'executeAdvisorAction',
+          'listAdvisorThreads', 'createAdvisorThread', 'prepareAdvisorRequest', 'sendAdvisorRequest',
+          'cancelAdvisorRequest', 'deleteAdvisorThread', 'onAdvisorStream',
+          'getCourseSelection', 'discoverCourseSelection', 'getCourseSelectionCandidates', 'getCachedSchoolSchedule',
+          'saveCourseSelectionTarget', 'removeCourseSelectionTarget', 'setCourseSelectionSentinel', 'startCourseSelection', 'stopCourseSelection',
           'openSource', 'openSchedulePdf', 'exportData', 'getApiStatus', 'updateSettings',
           'getCredentialStatus', 'saveCredentials', 'clearCredentials',
           'getAcademicApiCredentialStatus', 'saveAcademicApiCredentials', 'clearAcademicApiCredentials',
+          'getMailCredentialStatus', 'saveMailCredentials', 'clearMailCredentials', 'refreshMailbox',
+          'openMailbox', 'readMailboxMessage', 'downloadMailboxAttachment',
           'prepareCourseWork', 'openCourseWork', 'importCourseWorkFile',
           'openSubmission', 'applyTestAnswers', 'getModelStatus', 'saveModelConfig',
           'clearModelApiKey', 'validateModelConnection', 'discoverModels', 'processCourseWorkWithModel',
@@ -3228,19 +3425,26 @@ async function createMainWindow() {
       const calls = await window.webContents.executeJavaScript(`Promise.all([
         (window.theia || window.buct).getSnapshot(),
         (window.theia || window.buct).getAdvisorOverview(),
+        (async () => {
+          const api = window.theia || window.buct
+          const thread = await api.createAdvisorThread()
+          const threads = await api.listAdvisorThreads()
+          return { id: thread.id, listed: threads.some((item) => item.id === thread.id) }
+        })(),
         (window.theia || window.buct).getAuthStatus(),
         (window.theia || window.buct).getApiStatus(),
         (window.theia || window.buct).getCredentialStatus(),
         (window.theia || window.buct).getAcademicApiCredentialStatus(),
         (window.theia || window.buct).getModelStatus(),
         (window.theia || window.buct).getCourseSelection()
-      ]).then(([snapshot, advisorOverview, authStatus, apiStatus, credentialStatus, academicApiCredentialStatus, modelStatus, courseSelection]) => ({
+      ]).then(([snapshot, advisorOverview, advisorThread, authStatus, apiStatus, credentialStatus, academicApiCredentialStatus, modelStatus, courseSelection]) => ({
         snapshotSchema: snapshot.schema,
         advisorOverview: {
           schema: advisorOverview.schema,
           snapshotRevision: advisorOverview.snapshotRevision,
           dataQualityRevision: advisorOverview.dataQuality?.snapshotRevision,
         },
+        advisorThread,
         collections: ['courses', 'schedule', 'exams', 'grades', 'selectedCourses', 'assignments', 'workspaces', 'notices']
           .filter((name) => Array.isArray(snapshot[name])),
         hasAcademicProgress: snapshot.academicProgress === null || typeof snapshot.academicProgress === 'object',
@@ -3264,6 +3468,9 @@ async function createMainWindow() {
         && typeof calls.advisorOverview.snapshotRevision === 'string'
         && calls.advisorOverview.snapshotRevision.length > 0
         && calls.advisorOverview.dataQualityRevision === calls.advisorOverview.snapshotRevision
+        && typeof calls.advisorThread.id === 'string'
+        && calls.advisorThread.id.length > 0
+        && calls.advisorThread.listed === true
         && calls.authSources.includes('jwglxt')
         && calls.authSources.includes('theol')
         && calls.apiStatus.host === '127.0.0.1'
@@ -3304,6 +3511,7 @@ async function shutdownServices() {
   shutdownPromise = (async () => {
     if (academicCalendarProbeTimer) clearInterval(academicCalendarProbeTimer)
     modelService?.cancelAll()
+    advisorRuntime?.cancelAll()
     syncService?.stop()
     mailService?.stop()
     webmailService?.stop()

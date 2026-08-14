@@ -21,11 +21,12 @@ export class ModelProbeTickets {
     while (this.tickets.size >= this.maximum) this.tickets.delete(this.tickets.keys().next().value)
   }
 
-  issue({ baseUrl, apiKey, models, succeeded }) {
+  issue({ baseUrl, apiKey, models, succeeded, provider = 'openai-compatible' }) {
     this.prune()
     const probeId = this.createId()
     this.tickets.set(probeId, {
       baseUrl,
+      provider,
       keyFingerprint: keyFingerprint(apiKey),
       models: [...models],
       succeeded: Boolean(succeeded),
@@ -34,12 +35,12 @@ export class ModelProbeTickets {
     return probeId
   }
 
-  consume({ probeId, baseUrl, apiKey, modelName, allowManualModel }) {
+  consume({ probeId, baseUrl, apiKey, modelName, allowManualModel, provider = 'openai-compatible' }) {
     const ticket = this.tickets.get(probeId)
     this.tickets.delete(probeId)
     if (!ticket || ticket.expiresAt <= this.now()) throw new Error('Detect the model connection again before saving')
-    if (ticket.baseUrl !== baseUrl || ticket.keyFingerprint !== keyFingerprint(apiKey)) {
-      throw new Error('The model address or API key changed after detection; detect again before saving')
+    if (ticket.baseUrl !== baseUrl || ticket.keyFingerprint !== keyFingerprint(apiKey) || ticket.provider !== provider) {
+      throw new Error('The model address or API key changed after detection, or the protocol changed; detect again before saving')
     }
     if ((!ticket.succeeded || !ticket.models.includes(modelName)) && allowManualModel !== true) {
       throw new Error('Select a detected model or explicitly choose a manual model ID')

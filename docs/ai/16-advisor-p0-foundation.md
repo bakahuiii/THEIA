@@ -1,25 +1,25 @@
 # Advisor P0 可信底座
 
-本文是模型接入前 P0 的实现合同和边界清单。它描述当前仓库已经具备的确定性、无模型能力，也明确列出仍未实现的顾问运行时能力。未来改动若改变快照、数据质量、证据、claim 或 overview 语义，必须同时更新本文和对应测试。
+本文是 P0 的实现合同和边界清单。它描述 P1-P3 本地工作台与 P4-P5 模型运行时共同依赖的确定性可信底座。P1-P3 完成范围见 [17-advisor-p1-p3-local-workbench.md](17-advisor-p1-p3-local-workbench.md)，P4-P5 当前实现见 [18-advisor-p4-p5-model-runtime.md](18-advisor-p4-p5-model-runtime.md)。未来改动若改变快照、数据质量、证据、claim 或 overview 语义，必须同时更新本文和对应测试。
 
 ## 1. 当前结论
 
 P0 已提供一条本地、只读、可重复验证的顾问底座：从同一个已提交的 `CampusStore` 版本生成 DataQuality、Evidence、LocalClaim、Risk 和 UrgentItem，再通过受信任的 IPC 返回一个自洽 overview。该路径不访问学校网络、不调用模型、不读取浏览器 session、不写 CampusState。
 
-P0 不是完整 AI 顾问，也不是完整 P1 产品。当前完成与未完成边界如下：
+P0 本身不是完整 AI 顾问；P1-P5 已在本合同之上实现各自阶段能力，不能反过来弱化下列 P0 边界。阶段关系如下：
 
-| 已实现 | 尚未实现 |
+| P0 已实现 | 后续阶段当前状态 |
 | --- | --- |
-| 原子 `snapshotWithRevision()` 和逐域 content digest | 独立 `AdvisorRuntime` |
-| 逐来源/逐领域 provenance 与 DataQuality | 面向模型的 `ContextBuilder`/DisclosurePlan |
-| 证据注册、披露字段和闭合引用 | 严格 `theia-advisor-model-narrative/v1` 解析与校验 |
-| 本地 typed claims、有限风险规则和稳定 agenda | 敏感领域和逐实体 consent |
-| 只读 `advisor:get-overview` 主进程服务 | 模型响应的 CitationVerifier |
-| trusted main-frame IPC、安全窗口边界和离线 packaged smoke | 受预算、取消和权限约束的工具循环 |
+| 原子 `snapshotWithRevision()` 和逐域 content digest | P4 已由独立 `AdvisorRuntime` 冻结请求并复核 revision |
+| 逐来源/逐领域 provenance 与 DataQuality | P4 已由 `ContextBuilder`/DisclosurePlan 选择最小模型上下文 |
+| 证据注册、披露字段和闭合引用 | P4 已实现严格 narrative schema、请求级 catalog 和 `CitationVerifier` |
+| 本地 typed claims、有限风险规则和稳定 agenda | P4-P5 已实现短期逐实体 consent 和敏感 scope 绑定 |
+| 只读 `advisor:get-overview` 主进程服务 | P4 已接入 Provider、内存线程、取消、并发和预算 |
+| trusted main-frame IPC、安全窗口边界和离线 packaged smoke | 持久 `AdvisorStore`、多轮摘要和有界工具循环仍未实现 |
 
-现有 `electron/model-service.mjs` 负责 OpenAI-compatible 模型探测以及作业、笔记、论文等既有工作流。它不负责冻结顾问快照、控制披露、校验 claim 引用或管理顾问请求生命周期，因此 **ModelService 不等于 AdvisorRuntime**。
+现有 `electron/model-service.mjs` 继续负责 OpenAI-compatible 模型探测和传输，以及作业、笔记、论文等既有工作流。P4 新增的 `electron/advisor-runtime.mjs` 在其外层负责冻结顾问快照、控制披露、校验 claim 引用和管理请求生命周期，因此 **ModelService 仍不等于 AdvisorRuntime**。
 
-当前风险引擎覆盖 P0 验证所需的数据质量、作业截止和考试时间等有限规则。它不能证明 P1 Advisor UI、培养方案推理、GPA/学分缺口、选课沙盘或复杂日程决策已经完成。
+当前风险引擎已由 P1-P3 扩展到今日行动、培养方案、GPA/学分缺口和选课沙盘；这些上层能力的状态与验收必须以 `17-advisor-p1-p3-local-workbench.md` 和对应测试为准，不能只凭 P0 测试推断。P0 仍只证明快照、质量、证据、claim、overview 和安全前置合同。
 
 ## 2. 唯一的进程内数据流
 
@@ -191,9 +191,9 @@ evidenceRefs
 
 关键事实、时间、数字、severity 和确定性计算应由本地 claim 承载。未来模型只能引用已披露 claim，不能创建或改写 fact/computed claim，也不能让 UI 从自由文本反向提取关键数字。
 
-## 6. 未来模型请求的冻结规则
+## 6. P4 模型请求的冻结规则
 
-模型接入后，每个请求必须形成自己的不可变请求上下文：
+P4 已按下列规则让每个模型请求形成自己的不可变请求上下文：
 
 1. `AdvisorRuntime` 调用一次 `snapshotWithRevision()`，采样一次 `evaluatedAt`。
 2. 本地引擎从该四元实例生成 DataQuality、Evidence、claim 和 action catalog。
@@ -211,7 +211,7 @@ evidenceRefs
 - IPC 只接受受信任主 frame；renderer 不获得通用 filesystem、session、shell 或任意 URL 能力。
 - 生产窗口使用受限 CSP，并拒绝非许可导航、popup 和新窗口。
 - ModelService 的请求/响应大小、取消、重定向和 service identity/key 边界属于模型 transport 安全前置，但不会自动提供顾问级授权和引用保证。
-- AI export 仍是用户主动创建的静态、隐私敏感数据包；其存在不构成持续 consent，也不能作为未来 AdvisorRuntime 默认上下文。
+- AI export 仍是用户主动创建的静态、隐私敏感数据包；其存在不构成持续 consent，也不能作为当前或未来 AdvisorRuntime 的默认上下文。
 - P0 不暴露写工具，不会登录、同步、抢课、填答、发信或提交。
 
 ## 8. 扩展时的验收清单
@@ -227,7 +227,7 @@ evidenceRefs
 7. overview 四元实例键内外一致，所有 evidence/claim 引用闭合；每条 evidence 的 `domainDigest` 等于对应领域业务 `contentDigest`，独立 `evidenceDigest` 存在且合法。
 8. 同一 claim ID 跨时间的动态值变化有测试，消费端整体替换 overview。
 9. 所有 P0 测试和 packaged smoke 使用 fixture，保持离线，不访问真实学校账户或模型。
-10. 在实现 AdvisorRuntime 前，不把 ModelService、AI export 或 overview IPC 描述为完整模型顾问。
+10. 不把 ModelService、AI export 或 overview IPC 单独描述为完整模型顾问；P4 状态必须以独立 `AdvisorRuntime` 和 [P4-P5 实施说明](18-advisor-p4-p5-model-runtime.md)为准。
 
 相关实现与测试入口：
 

@@ -1,5 +1,14 @@
 const LOOPBACK_HTTP_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1'])
 
+export function isLiteralLoopbackModelService(value) {
+  try {
+    const normalized = new URL(normalizeModelServiceBaseUrl(value))
+    return LOOPBACK_HTTP_HOSTS.has(normalized.hostname.toLowerCase())
+  } catch {
+    return false
+  }
+}
+
 function literalHostname(raw) {
   const match = raw.match(/^[a-z][a-z0-9+.-]*:\/\/([^/?#]*)/i)
   if (!match || match[1].includes('@')) return null

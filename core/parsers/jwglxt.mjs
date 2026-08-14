@@ -1,23 +1,46 @@
 import * as cheerio from 'cheerio'
 import { absoluteUrl, normalizeText, parseAcademicTerm, parseDateLike, parseNumber, parseQueryFromOnclick, stableId } from '../util.mjs'
 
-function payloadItems(payload) {
-  if (Array.isArray(payload)) return payload
-  if (!payload || typeof payload !== 'object') return []
-  for (const key of ['items', 'rows', 'data', 'result', 'list', 'kbList', 'sjkList', 'jxhjkcList']) {
-    if (Array.isArray(payload[key])) return payload[key]
-    if (payload[key] && typeof payload[key] === 'object') {
-      for (const nested of ['items', 'rows', 'list']) if (Array.isArray(payload[key][nested])) return payload[key][nested]
-    }
+const PAYLOAD_ARRAY_KEYS = new Set([
+  'items', 'rows', 'data', 'result', 'list', 'aadata', 'records', 'recordlist',
+  'datalist', 'gradelist', 'courselist', 'courses', 'kblist', 'sjklist', 'jxhjkclist',
+])
+
+function findPayloadArray(payload, depth = 0, seen = new Set()) {
+  if (Array.isArray(payload)) return { found: true, value: payload }
+  if (!payload || typeof payload !== 'object' || depth > 5 || seen.has(payload)) return { found: false, value: [] }
+  seen.add(payload)
+  const entries = Object.entries(payload)
+  for (const [key, value] of entries) {
+    if (!PAYLOAD_ARRAY_KEYS.has(String(key).toLowerCase())) continue
+    if (Array.isArray(value)) return { found: true, value }
+    const nested = findPayloadArray(value, depth + 1, seen)
+    if (nested.found) return nested
   }
-  return []
+  return { found: false, value: [] }
+}
+
+function payloadItems(payload) {
+  const parsed = typeof payload === 'string' ? parseMaybeJson(payload) : payload
+  return findPayloadArray(parsed).value
+}
+
+function recordsFromBody(body) {
+  const json = parseMaybeJson(body)
+  const records = payloadItems(json)
+  return records.length ? records : tableRecords(body)
 }
 
 function parseMaybeJson(body) {
   if (typeof body !== 'string') return body
   const text = body.trim()
   if (!(text.startsWith('{') || text.startsWith('['))) return null
-  try { return JSON.parse(text) } catch { return null }
+  try {
+    const parsed = JSON.parse(text)
+    // A few Zhengfang deployments JSON-encode the response body one extra
+    // time. Decode that harmless wrapper before looking for record arrays.
+    return typeof parsed === 'string' ? parseMaybeJson(parsed) : parsed
+  } catch { return null }
 }
 
 function selectedOption($, selectors) {
@@ -373,8 +396,7 @@ function tableRecords(body) {
 }
 
 export function parseJwSchedule(body, { term, sourceUrl, capturedAt = new Date().toISOString() } = {}) {
-  const json = parseMaybeJson(body)
-  const records = payloadItems(json) || tableRecords(body)
+  const records = recordsFromBody(body)
   const items = []
   for (const record of records) {
     const itemTerm = recordTerm(record, term)
@@ -408,9 +430,25 @@ export function parseJwSchedule(body, { term, sourceUrl, capturedAt = new Date()
 }
 
 export function parseJwGrades(body, { term, sourceUrl, capturedAt = new Date().toISOString() } = {}) {
-  const json = parseMaybeJson(body)
-  const records = payloadItems(json) || tableRecords(body)
+  const records = recordsFromBody(body)
   return records.map((record) => {
+    // The direct zfn_api envelope uses snake_case fields while the rendered
+    // Zhengfang grid uses its original k*/c* names. Project the alternate
+    // shape onto the canonical aliases used below before parsing it.
+    record = {
+      ...record,
+      kch: record.kch ?? record.courseCode ?? record.course_id ?? record.courseId,
+      kcmc: record.kcmc ?? record.courseName ?? record.title,
+      cj: record.cj ?? record.score ?? record.grade,
+      xf: record.xf ?? record.credits ?? record.credit,
+      jd: record.jd ?? record.point ?? record.grade_point,
+      kclbmc: record.kclbmc ?? record.courseCategory ?? record.category,
+      kcxzmc: record.kcxzmc ?? record.nature,
+      jsxm: record.jsxm ?? record.teacher,
+      ksxz: record.ksxz ?? record.assessment ?? record.grade_nature,
+      cjbs: record.cjbs ?? record.status ?? record.mark,
+      bzxx: record.bzxx ?? record.remark ?? record.remarkText,
+    }
     const itemTerm = recordTerm(record, term)
     const remark = normalizeText(value(record, 'bzxx', 'cjbz', 'bz', 'ksbz', 'remark', 'remarkText')) || null
     const courseCode = courseCodeFrom(record, ['kch', 'courseCode', '课程代码', 'kch_id'])
@@ -439,8 +477,7 @@ export function parseJwGrades(body, { term, sourceUrl, capturedAt = new Date().t
 }
 
 export function parseJwExams(body, { term, sourceUrl, capturedAt = new Date().toISOString() } = {}) {
-  const json = parseMaybeJson(body)
-  const records = payloadItems(json) || tableRecords(body)
+  const records = recordsFromBody(body)
   return records.map((record) => {
     const itemTerm = recordTerm(record, term)
     const remark = normalizeText(value(record, 'bzxx', 'bz', 'ksbz', 'remark', 'remarkText')) || null
@@ -470,8 +507,7 @@ export function parseJwExams(body, { term, sourceUrl, capturedAt = new Date().to
 }
 
 export function parseJwSelectedCourses(body, { term, sourceUrl, capturedAt = new Date().toISOString() } = {}) {
-  const json = parseMaybeJson(body)
-  const records = payloadItems(json) || tableRecords(body)
+  const records = recordsFromBody(body)
   return records.map((record) => {
     const itemTerm = recordTerm(record, term)
     const courseCode = courseCodeFrom(record, ['kch', 'courseCode', '课程代码', 'kch_id'])
@@ -501,8 +537,7 @@ export function parseJwSelectedCourses(body, { term, sourceUrl, capturedAt = new
 }
 
 export function parseJwNotices(body, { sourceUrl, capturedAt = new Date().toISOString() } = {}) {
-  const json = parseMaybeJson(body)
-  const records = payloadItems(json) || tableRecords(body)
+  const records = recordsFromBody(body)
   return records.map((record) => {
     const title = normalizeText(value(record, 'bt', 'xxbt', 'title', 'name', '标题'))
     if (!title) return null

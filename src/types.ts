@@ -315,8 +315,15 @@ export interface CampusState {
       pollIntervalMinutes: number;
     };
     modelBaseUrl: string;
+    modelProvider: "openai-compatible" | "anthropic-messages" | "gemini-generate-content" | "ollama-chat";
     modelName: string;
     modelModels: string[];
+    modelRouting: {
+      advisorFastModel: string | null;
+      advisorDeepModel: string | null;
+      courseworkModel: string | null;
+      fallbackModel: string | null;
+    };
   };
 }
 
@@ -369,6 +376,7 @@ export type SyncRetryDomain =
 export interface ModelStatus {
   configured: boolean;
   baseUrl: string;
+  provider?: "openai-compatible" | "anthropic-messages" | "gemini-generate-content" | "ollama-chat";
   model: string;
   apiKeySaved: boolean;
   encryptionAvailable: boolean;
@@ -378,6 +386,7 @@ export interface ModelStatus {
   requiresApiKeyReentry?: boolean;
   models?: string[];
   serviceIdentity?: string;
+  modelRouting?: CampusState["settings"]["modelRouting"];
 }
 
 export interface ActivityLogEntry {
@@ -424,6 +433,7 @@ export interface AdvisorQualitySummary {
 
 export interface AdvisorEvidence {
   id: string;
+  origin?: "request-input";
   dataset: string;
   domain: string;
   entityId: string;
@@ -433,6 +443,7 @@ export interface AdvisorEvidence {
   snapshotRevision: string;
   domainDigest: string;
   evidenceDigest: string;
+  requestDigest?: string;
   availability: AdvisorAvailability;
   freshness: AdvisorFreshness;
   completeness: AdvisorCompleteness;
@@ -477,6 +488,7 @@ export interface AdvisorRisk {
 export interface AdvisorUrgentItem {
   id: string;
   kind: string;
+  domain?: string | null;
   entityId: string;
   title: string;
   dueAt: string | null;
@@ -499,6 +511,200 @@ export interface AdvisorUrgentItem {
   rulesVersion: string;
 }
 
+export interface AdvisorActionRequest {
+  snapshotRevision: string;
+  actionId: string;
+}
+
+export type AdvisorActionResult =
+  | { ok: true; snapshotRevision: string; actionId: string }
+  | {
+      ok: false;
+      actionId?: string;
+      error: { code: string; message: string; retryable: boolean };
+    };
+
+export interface AdvisorAcademicAnalysis {
+  schema: string;
+  snapshotRevision: string;
+  evaluatedAt: string;
+  timeZone: string;
+  rulesVersion: string;
+  analysis: {
+    requirements: {
+      source: "roots" | "categories" | "none" | string;
+      requirementSource?: string | null;
+      completeness: AdvisorCompleteness;
+      program?: string | null;
+      summary: {
+        required: string | null;
+        earned: string | null;
+        remaining: string | null;
+        remainingSource: string;
+        evidenceRefs: string[];
+        claimId: string | null;
+      };
+      roots: AdvisorAcademicRequirementNode[];
+      nodes: AdvisorAcademicRequirementNode[];
+      issues: string[];
+    };
+    gpa: {
+      selectedSource: "academicProgress" | "profile" | "local" | null;
+      selected: AdvisorAcademicGpaSource | null;
+      sources: Partial<Record<"academicProgress" | "profile" | "local", AdvisorAcademicGpaSource>>;
+      discrepancy: {
+        state: "present" | "absent" | "unknown";
+        difference: string | null;
+        evidenceRefs: string[];
+        claimId: string | null;
+      };
+      localBoundary: {
+        value: string | null;
+        includedCredits: string | null;
+        includedCourses: number;
+        completeness: AdvisorCompleteness;
+        exclusions: Record<
+          | "explicitly-excluded"
+          | "policy-excluded"
+          | "non-numeric-mark"
+          | "missing-or-invalid-credits"
+          | "missing-point-or-numeric-score",
+          number
+        >;
+        evidenceRefs: string[];
+        claimId: string | null;
+      };
+      issues: string[];
+    };
+    upgrade: AdvisorAcademicUpgrade;
+    failures: AdvisorAcademicFailure[];
+    scenario: AdvisorAcademicScenario | null;
+  };
+  claims: AdvisorClaim[];
+  risks: AdvisorRisk[];
+  evidence: AdvisorEvidence[];
+}
+
+export interface AdvisorAcademicUpgradeRule {
+  schema: string;
+  id: string;
+  rulesVersion: string;
+  sourceKind: "official" | "configuration";
+  sourceLabel: string;
+  thresholdCredits: string;
+  requirementIds: string[];
+  earnedCredits: string | null;
+}
+
+export interface AdvisorAcademicUpgrade {
+  status: "not-configured" | "unknown" | "known";
+  rule: AdvisorAcademicUpgradeRule | null;
+  threshold: string | null;
+  earned: string | null;
+  distance: string | null;
+  remaining?: string | null;
+  arithmeticAtOrAbove?: boolean;
+  evidenceRefs: string[];
+  claimIds: string[];
+  issues: string[];
+}
+
+export interface AdvisorAcademicGpaSource {
+  value: string;
+  evidenceRefs: string[];
+  claimId: string;
+  confidence: "high" | "medium" | "low" | "unknown";
+}
+
+export interface AdvisorAcademicRequirementNode {
+  id: string;
+  title: string;
+  parentId?: string | null;
+  relation: "and" | "or";
+  completeness: AdvisorCompleteness;
+  credits: {
+    required: string | null;
+    earned: string | null;
+    remaining: string | null;
+    remainingSource: string;
+    evidenceRefs: string[];
+    claimIds: Record<string, string>;
+  };
+  alternatives: Array<{
+    id: string;
+    title: string;
+    remaining: string | null;
+    completeness: AdvisorCompleteness;
+  }>;
+  selectionStatus: string;
+  selectedAlternativeId: string | null;
+  issues: string[];
+  children: AdvisorAcademicRequirementNode[];
+  evidenceRefs: string[];
+}
+
+export interface AdvisorAcademicFailure {
+  id: string;
+  courseCode: string | null;
+  title: string | null;
+  relationStatus: "known" | "unknown";
+  matchBasis: string;
+  requirementIds: string[];
+  candidateRequirementIds: string[];
+  recordedCredits: string | null;
+  evidenceRefs: string[];
+  claimIds: string[];
+  caveats: string[];
+}
+
+export interface AdvisorAcademicScenario {
+  scenario: true;
+  status: "known" | "unknown";
+  additionalRequiredCredits: string | null;
+  alternativeSelections: Record<string, string>;
+  baseRemaining: string | null;
+  remaining: string | null;
+  evidenceRefs: string[];
+  claimId: string | null;
+  issues: string[];
+}
+
+export type AdvisorAcademicScenarioResult = AdvisorAcademicAnalysis;
+
+export interface AdvisorCourseDecision {
+  id: string;
+  candidateId: string;
+  rank: number;
+  requirementMatches: Array<{ nodeId: string | null; label: string; basis: string; confidence: "high" | "medium" | "low" }>;
+  scheduleStatus: "clear" | "conflict" | "unknown";
+  scheduleConflicts: Array<{ existingId: string; reason: string }>;
+  duplicateStatus: string;
+  duplicateMatches: Array<{ kind: string; existingId: string; basis: string; reason: string }>;
+  historicalSummary: { attempts: number; numericCount: number; meanPoint: number | null; note: string };
+  completeness: AdvisorCompleteness;
+  score: number | null;
+  scoreBreakdown: Record<string, number | string | null>;
+  reasons: string[];
+  evidenceRefs: string[];
+  rulesVersion: string;
+}
+
+export interface AdvisorCourseDecisionResult {
+  schema: string;
+  snapshotRevision: string;
+  rulesVersion: string;
+  decisions: AdvisorCourseDecision[];
+  evidence: AdvisorEvidence[];
+  proposals: Array<{
+    id: string;
+    kind: "save-target" | "view-details" | "open-confirmation";
+    candidateId: string;
+    decisionId: string;
+    requiresUserConfirmation: boolean;
+    label: string;
+  }>;
+}
+
 export interface AdvisorOverview {
   schema: "theia-advisor-overview/v1" | string;
   snapshotRevision: string;
@@ -519,6 +725,118 @@ export interface AdvisorOverview {
   urgentItems: AdvisorUrgentItem[];
   evidence: AdvisorEvidence[];
   claims: AdvisorClaim[];
+  academic: AdvisorAcademicAnalysis;
+}
+
+export type AdvisorIntent = "daily" | "risk" | "course" | "notice" | "mail" | "general";
+
+export interface AdvisorDisclosurePlan {
+  schema: "theia-advisor-disclosure/v1";
+  providerProfileId: string;
+  serviceIdentity: string;
+  modelId: string;
+  intent: AdvisorIntent;
+  scopes: string[];
+  recordCounts: Record<string, number>;
+  containsMailBody: boolean;
+  containsProfileIdentity: boolean;
+  containsFitness: boolean;
+  containsAttachmentText: boolean;
+  estimatedInputUnits: number;
+  snapshotRevision: string;
+  contextDigest: string;
+}
+
+export interface AdvisorConsentChallenge {
+  schema: "theia-advisor-consent-challenge/v1";
+  requestId: string;
+  threadId: string;
+  serviceIdentity: string;
+  purpose: string;
+  intent: AdvisorIntent;
+  domains: string[];
+  entityDigests: string[];
+  contextDigest: string;
+  requiredScopes: string[];
+}
+
+export interface AdvisorPreparedRequest {
+  schema: "theia-advisor-prepared-request/v1";
+  requestId: string;
+  threadId: string;
+  expiresAt: string;
+  disclosure: AdvisorDisclosurePlan;
+  consentChallenge: AdvisorConsentChallenge;
+  agent: boolean;
+}
+
+export interface AdvisorStreamEvent {
+  schema: "theia-advisor-stream-event/v1";
+  requestId: string;
+  threadId: string;
+  snapshotRevision: string;
+  delta: string;
+}
+
+export interface AdvisorModelNarrative {
+  schema: "theia-advisor-model-narrative/v1";
+  blocks: Array<{ claimIds: string[]; referenceIds: string[]; explanation: string }>;
+  recommendations: Array<{ text: string; basedOnClaimIds: string[]; basedOnReferenceIds: string[] }>;
+  uncertainties: string[];
+  questionsForUser: string[];
+  suggestedActionIds: string[];
+}
+
+export interface AdvisorUntrustedReference {
+  schema: "theia-advisor-untrusted-reference/v1";
+  id: string;
+  entityDigest: string;
+  contentDigest: string;
+  scope: "notices" | "mailbox" | "mail-body" | "attachment-text";
+  domain: string;
+  trust: "untrusted";
+  snapshotRevision: string;
+}
+
+export interface AdvisorResolvedAction {
+  id: string;
+  kind: "open-view" | "show-evidence" | "propose-sync-source" | "propose-prepare-workspace" | "propose-save-course-target" | "none";
+  label: string;
+  requiresConfirmation: boolean;
+  proposalId?: string | null;
+}
+
+export interface AdvisorAnswer {
+  schema: "theia-advisor-answer/v1";
+  requestId: string;
+  threadId: string;
+  intent: AdvisorIntent;
+  snapshotRevision: string;
+  stale: boolean;
+  narrative: AdvisorModelNarrative;
+  claims: AdvisorClaim[];
+  evidence: AdvisorEvidence[];
+  untrustedReferences: AdvisorUntrustedReference[];
+  recommendations: Array<{ id: string; text: string; basedOnClaimIds: string[]; basedOnReferenceIds: string[]; caveats: string[] }>;
+  nextActions: AdvisorResolvedAction[];
+  uncertainties: string[];
+  questionsForUser: string[];
+  model: { serviceIdentity: string; modelId: string } | null;
+  usage: { inputTokens?: number; outputTokens?: number; inputBytes: number; outputBytes: number };
+}
+
+export type AdvisorThreadMessage =
+  | { id: string; role: "user"; at: string; text: string }
+  | { id: string; role: "assistant"; at: string; response: AdvisorAnswer };
+
+export interface AdvisorThread {
+  schema: "theia-advisor-thread/v1";
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  activeRequestId: string | null;
+  messages: AdvisorThreadMessage[];
 }
 
 export interface CourseSelectionBlock {
@@ -779,6 +1097,34 @@ export interface LocalDataCatalog {
 export interface TheiaBridge {
   getSnapshot(): Promise<CampusState>;
   getAdvisorOverview(): Promise<AdvisorOverview>;
+  getAdvisorAcademicWhatIf(scenario: {
+    snapshotRevision: string;
+    additionalRequiredCredits?: number;
+    alternativeSelections?: Record<string, string>;
+  }): Promise<AdvisorAcademicScenarioResult>;
+  getAdvisorCourseDecisions(request: {
+    snapshotRevision: string;
+    candidates: Array<Record<string, unknown>>;
+    schoolScheduleComplete?: boolean;
+    completeness?: Partial<Record<"academicProgress" | "schedule" | "grades" | "selectedCourses", AdvisorCompleteness>>;
+  }): Promise<AdvisorCourseDecisionResult>;
+  executeAdvisorAction(request: AdvisorActionRequest): Promise<AdvisorActionResult>;
+  listAdvisorThreads(): Promise<AdvisorThread[]>;
+  createAdvisorThread(): Promise<AdvisorThread>;
+  prepareAdvisorRequest(request: {
+    threadId: string;
+    question: string;
+    intent: AdvisorIntent;
+    selectedNoticeIds?: string[];
+    selectedMailIds?: string[];
+    includeMailBodyIds?: string[];
+    agent?: boolean;
+    readableDomains?: string[];
+  }): Promise<AdvisorPreparedRequest>;
+  sendAdvisorRequest(request: { requestId: string; approved: boolean; stream?: boolean }): Promise<AdvisorAnswer>;
+  cancelAdvisorRequest(request: { requestId?: string; threadId?: string }): Promise<{ cancelled: boolean; requestId: string | null }>;
+  deleteAdvisorThread(threadId: string): Promise<{ deleted: boolean; threadId: string }>;
+  onAdvisorStream(callback: (event: AdvisorStreamEvent) => void): () => void;
   getActivityLog(): Promise<ActivityLogEntry[]>;
   getAuthStatus(): Promise<AuthStatus>;
   getCredentialStatus(): Promise<CredentialStatus>;
@@ -866,16 +1212,19 @@ export interface TheiaBridge {
   getModelStatus(): Promise<ModelStatus>;
   saveModelConfig(config: {
     baseUrl: string;
+    provider?: "openai-compatible" | "anthropic-messages" | "gemini-generate-content" | "ollama-chat";
     model: string;
     apiKey?: string;
     probeId: string;
     allowManualModel?: boolean;
+    modelRouting?: CampusState["settings"]["modelRouting"];
   }): Promise<ModelStatus>;
   clearModelApiKey(): Promise<ModelStatus>;
   cancelModelRequests(): Promise<{ cancelled: number }>;
   validateModelConnection(): Promise<{ ok: boolean }>;
   discoverModels(config: {
     baseUrl: string;
+    provider?: "openai-compatible" | "anthropic-messages" | "gemini-generate-content" | "ollama-chat";
     apiKey?: string;
   }): Promise<{ models: string[]; selectedModel: string | null; probeId: string; warning?: string }>;
   processCourseWorkWithModel(assignmentId: string): Promise<CampusState>;

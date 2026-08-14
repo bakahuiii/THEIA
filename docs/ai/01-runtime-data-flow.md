@@ -30,6 +30,7 @@ school service / IMAP / local tool
 | CampusStore | normalized snapshots and durable writes | network access |
 | Local API/CLI | read-only external data contract | write endpoints or public binding |
 | Core Advisor | one versioned snapshot, data quality, evidence, local claims, risks and agenda | network/model calls, loopback reads, store writes |
+| AdvisorRuntime | request-frozen disclosure, consent, Provider orchestration and narrative verification | loopback/Feed/export reads, store writes, renderer-held credentials or school/write tools |
 
 ## Write Rules
 
@@ -66,7 +67,7 @@ The overview instance is identified by `{snapshotRevision, evaluatedAt, timeZone
 
 External AI should prefer the loopback API when THEIA is running. It can read the Feed when THEIA is not running. Both are read-only.
 
-This external-consumer guidance does not apply to the in-process Advisor. A model request in a future `AdvisorRuntime` must instead freeze a versioned snapshot and its disclosed claim catalog for the lifetime of that request.
+This external-consumer guidance does not apply to the in-process Advisor. The current `AdvisorRuntime` freezes one versioned snapshot and a request catalog containing only the disclosed claims, evidence, actions and low-trust notice/mail references. It sends the Provider only the ContextBuilder projection approved for that request; it never rebuilds model context from the loopback API, Feed or AI export. See [18-advisor-p4-p5-model-runtime.md](18-advisor-p4-p5-model-runtime.md) for the implemented P4-P5 boundary.
 
 ## Adding Data
 

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { computeEarnedCredits, computeGpa, computeGpaTrend, formatGpa, isGpaEligible, isPassedGrade, scoreToPoint } from '../core/gpa.mjs'
+import { computeEarnedCredits, computeGpa, computeGpaTrend, formatGpa, gpaEligibilityReason, gradePoint, isGpaEligible, isPassedGrade, scoreToPoint } from '../core/gpa.mjs'
 
 test('score conversion follows BUCT boundaries', () => {
   assert.equal(scoreToPoint(95), 4.33)
@@ -26,6 +26,78 @@ test('GPA excludes non-numeric and excluded course categories but counts zero po
   assert.equal(isGpaEligible(grades[2]), false)
   assert.deepEqual(computeGpa(grades), { gpa: 3, credits: 4, included: 2 })
   assert.deepEqual(computeGpa([{ credits: 2, score: '缺考', remark: '缺考' }]), { gpa: 0, credits: 2, included: 1 })
+})
+
+test('explicit failed marks remain zero-point GPA denominator credits', () => {
+  const grades = [
+    { courseCode: 'PASS100', credits: 3, score: 90, point: 4 },
+    { courseCode: 'FAIL-U', credits: 2, score: 'U', point: 3.5 },
+    { courseCode: 'FAIL-TEXT', credits: 1, score: '不合格', point: 3.5 },
+  ]
+  assert.equal(isGpaEligible(grades[1]), true)
+  assert.equal(isGpaEligible(grades[2]), true)
+  assert.equal(gradePoint(grades[1]), 0)
+  assert.equal(gradePoint(grades[2]), 0)
+  assert.deepEqual(computeGpa(grades), { gpa: 2, credits: 6, included: 3 })
+})
+
+test('missing or non-numeric point values never override a usable score with zero', () => {
+  for (const point of [null, undefined, '', '   ', false, [], {}]) {
+    assert.equal(gradePoint({ score: 90, point }), 4)
+    assert.deepEqual(computeGpa([{ courseCode: 'MAT100', credits: 3, score: 90, point }]), {
+      gpa: 4,
+      credits: 3,
+      included: 1,
+    })
+  }
+  assert.equal(gradePoint({ score: '合格', point: null }), null)
+  assert.equal(isPassedGrade({ score: '合格', point: null }), true)
+})
+
+test('explicit source remarks exclude a row while independent failures remain denominator credits', () => {
+  const excluded = { courseCode: 'OLD100', credits: 1, score: '不合格', point: 0, remark: '不统计2025' }
+  const failed = { courseCode: 'FAIL100', credits: 2, score: '不合格', point: 0 }
+  assert.equal(gpaEligibilityReason(excluded), 'explicitly-excluded')
+  assert.equal(isGpaEligible(excluded), false)
+  assert.equal(isGpaEligible(failed), true)
+  assert.deepEqual(computeGpa([excluded, failed]), { gpa: 0, credits: 2, included: 1 })
+})
+
+test('a qualitative pass suppresses an older failed attempt regardless of row order', () => {
+  const failed = { courseCode: 'RETAKE100', termId: '2024-3', credits: 1, score: '不合格', point: 0 }
+  const passed = { courseCode: 'RETAKE100', termId: '2025-3', credits: 1, score: '合格', point: null }
+  for (const grades of [[failed, passed], [passed, failed]]) {
+    assert.deepEqual(computeGpa(grades), { gpa: null, credits: 0, included: 0 })
+  }
+})
+
+test('a numeric retake remains the GPA representative over failed and qualitative attempts', () => {
+  const grades = [
+    { courseCode: 'RETAKE100', termId: '2024-3', credits: 1, score: '不合格', point: 0 },
+    { courseCode: 'RETAKE100', termId: '2024-12', credits: 1, score: '合格', point: null },
+    { courseCode: 'RETAKE100', termId: '2025-3', credits: 1, score: 75, point: 2.67 },
+  ]
+  assert.deepEqual(computeGpa(grades), { gpa: 2.67, credits: 1, included: 1 })
+})
+
+test('an incomplete passing row does not silently suppress a complete failed attempt', () => {
+  const grades = [
+    { courseCode: 'RETAKE100', termId: '2024-3', credits: 1, score: '不合格', point: 0 },
+    { courseCode: 'RETAKE100', termId: '2025-3', credits: null, score: 90, point: 4 },
+  ]
+  assert.deepEqual(computeGpa(grades), { gpa: 0, credits: 1, included: 1 })
+})
+
+test('cumulative GPA removes an earlier failure after a later qualitative pass', () => {
+  const trend = computeGpaTrend([
+    { courseCode: 'RETAKE100', termId: '2024-3', credits: 1, score: '不合格', point: 0 },
+    { courseCode: 'BASE100', termId: '2024-3', credits: 2, score: 90, point: 4 },
+    { courseCode: 'RETAKE100', termId: '2025-3', credits: 1, score: '合格', point: null },
+  ])
+  assert.equal(trend.semesters[0].gpa, 8 / 3)
+  assert.equal(trend.semesters[1].gpa, null)
+  assert.equal(trend.semesters[1].cumulativeGpa, 4)
+  assert.equal(trend.semesters[1].cumulativeCredits, 2)
 })
 
 test('trend groups semester data and weights academic years by credits', () => {

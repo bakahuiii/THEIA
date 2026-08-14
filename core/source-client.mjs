@@ -6,6 +6,7 @@ const MAX_TEXT_RESPONSE_BYTES = 16 * 1024 * 1024
 export const MAX_ATTACHMENT_RESPONSE_BYTES = 32 * 1024 * 1024
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
 const MAX_REDIRECTS = 5
+const MAX_GET_RETRIES = 2
 
 export class AuthRequiredError extends Error {
   constructor(source, url) {
@@ -169,7 +170,7 @@ export class SessionClient {
     return { response, url: finalUrl }
   }
 
-  async request(url, init = {}, { source = 'school', allowLogin = false, signal = null } = {}) {
+  async requestOnce(url, init = {}, { source = 'school', allowLogin = false, signal = null } = {}) {
     const controller = new AbortController()
     let timedOut = false
     const timer = setTimeout(() => {
@@ -209,6 +210,60 @@ export class SessionClient {
     } finally {
       clearTimeout(timer)
       signal?.removeEventListener?.('abort', cancel)
+    }
+  }
+
+  async request(url, init = {}, options = {}) {
+    const method = String(init.method || 'GET').toUpperCase()
+    const retryableMethod = method === 'GET' || method === 'HEAD'
+    let attempt = 0
+    while (true) {
+      try {
+        return await this.requestOnce(url, init, options)
+      } catch (error) {
+        const status = Number(error?.status)
+        const transientStatus = [408, 425, 429].includes(status) || status >= 500
+        const errorText = compactError(error)
+        // Electron's fetch can surface a cancelled redirect when the campus
+        // CAS briefly replaces a session or the renderer closes a redirecting
+        // response. This is still safe to retry for idempotent GET/HEAD, and
+        // avoids turning a transient renderer/network race into a hard sync
+        // failure. AuthRequiredError is handled above and is never retried.
+        const transientRedirect = /redirect\s+was\s+cancelled|ERR_(?:ABORTED|CONNECTION_RESET)|failed\s+to\s+fetch|network\s+error/iu.test(errorText)
+        const transientNetwork = error?.code === 'ETIMEDOUT'
+          || transientRedirect
+          || (!status && error?.cause && error?.name === 'SourceRequestError')
+        if (!retryableMethod || options?.signal?.aborted || attempt >= MAX_GET_RETRIES || (!transientStatus && !transientNetwork)) throw error
+        const delayMs = 250 * (attempt + 1) ** 2
+        attempt += 1
+        this.diagnostic('source.request_retry', {
+          source: options?.source || 'school',
+          method,
+          url: String(url),
+          attempt,
+          delayMs,
+          status: Number.isFinite(status) ? status : null,
+          code: error?.code || null,
+        })
+        await new Promise((resolveDelay, rejectDelay) => {
+          let settled = false
+          const timer = setTimeout(() => {
+            if (settled) return
+            settled = true
+            options.signal?.removeEventListener?.('abort', cancel)
+            resolveDelay()
+          }, delayMs)
+          const cancel = () => {
+            if (settled) return
+            settled = true
+            clearTimeout(timer)
+            options.signal?.removeEventListener?.('abort', cancel)
+            rejectDelay(options.signal?.reason || new Error('Request aborted'))
+          }
+          if (options.signal?.aborted) cancel()
+          else options.signal?.addEventListener?.('abort', cancel, { once: true })
+        })
+      }
     }
   }
 

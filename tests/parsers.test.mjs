@@ -136,6 +136,28 @@ test('JWGLXT JSON responses normalize schedule, grades and exams', () => {
   assert.equal(exams[0].seat, '07')
 })
 
+test('JWGLXT grade parser accepts DataTables and nested Zhengfang envelopes', () => {
+  const body = JSON.stringify({ data: { aaData: [{ kcmc: 'Nested grade', kch_id: 'MAT14000G', xf: '4', cj: '91', jd: '4' }] } })
+  const grades = parseJwGrades(body, { term, sourceUrl: 'https://jwglxt.buct.edu.cn/jwglxt/cjcx' })
+  assert.equal(grades.length, 1)
+  assert.equal(grades[0].courseCode, 'MAT14000G')
+  assert.equal(grades[0].score, '91')
+})
+
+test('JWGLXT grade parser accepts the direct zfn_api course envelope', () => {
+  const body = JSON.stringify({ code: 1000, data: { courses: [{
+    course_id: 'ART14000G', title: 'Course from direct API', credit: '2', grade: 'A',
+    grade_point: '4', nature: 'Elective', teacher: 'Teacher', grade_nature: 'Normal',
+  }] } })
+  const grades = parseJwGrades(body, { term, sourceUrl: 'https://jwglxt.buct.edu.cn/jwglxt/cjcx' })
+  assert.equal(grades.length, 1)
+  assert.equal(grades[0].courseCode, 'ART14000G')
+  assert.equal(grades[0].courseName, 'Course from direct API')
+  assert.equal(grades[0].credits, 2)
+  assert.equal(grades[0].score, 'A')
+  assert.equal(grades[0].point, 4)
+})
+
 test('JWGLXT keeps official course codes and hides internal hexadecimal IDs', () => {
   assert.equal(isStandardCourseCode('ART14000G'), true)
   assert.equal(isStandardCourseCode('BFEAF00325ADCB5CE053B39AC3798BC8'), false)

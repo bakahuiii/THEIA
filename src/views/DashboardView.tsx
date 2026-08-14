@@ -10,6 +10,7 @@ import {
   Clock3,
   Map as MapIcon,
   MapPin,
+  Sparkles,
 } from "lucide-react";
 import { AssignmentRow } from "../components/AssignmentRow";
 import {
@@ -22,7 +23,43 @@ import {
   type ViewId,
 } from "../ui/app-shared";
 import { currentAcademicWeek, occursInWeek } from "../ui/calendar";
-import type { CampusState, ScheduleItem } from "../types";
+import type { AdvisorUrgentItem, CampusState, ScheduleItem } from "../types";
+
+function DashboardAdvisorTop({
+  item,
+  loading,
+  error,
+  onNavigate,
+}: {
+  item: AdvisorUrgentItem | null;
+  loading: boolean;
+  error: string | null;
+  onNavigate: (view: ViewId) => void;
+}) {
+  return (
+    <section className="dashboard-advisor-top span-full" aria-label="首要行动">
+      <span className="dashboard-advisor-icon"><Sparkles size={17} /></span>
+      <span className="dashboard-advisor-copy">
+        <small>本地顾问 · Top 1</small>
+        <strong>
+          {loading && !item
+            ? "正在计算首要行动"
+            : error && !item
+              ? "首要行动暂时无法计算"
+              : item?.title || "当前没有已确认的首要行动"}
+        </strong>
+        <span>
+          {item?.reasons[0]
+            || (error ? "请进入工作台检查数据质量。" : "未知或不完整数据不会被解释为没有事项。")}
+        </span>
+      </span>
+      {item && <em data-severity={item.severity}>{item.severity === "urgent" ? "紧急" : item.severity === "attention" ? "需关注" : "提示"}</em>}
+      <button type="button" onClick={() => onNavigate("advisor")}>
+        打开顾问 <ChevronRight size={15} />
+      </button>
+    </section>
+  );
+}
 
 function QuickActions({ onNavigate }: { onNavigate: (view: ViewId) => void }) {
   const actions: Array<{
@@ -91,10 +128,16 @@ export function DashboardView({
   state,
   onNavigate,
   onOpenSource,
+  advisorItem,
+  advisorLoading,
+  advisorError,
 }: {
   state: CampusState;
   onNavigate: (view: ViewId) => void;
   onOpenSource: (assignmentId: string) => void;
+  advisorItem: AdvisorUrgentItem | null;
+  advisorLoading: boolean;
+  advisorError: string | null;
 }) {
   const academicCourseCount = useMemo(() => {
     const identities = new Set<string>();
@@ -144,6 +187,12 @@ export function DashboardView({
 
   return (
     <div className="dashboard-grid">
+      <DashboardAdvisorTop
+        item={advisorItem}
+        loading={advisorLoading}
+        error={advisorError}
+        onNavigate={onNavigate}
+      />
       <QuickActions onNavigate={onNavigate} />
       <section className="metric-strip span-full">
         <button onClick={() => onNavigate("courses")}>

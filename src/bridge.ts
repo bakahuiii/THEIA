@@ -47,7 +47,37 @@ const webBridge: TheiaBridge = {
     return structuredClone(webState);
   },
   async getAdvisorOverview(): Promise<AdvisorOverview> {
-    throw new Error("Advisor overview is available only in the desktop client");
+    throw new Error("顾问概览仅在桌面客户端中可用");
+  },
+  async getAdvisorAcademicWhatIf() {
+    throw new Error("顾问情景计算仅在桌面客户端中可用");
+  },
+  async getAdvisorCourseDecisions() {
+    throw new Error("顾问选课分析仅在桌面客户端中可用");
+  },
+  async executeAdvisorAction() {
+    throw new Error("顾问动作仅在桌面客户端中可用");
+  },
+  async listAdvisorThreads() {
+    return [];
+  },
+  async createAdvisorThread() {
+    throw new Error("模型顾问仅在桌面客户端中可用");
+  },
+  async prepareAdvisorRequest() {
+    throw new Error("模型顾问仅在桌面客户端中可用");
+  },
+  async sendAdvisorRequest() {
+    throw new Error("模型顾问仅在桌面客户端中可用");
+  },
+  async cancelAdvisorRequest() {
+    return { cancelled: false, requestId: null };
+  },
+  async deleteAdvisorThread(threadId: string) {
+    return { deleted: false, threadId };
+  },
+  onAdvisorStream() {
+    return () => undefined;
   },
   async getActivityLog(): Promise<ActivityLogEntry[]> {
     return [];

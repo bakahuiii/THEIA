@@ -13,6 +13,7 @@ import {
 
 export type ViewId =
   | "dashboard"
+  | "advisor"
   | "schedule"
   | "map"
   | "exams"

@@ -4,11 +4,64 @@ import { normalizeAdvisorOptions, normalizeVersionedSnapshot, ADVISOR_OVERVIEW_S
 import { evaluateDataQuality } from './data-quality.mjs'
 import { EvidenceRegistry } from './evidence-registry.mjs'
 import { evaluateRisks } from './risk-engine.mjs'
+import { evaluateAcademic } from './academic-engine.mjs'
 
 function assertReferenceSet(ids, validIds, label) {
   if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string' || !validIds.has(id))) {
     throw new TypeError(`${label} contains an invalid reference`)
   }
+}
+
+function collectNestedReferences(value, { label = 'Advisor academic analysis', evidenceIds = null, claimIds = null } = {}) {
+  const references = { evidence: new Set(), claims: new Set() }
+  const visited = new WeakSet()
+
+  const collectClaimReference = (id, path, { nullable = false } = {}) => {
+    if (id === null && nullable) return
+    if (typeof id !== 'string' || !id || (claimIds && !claimIds.has(id))) {
+      throw new TypeError(`${path} contains an invalid reference`)
+    }
+    references.claims.add(id)
+  }
+
+  const visit = (current, path) => {
+    if (!current || typeof current !== 'object') return
+    if (visited.has(current)) return
+    visited.add(current)
+    if (Array.isArray(current)) {
+      current.forEach((entry, index) => visit(entry, `${path}[${index}]`))
+      return
+    }
+
+    for (const [key, entry] of Object.entries(current)) {
+      const entryPath = `${path}.${key}`
+      if (key === 'evidenceRefs') {
+        if (!Array.isArray(entry) || entry.some((id) => typeof id !== 'string' || !id || (evidenceIds && !evidenceIds.has(id)))) {
+          throw new TypeError(`${entryPath} contains an invalid reference`)
+        }
+        for (const id of entry) references.evidence.add(id)
+        continue
+      }
+      if (key === 'claimId') {
+        collectClaimReference(entry, entryPath, { nullable: true })
+        continue
+      }
+      if (key === 'claimIds') {
+        if (Array.isArray(entry)) {
+          for (const id of entry) collectClaimReference(id, entryPath)
+        } else if (entry && typeof entry === 'object') {
+          for (const [claimKey, id] of Object.entries(entry)) collectClaimReference(id, `${entryPath}.${claimKey}`)
+        } else {
+          throw new TypeError(`${entryPath} contains an invalid reference`)
+        }
+        continue
+      }
+      visit(entry, entryPath)
+    }
+  }
+
+  visit(value, label)
+  return references
 }
 
 export function assertAdvisorOverview(value) {
@@ -71,6 +124,32 @@ export function assertAdvisorOverview(value) {
     assertReferenceSet(risk.evidenceRefs, evidenceIds, `Risk ${risk.id}`)
     assertReferenceSet(risk.claimIds, claimIds, `Risk ${risk.id}`)
   }
+  if (!value.academic || typeof value.academic !== 'object') throw new TypeError('Advisor academic analysis is missing')
+  if (!value.academic.analysis || typeof value.academic.analysis !== 'object') throw new TypeError('Advisor academic analysis payload is missing')
+  for (const key of ['evidence', 'claims', 'risks']) {
+    if (!Array.isArray(value.academic[key])) throw new TypeError(`Advisor academic ${key} must be an array`)
+  }
+  for (const reference of value.academic.evidence) {
+    if (!reference || !evidenceIds.has(reference.id)) throw new TypeError('Advisor academic evidence is not part of the overview registry')
+  }
+  const academicEvidenceIds = new Set(value.academic.evidence.map((reference) => reference?.id))
+  const academicClaimIds = new Set(value.academic.claims.map((claim) => claim?.id))
+  if (academicEvidenceIds.has(undefined) || academicEvidenceIds.size !== value.academic.evidence.length) {
+    throw new TypeError('Advisor academic evidence IDs must be unique')
+  }
+  if (academicClaimIds.has(undefined) || academicClaimIds.size !== value.academic.claims.length) {
+    throw new TypeError('Advisor academic claim IDs must be unique')
+  }
+  assertReferenceSet([...academicClaimIds], claimIds, 'Advisor academic claims')
+  const nestedReferences = collectNestedReferences(value.academic.analysis, {
+    evidenceIds,
+    claimIds,
+  })
+  assertReferenceSet([...nestedReferences.evidence], academicEvidenceIds, 'Advisor academic nested evidence')
+  assertReferenceSet([...nestedReferences.claims], academicClaimIds, 'Advisor academic nested claims')
+  for (const risk of value.academic.risks) {
+    if (!value.risks.some((entry) => entry.id === risk.id)) throw new TypeError('Advisor academic risk is not part of overview risks')
+  }
   for (const item of value.urgentItems) {
     if (item.rulesVersion !== value.rulesVersion) throw new TypeError(`Agenda item ${item.id} rules version mismatch`)
     assertReferenceSet(item.evidenceRefs, evidenceIds, `Agenda item ${item.id}`)
@@ -79,6 +158,14 @@ export function assertAdvisorOverview(value) {
     if (!score || score.total !== score.urgency + score.impact + score.delayCost + score.confidence) {
       throw new TypeError(`Agenda item ${item.id} has an invalid score`)
     }
+  }
+  for (const [key, outer] of [
+    ['snapshotRevision', value.snapshotRevision],
+    ['evaluatedAt', value.evaluatedAt],
+    ['timeZone', value.timeZone],
+    ['rulesVersion', value.rulesVersion],
+  ]) {
+    if (value.academic[key] !== outer) throw new TypeError(`Advisor academic ${key} mismatch`)
   }
   return value
 }
@@ -96,7 +183,26 @@ export function createAdvisorOverview(versionedSnapshot, options) {
     dataQuality,
     evidenceRegistry,
   })
-  const urgentItems = buildAgenda(risks, normalizedOptions)
+  const academic = evaluateAcademic(versionedSnapshot, {
+    ...normalizedOptions,
+    dataQuality,
+    evidenceRegistry,
+    upgradeRule: options?.upgradeRule ?? null,
+  })
+  const academicReferences = collectNestedReferences({
+    analysis: academic.analysis,
+    claims: academic.claims,
+    risks: academic.risks,
+  })
+  const academicWithEvidence = {
+    ...academic,
+    evidence: [...academicReferences.evidence]
+      .sort(compareCanonicalText)
+      .map((id) => evidenceRegistry.get(id)),
+  }
+  const allRisks = [...risks, ...academic.risks].sort((left, right) => compareCanonicalText(left.id, right.id))
+  const allClaims = [...claims, ...academic.claims].sort((left, right) => compareCanonicalText(left.id, right.id))
+  const urgentItems = buildAgenda(allRisks, normalizedOptions)
   const overview = {
     schema: ADVISOR_OVERVIEW_SCHEMA,
     snapshotRevision: versioned.revision,
@@ -104,10 +210,11 @@ export function createAdvisorOverview(versionedSnapshot, options) {
     timeZone: normalizedOptions.timeZone,
     rulesVersion: normalizedOptions.rulesVersion,
     dataQuality,
-    risks,
+    risks: allRisks,
     urgentItems,
     evidence: evidenceRegistry.list(),
-    claims,
+    claims: allClaims,
+    academic: academicWithEvidence,
   }
   assertAdvisorOverview(overview)
   return overview

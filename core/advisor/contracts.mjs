@@ -6,6 +6,18 @@ export const ADVISOR_OVERVIEW_SCHEMA = 'theia-advisor-overview/v1'
 export const ADVISOR_RULES_VERSION = 'theia-advisor-rules/v1'
 export const ADVISOR_SCORE_FORMULA_VERSION = 'theia-advisor-agenda-score/v1'
 export const ADVISOR_EVIDENCE_SCHEMA = 'theia-advisor-evidence/v1'
+export const ADVISOR_WHAT_IF_SCHEMA = 'theia-advisor-what-if/v1'
+export const ADVISOR_COURSE_DECISIONS_SCHEMA = 'theia-advisor-course-decisions/v1'
+export const ADVISOR_CONTEXT_SCHEMA = 'theia-advisor-context/v1'
+export const ADVISOR_DISCLOSURE_SCHEMA = 'theia-advisor-disclosure/v1'
+export const ADVISOR_CONSENT_SCHEMA = 'theia-advisor-consent/v1'
+export const ADVISOR_CONSENT_CHALLENGE_SCHEMA = 'theia-advisor-consent-challenge/v1'
+export const ADVISOR_REQUEST_CATALOG_SCHEMA = 'theia-advisor-request-catalog/v1'
+export const ADVISOR_UNTRUSTED_REFERENCE_SCHEMA = 'theia-advisor-untrusted-reference/v1'
+export const ADVISOR_MODEL_NARRATIVE_SCHEMA = 'theia-advisor-model-narrative/v1'
+export const ADVISOR_ANSWER_SCHEMA = 'theia-advisor-answer/v1'
+
+export const ADVISOR_INTENTS = Object.freeze(['daily', 'risk', 'course', 'notice', 'mail', 'general'])
 
 export const AVAILABILITY_VALUES = Object.freeze(['available', 'empty-confirmed', 'absent', 'unknown'])
 export const FRESHNESS_VALUES = Object.freeze(['fresh', 'stale', 'unknown'])

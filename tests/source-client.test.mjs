@@ -12,6 +12,51 @@ test('session client falls back to the request URL when Electron returns an empt
   assert.equal(result.url, 'https://jwglxt.buct.edu.cn/jwglxt/xtgl/index_initMenu.html')
 })
 
+test('session client retries transient GET failures but never retries a POST', async () => {
+  let getCalls = 0
+  const client = new SessionClient(
+    { cookies: { get: async () => [] } },
+    {
+      requestSession: {
+        fetch: async (_url, init) => {
+          if (init.method === 'POST') return new Response('down', { status: 503 })
+          getCalls += 1
+          return getCalls < 3 ? new Response('busy', { status: 503 }) : new Response('ok', { status: 200 })
+        },
+      },
+    },
+  )
+
+  const result = await client.request('https://jwglxt.buct.edu.cn/jwglxt/retry', {}, { source: 'retry-test' })
+  assert.equal(result.text, 'ok')
+  assert.equal(getCalls, 3)
+  await assert.rejects(
+    client.request('https://jwglxt.buct.edu.cn/jwglxt/retry', { method: 'POST', body: 'x' }, { source: 'retry-test' }),
+    /503/,
+  )
+  assert.equal(getCalls, 3)
+})
+
+test('session client retries Electron cancelled redirects for idempotent GET requests', async () => {
+  let calls = 0
+  const client = new SessionClient(
+    { cookies: { get: async () => [] } },
+    {
+      requestSession: {
+        fetch: async () => {
+          calls += 1
+          if (calls < 2) throw new Error('Redirect was cancelled')
+          return new Response('recovered', { status: 200 })
+        },
+      },
+    },
+  )
+
+  const result = await client.request('https://jwglxt.buct.edu.cn/jwglxt/retry-redirect', {}, { source: 'retry-test' })
+  assert.equal(result.text, 'recovered')
+  assert.equal(calls, 2)
+})
+
 test('session client mirrors browser cookies into an isolated request session', async () => {
   const copied = []
   const browserCookie = {

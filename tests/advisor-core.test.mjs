@@ -9,9 +9,73 @@ import {
   serializeAdvisorOverview,
   assertAdvisorOverview,
 } from '../core/advisor/index.mjs'
+import {
+  advisorRiskDeadlineBandLabel,
+  advisorRiskDomainLabel,
+  advisorRiskSeverityLabel,
+} from '../core/advisor/risk-engine.mjs'
 import { CURRENT_CAPTURE, FIXED_NOW, OLD_CAPTURE, domainOutcome, versionedState } from './fixtures/advisor-fixtures.mjs'
 
 const OPTIONS = Object.freeze({ now: FIXED_NOW, timeZone: 'Asia/Shanghai' })
+
+test('risk user-visible enum labels are deterministic Chinese with conservative fallbacks', () => {
+  const domainCases = {
+    profile: '个人信息', terms: '学期', courses: '课程', academic: '学业基础', schedule: '课表', grades: '成绩', exams: '考试',
+    'selected-courses': '已选课程', 'academic-progress': '学业进度', assignments: '作业与测试', workspaces: '课程工作区', coursework: '课程任务',
+    notices: '通知', mailbox: '校园邮箱', fitness: '体测', 'school-schedule': '全校课表', 'academic-calendar': '校历', 'local-data-catalog': '本地资料',
+  }
+  for (const [value, label] of Object.entries(domainCases)) assert.equal(advisorRiskDomainLabel(value), label, value)
+  assert.deepEqual(['urgent', 'attention', 'info', 'unknown'].map(advisorRiskSeverityLabel), ['紧急', '需关注', '提示', '未知'])
+  assert.deepEqual(['overdue', 'critical', 'soon', 'normal', 'unknown'].map(advisorRiskDeadlineBandLabel), ['已逾期', '24 小时内', '3 天内', '3 天以后', '时间未知'])
+  assert.equal(advisorRiskDomainLabel('private-domain-token'), '未知数据域')
+  assert.equal(advisorRiskSeverityLabel('private-severity-token'), '未知等级')
+  assert.equal(advisorRiskDeadlineBandLabel('private-band-token'), '未知时间范围')
+})
+
+test('risk output keeps machine enums while user-visible text does not expose them', () => {
+  const versioned = versionedState({
+    assignments: [
+      { id: 'late', title: '逾期任务', dueAt: '2026-08-12T23:00:00.000Z', status: 'pending', capturedAt: CURRENT_CAPTURE },
+      { id: 'critical', title: '当日任务', dueAt: '2026-08-13T05:00:00.000Z', status: 'pending', capturedAt: CURRENT_CAPTURE },
+      { id: 'soon', title: '近期任务', dueAt: '2026-08-15T00:00:00.000Z', status: 'pending', capturedAt: CURRENT_CAPTURE },
+      { id: 'normal', title: '后续任务', dueAt: '2026-08-17T00:00:00.000Z', status: 'pending', capturedAt: CURRENT_CAPTURE },
+    ],
+  }, {
+    assignments: domainOutcome({
+      succeeded: false,
+      status: 'failed',
+      retainedPrevious: true,
+      errorCode: 'source-timeout',
+    }),
+    exams: domainOutcome({ emptyConfirmed: true }),
+    grades: domainOutcome({ emptyConfirmed: true }),
+    'academic-progress': domainOutcome({ emptyConfirmed: true }),
+  })
+  const overview = createAdvisorOverview(versioned, OPTIONS)
+  const qualityEvidence = overview.evidence.find((entry) => entry.dataset === 'sync-domain' && entry.domain === 'assignments')
+  const qualityClaim = overview.claims.find((entry) => entry.predicate === 'data-quality-severity' && entry.subject === 'assignments')
+  const qualityRisk = overview.risks.find((entry) => entry.kind === 'data-quality' && entry.domain === 'assignments')
+
+  assert.equal(qualityRisk.severity, 'urgent')
+  assert.equal(qualityEvidence.label, '作业与测试数据质量')
+  assert.equal(qualityClaim.displayText, '作业与测试数据可信度：紧急')
+  assert.equal(qualityRisk.title, '作业与测试数据暂不能作为完整实时依据')
+
+  const deadlineRisks = overview.risks.filter((entry) => entry.kind === 'assignment')
+  assert.deepEqual(new Set(deadlineRisks.map((entry) => entry.deadlineBand)), new Set(['unknown']))
+  const visibleText = [
+    qualityEvidence.label,
+    qualityClaim.displayText,
+    qualityRisk.title,
+    ...qualityRisk.why,
+    ...deadlineRisks.flatMap((entry) => [entry.title, ...entry.why]),
+  ].join('\n')
+  assert.doesNotMatch(visibleText, /\b(?:assignments|urgent|attention|info|overdue|critical|soon|normal|unknown)\b/i)
+  for (const label of ['已逾期', '24 小时内', '3 天内', '3 天以后']) {
+    if (label === '已逾期') continue
+    assert.match(visibleText, new RegExp(label.replace(' ', '\\s')))
+  }
+})
 
 test('canonical JSON has stable UTF-8 key order, NFC text, and JSON omission rules', () => {
   const value = { z: [3, undefined, -0], a: 'e\u0301', ignored: undefined }
@@ -207,6 +271,112 @@ test('overview assertion rejects mismatched evaluation context metadata', () => 
   }
 })
 
+test('overview closes and recursively validates every nested academic evidence and claim reference', () => {
+  const overview = createAdvisorOverview(versionedState({
+    academicProgress: {
+      gpa: 3.2,
+      roots: [{
+        id: 'required',
+        title: 'Required credits',
+        relation: 'and',
+        required: 30,
+        earned: 20,
+        remaining: 10,
+        children: [],
+        courses: [{ courseCode: 'MAT100', title: 'Mathematics', credits: 4 }],
+      }],
+      categories: [],
+      capturedAt: CURRENT_CAPTURE,
+    },
+    profile: { gpa: 3.1 },
+    grades: [{ id: 'failed-math', courseCode: 'MAT100', courseName: 'Mathematics', credits: 4, score: 55 }],
+  }, {
+    assignments: domainOutcome({ emptyConfirmed: true }),
+    exams: domainOutcome({ emptyConfirmed: true }),
+    profile: domainOutcome({ source: ['jwglxt'] }),
+    grades: domainOutcome({ source: ['jwglxt'] }),
+    'academic-progress': domainOutcome({ source: ['jwglxt'] }),
+  }), {
+    ...OPTIONS,
+    upgradeRule: {
+      id: 'versioned-upgrade-line',
+      rulesVersion: 'local-config/2026-08-14/v1',
+      sourceLabel: 'Versioned local configuration',
+      thresholdCredits: 24,
+      requirementIds: ['required'],
+    },
+  })
+
+  const evidenceIds = new Set(overview.academic.evidence.map((entry) => entry.id))
+  const analysis = overview.academic.analysis
+  for (const id of [
+    ...analysis.requirements.roots[0].evidenceRefs,
+    ...analysis.requirements.roots[0].credits.evidenceRefs,
+    ...analysis.gpa.selected.evidenceRefs,
+    ...analysis.upgrade.evidenceRefs,
+    ...analysis.failures[0].evidenceRefs,
+  ]) assert.equal(evidenceIds.has(id), true, `unclosed nested evidence ${id}`)
+
+  const cases = [
+    ['requirement evidenceRefs', (copy) => { copy.academic.analysis.requirements.roots[0].evidenceRefs = ['missing-evidence'] }],
+    ['GPA claimId', (copy) => { copy.academic.analysis.gpa.selected.claimId = 'missing-claim' }],
+    ['upgrade evidenceRefs', (copy) => { copy.academic.analysis.upgrade.evidenceRefs = ['missing-evidence'] }],
+    ['failure claimIds', (copy) => { copy.academic.analysis.failures[0].claimIds = ['missing-claim'] }],
+    ['null claimIds member', (copy) => { copy.academic.analysis.upgrade.claimIds = [null] }],
+    ['requirement claimIds map', (copy) => { copy.academic.analysis.requirements.roots[0].credits.claimIds.earned = 'missing-claim' }],
+    ['scenario evidenceRefs', (copy) => {
+      copy.academic.analysis.scenario = {
+        scenario: true,
+        status: 'unknown',
+        additionalRequiredCredits: null,
+        alternativeSelections: {},
+        baseRemaining: null,
+        remaining: null,
+        evidenceRefs: ['missing-evidence'],
+        claimId: null,
+        issues: [],
+      }
+    }],
+    ['scenario claimId', (copy) => {
+      copy.academic.analysis.scenario = {
+        scenario: true,
+        status: 'unknown',
+        additionalRequiredCredits: null,
+        alternativeSelections: {},
+        baseRemaining: null,
+        remaining: null,
+        evidenceRefs: [],
+        claimId: 'missing-claim',
+        issues: [],
+      }
+    }],
+  ]
+  for (const [label, mutate] of cases) {
+    const copy = structuredClone(overview)
+    mutate(copy)
+    assert.throws(() => assertAdvisorOverview(copy), /invalid reference/, label)
+  }
+})
+
+test('academic evidence includes structural requirement evidence even when no top-level claim or risk uses it', () => {
+  const overview = createAdvisorOverview(versionedState({
+    academicProgress: {
+      roots: [{ id: 'structural-only', title: 'Structural only', relation: 'and', children: [] }],
+      categories: [],
+    },
+  }, {
+    assignments: domainOutcome({ emptyConfirmed: true }),
+    exams: domainOutcome({ emptyConfirmed: true }),
+    grades: domainOutcome({ emptyConfirmed: true }),
+    'academic-progress': domainOutcome(),
+  }), OPTIONS)
+  const nestedId = overview.academic.analysis.requirements.roots[0].evidenceRefs[0]
+
+  assert.equal(overview.academic.evidence.some((entry) => entry.id === nestedId), true)
+  assert.equal(overview.evidence.some((entry) => entry.id === nestedId), true)
+  assertAdvisorOverview(overview)
+})
+
 test('data quality uses the canonical domain catalog for aggregate and local datasets', () => {
   const versioned = versionedState({
     terms: [{ id: '2026-3' }],
@@ -242,6 +412,32 @@ test('data quality uses the canonical domain catalog for aggregate and local dat
   }
   assert.equal(Object.hasOwn(domains, 'emails'), false)
   assert.equal(Object.hasOwn(domains, 'data-catalog'), false)
+})
+
+test('derived local-data catalog failures do not duplicate child-domain repair actions', () => {
+  const failedOutcome = domainOutcome({
+    succeeded: false,
+    status: 'failed',
+    retainedPrevious: true,
+    errorCode: 'fitness_read_failed',
+    completeness: 'partial',
+  })
+  const overview = createAdvisorOverview(versionedState({
+    dataCatalog: {
+      collections: {
+        fitness: { records: { '2025-2026_1': { score: 80 } } },
+        schoolSchedule: { records: {} },
+        academicCalendar: {},
+      },
+    },
+  }, {
+    fitness: failedOutcome,
+    'local-data-catalog': failedOutcome,
+  }), OPTIONS)
+
+  assert.equal(overview.dataQuality.domains['local-data-catalog'].lastAttempt.status, 'failed')
+  assert.equal(overview.risks.some((entry) => entry.kind === 'data-quality' && entry.domain === 'fitness'), true)
+  assert.equal(overview.risks.some((entry) => entry.kind === 'data-quality' && entry.domain === 'local-data-catalog'), false)
 })
 
 test('evidence IDs are stable, opaque, digest-bound, and enforce revision and disclosure checks', () => {
