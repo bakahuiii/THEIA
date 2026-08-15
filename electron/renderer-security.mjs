@@ -4,7 +4,10 @@ export const MAIN_RENDERER_CSP_PRODUCTION = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: theia-background: theia-calendar:",
   "font-src 'self' data:",
-  "connect-src 'none'",
+  // GLTFLoader's ImageBitmapLoader fetches embedded GLB textures through
+  // in-memory blob URLs. This does not grant network access, but is required
+  // for bundled WebGL scenes to retain their source textures.
+  "connect-src 'self' blob:",
   "worker-src 'self' blob:",
   "object-src 'none'",
   "frame-src 'self' theia-calendar:",
@@ -19,7 +22,7 @@ export const MAIN_RENDERER_CSP_DEVELOPMENT = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: theia-background: theia-calendar:",
   "font-src 'self' data:",
-  "connect-src 'self' ws://127.0.0.1:*",
+  "connect-src 'self' blob: ws://127.0.0.1:*",
   "worker-src 'self' blob:",
   "object-src 'none'",
   "frame-src 'self' theia-calendar:",

@@ -8,7 +8,7 @@ import {
 } from '../electron/renderer-security.mjs'
 
 test('production renderer CSP disables network and active embedding', () => {
-  assert.match(MAIN_RENDERER_CSP_PRODUCTION, /connect-src 'none'/)
+  assert.match(MAIN_RENDERER_CSP_PRODUCTION, /connect-src 'self' blob:/)
   assert.match(MAIN_RENDERER_CSP_PRODUCTION, /script-src 'self'/)
   assert.match(MAIN_RENDERER_CSP_PRODUCTION, /object-src 'none'/)
   assert.match(MAIN_RENDERER_CSP_PRODUCTION, /frame-src 'self' theia-calendar:/)
@@ -16,7 +16,7 @@ test('production renderer CSP disables network and active embedding', () => {
 })
 
 test('development renderer CSP adds only loopback Vite websocket connectivity', () => {
-  assert.match(MAIN_RENDERER_CSP_DEVELOPMENT, /connect-src 'self' ws:\/\/127\.0\.0\.1:\*/)
+  assert.match(MAIN_RENDERER_CSP_DEVELOPMENT, /connect-src 'self' blob: ws:\/\/127\.0\.0\.1:\*/)
   assert.doesNotMatch(MAIN_RENDERER_CSP_DEVELOPMENT, /https?:\/\//)
   assert.doesNotMatch(MAIN_RENDERER_CSP_DEVELOPMENT, /wss?:\/\/(?:localhost|\[::1\]|(?!127\.0\.0\.1))/)
   assert.doesNotMatch(MAIN_RENDERER_CSP_DEVELOPMENT, /unsafe-eval/)
