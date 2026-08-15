@@ -43,6 +43,7 @@ export type ThemePreset =
   | "classic"
   | "midnight";
 export type AppBackground = "none" | "image";
+export type ScenePresetId = "none" | "parallax-3d";
 export type BuiltInBackground =
   | "aurelia"
   | "duotone"
@@ -89,6 +90,7 @@ export type AppearanceVisualSettings = {
 };
 
 export type AppearanceVisualPreset = AppearanceVisualSettings & {
+  scene?: ScenePresetId;
   basePreset?: ThemePreset;
   background?: AppBackground;
   backgroundBuiltin?: BuiltInBackground;
@@ -103,6 +105,7 @@ export type SavedAppearancePreset = AppearanceVisualPreset & {
 };
 
 export type Personalization = AppearanceVisualSettings & {
+  scene: ScenePresetId;
   preset: ThemePreset;
   background: AppBackground;
   backgroundBuiltin?: BuiltInBackground;
@@ -157,6 +160,7 @@ const BUILT_IN_BACKGROUNDS: Record<
 };
 
 const defaults: Personalization = {
+  scene: "none",
   preset: "classic",
   background: "image",
   backgroundBuiltin: "duotone",
@@ -237,13 +241,15 @@ function normalizeCustomVisualPreset(value: unknown): SavedAppearancePreset | nu
       ? saved.backgroundUrl
       : undefined;
   const backgroundName = backgroundBuiltin
-    ? BUILT_IN_BACKGROUNDS[backgroundBuiltin].name
-    : typeof saved.backgroundName === "string"
-      ? saved.backgroundName.slice(0, 120)
-      : undefined;
+      ? BUILT_IN_BACKGROUNDS[backgroundBuiltin].name
+      : typeof saved.backgroundName === "string"
+        ? saved.backgroundName.slice(0, 120)
+        : undefined;
+  const scene: ScenePresetId = saved.scene === "parallax-3d" ? "parallax-3d" : "none";
   return {
     id,
     label,
+    scene,
     basePreset: saved.basePreset === "midnight" ? "midnight" : "classic",
     background,
     backgroundBuiltin,
@@ -389,6 +395,7 @@ function normalize(value: unknown): Personalization {
   const gradientMap = saved.gradientMap || defaults.gradientMap;
   const backgroundPalette = normalizeBackgroundPalette(saved.backgroundPalette);
   return {
+    scene: saved.scene === "parallax-3d" ? "parallax-3d" : "none",
     // Older builds persisted visual-background IDs as theme IDs. Their image
     // treatment remains intact, while the base chrome now falls back to Classic.
     preset: saved.preset === "midnight" ? "midnight" : "classic",
@@ -540,6 +547,7 @@ function applyPreferences(value: Personalization) {
     root.classList.contains("dark") ? "dark" : "light",
   );
   root.dataset.themePreset = value.preset;
+  root.dataset.scenePreset = value.scene;
   root.dataset.appBackground = value.background;
   root.dataset.gradientMap = useGradientMap ? "enabled" : "disabled";
   root.dataset.gradientPalette = useGradientPalette
@@ -681,6 +689,7 @@ function resetBackgroundOffset() {
 export type PersonalizationApi = {
   preferences: Personalization;
   setPreset: (preset: ThemePreset) => void;
+  setScenePreset: (scene: ScenePresetId) => void;
   setAppBackground: (
     background: AppBackground,
     selection?: { url?: string; name?: string },
@@ -758,6 +767,7 @@ function usePersonalizationState(): PersonalizationApi {
     const settings = pending.variants[season];
     const builtinBackground = settings.backgroundBuiltin;
     update({
+      scene: "none",
       ...(settings.basePreset ? { preset: settings.basePreset } : {}),
       ...(builtinBackground
         ? {
@@ -893,6 +903,7 @@ function usePersonalizationState(): PersonalizationApi {
       seasonalRequest.current += 1;
       pendingSeasonal.current = null;
       return update({
+        scene: "none",
         background,
         backgroundBuiltin: undefined,
         backgroundUrl: background === "image" ? selection?.url : undefined,
@@ -901,6 +912,10 @@ function usePersonalizationState(): PersonalizationApi {
         backgroundPaletteSource: undefined,
       });
     },
+    [update],
+  );
+  const setScenePreset = useCallback(
+    (scene: ScenePresetId) => update({ scene }),
     [update],
   );
   const setBackgroundMotion = useCallback(
@@ -946,6 +961,7 @@ function usePersonalizationState(): PersonalizationApi {
       const builtinBackground = settings.backgroundBuiltin;
       const hasSavedBackground = typeof settings.background !== "undefined";
       return update({
+        scene: settings.scene ?? "none",
         ...(settings.basePreset ? { preset: settings.basePreset } : {}),
         ...(builtinBackground
           ? {
@@ -987,6 +1003,7 @@ function usePersonalizationState(): PersonalizationApi {
       const apply = (settings: AppearanceVisualPreset) => {
         const builtinBackground = settings.backgroundBuiltin;
         return {
+          scene: "none" as const,
           ...(settings.basePreset ? { preset: settings.basePreset } : {}),
           ...(builtinBackground
             ? {
@@ -1030,6 +1047,7 @@ function usePersonalizationState(): PersonalizationApi {
           .toString(36)
           .slice(2, 8)}`,
         label: normalizedLabel,
+        scene: preferences.scene,
         basePreset: preferences.preset,
         background: preferences.background,
         backgroundBuiltin: preferences.backgroundBuiltin,
@@ -1065,6 +1083,7 @@ function usePersonalizationState(): PersonalizationApi {
   return {
     preferences,
     setPreset,
+    setScenePreset,
     setAppBackground,
     setBackgroundBlur,
     setBackgroundTransparency,

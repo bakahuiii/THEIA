@@ -51,6 +51,25 @@ const OFFICIAL_PRESETS = officialPresetList.presets.flatMap((id) => {
   return preset ? [{ id, ...preset }] : [];
 });
 
+// Dynamic scenes share the same preset picker as static appearances, but
+// carry an explicit scene id so the renderer can be mounted lazily. Reusing a
+// tested static palette keeps the card metadata complete without changing the
+// existing background presets.
+const DEEP_CURRENT = OFFICIAL_PRESETS.find((preset) => preset.id === "deep-current");
+export const PARALLAX_3D_PRESET: VisualPreset | null = DEEP_CURRENT
+  ? {
+      ...DEEP_CURRENT,
+      id: "parallax-3d",
+      label: "3D 墨景",
+      detail: "景深、墨水与拉普拉斯动态场景",
+      scene: "parallax-3d",
+      background: "none",
+      backgroundBuiltin: undefined,
+      backgroundUrl: undefined,
+      backgroundName: undefined,
+    }
+  : null;
+
 const LAKE_PRESETS = OFFICIAL_PRESETS.filter((preset) =>
   preset.id.startsWith("buct-lake"),
 );
@@ -83,6 +102,11 @@ export const BUCT_LAKE_PRESET: SeasonalVisualPreset | null =
 
 export const VISUAL_PRESET_GROUPS: VisualPresetGroup[] = [
   {
+    label: "动态场景",
+    detail: "由 WebGL 驱动的沉浸式外观",
+    presets: PARALLAX_3D_PRESET ? [PARALLAX_3D_PRESET] : [],
+  },
+  {
     label: "古典",
     detail: "以双色映射构成的金属色调",
     presets: OFFICIAL_PRESETS.filter((preset) => !preset.id.startsWith("buct-lake")),
@@ -105,6 +129,7 @@ export function matchesVisualPreset(
   const { gradientMap, backgroundImage, backgroundTexture, backgroundMotion } =
     preferences;
   return (
+    preferences.scene === (preset.scene ?? "none") &&
     (!preset.basePreset || preferences.preset === preset.basePreset) &&
     (!preset.backgroundBuiltin ||
       (preferences.background === "image" &&

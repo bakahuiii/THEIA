@@ -1,0 +1,82 @@
+/* The embedded renderer is a background layer, never an interactive chrome
+ * surface. The runtime listens at window level and ignores UI targets. */
+.theia-parallax-scene-host {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: #fff;
+  contain: layout paint;
+}
+
+.theia-parallax-scene-host > .scene {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #fff;
+  color: #f7f4ee;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.theia-parallax-scene-host .scene__canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  filter: saturate(1.04) contrast(1.015);
+}
+
+/* THEIA owns all controls in the embedded preset. The renderer still keeps
+ * the standalone editor markup so its tested runtime and disposal path stay
+ * intact, but the controls never enter the accessibility tree or hit testing.
+ */
+.theia-parallax-scene-host .tuning-panel,
+.theia-parallax-scene-host .tour-dock,
+.theia-parallax-scene-host .tour-focus,
+.theia-parallax-scene-host .presentation-exit {
+  display: none !important;
+}
+
+/* The app shell has an explicit child z-index rule; this selector wins over it
+ * and keeps the WebGL layer behind the titlebar, sidebar, workspace and modal
+ * surfaces. */
+.app-shell > .theia-parallax-scene-host {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+html[data-scene-preset="parallax-3d"] .app-shell {
+  background: transparent;
+}
+
+html[data-scene-preset="parallax-3d"] .workspace {
+  background: transparent;
+}
+
+html[data-scene-preset="parallax-3d"] .topbar {
+  background: color-mix(in srgb, var(--background) 72%, transparent);
+  backdrop-filter: blur(18px) saturate(1.08);
+}
+
+html[data-scene-preset="parallax-3d"] .content-area {
+  position: relative;
+  z-index: 1;
+}
+
+html[data-scene-preset="parallax-3d"] .app-shell::before,
+html[data-scene-preset="parallax-3d"] .app-shell::after {
+  opacity: 0 !important;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theia-parallax-scene-host .scene__canvas {
+    filter: none;
+  }
+}

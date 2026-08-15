@@ -22,6 +22,7 @@ import { CommunicationsView } from "./views/CommunicationsView";
 import { AdvisorView } from "./views/AdvisorView";
 import { CredentialSetupModal } from "./views/settings/Credentials";
 import { GradientMapFilter } from "./components/GradientMapFilter";
+import { ScenePresetHost } from "./components/ScenePresetHost";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { TooltipProvider } from "./components/ui/tooltip";
 
@@ -32,6 +33,7 @@ export default function App() {
   const gradientMapActive =
     personalization.preferences.background === "image" &&
     personalization.preferences.gradientMap.enabled;
+  const scenePresetActive = personalization.preferences.scene === "parallax-3d";
   if (!app.state)
     return (
       <TooltipProvider>
@@ -76,6 +78,7 @@ export default function App() {
     <div
       className={`app-shell view-${app.view}${app.sidebarCollapsed ? " sidebar-is-collapsed" : ""}`}
     >
+      <ScenePresetHost active={scenePresetActive} />
       <TitleBar />
       <div className="app-body">
       <AppSidebar
