@@ -28,6 +28,7 @@ import {
 } from '../core/catalog-provenance.mjs'
 import { defaultDataRoot, legacyDataRoot, migrateLegacyDataFiles, rebaseLegacyWorkspacePaths } from '../core/runtime-paths.mjs'
 import { parseJwHomepage } from '../core/parsers/jwglxt.mjs'
+import { JWGLXT_EXTRA_DOMAIN_NAMES } from '../core/jwglxt-extra.mjs'
 import { parseTheolHome } from '../core/parsers/theol.mjs'
 import { CredentialVault } from './credential-vault.mjs'
 import { AcademicApiVault } from './academic-api-vault.mjs'
@@ -51,7 +52,7 @@ import { renderMarkdownToPdf } from './pdf-renderer.mjs'
 import { updateSettingsTransaction } from '../core/settings-transaction.mjs'
 import { normalizeModelServiceBaseUrl } from '../core/model-url-policy.mjs'
 import { normalizeModelProvider } from '../core/model-provider-policy.mjs'
-import { compactError, sanitizeDiagnosticValue } from '../core/util.mjs'
+import { compactError, htmlLooksLikeLogin, sanitizeDiagnosticValue } from '../core/util.mjs'
 import { createTrustedIpc } from './ipc-security.mjs'
 import { mainRendererCsp } from './renderer-security.mjs'
 import { CALENDAR_ASSET_PROTOCOL, calendarAssetUrl, parseCalendarAssetUrl } from './calendar-asset-protocol.mjs'
@@ -59,22 +60,39 @@ import { advisorAcademicWhatIfFromStore, advisorCourseDecisionsFromStore, adviso
 import { ADVISOR_ACTION_ERROR, advisorActionFailure, assertAdvisorSnapshotRevision, resolveAdvisorActionFromStore } from './advisor-action-service.mjs'
 import { AdvisorRuntime } from './advisor-runtime.mjs'
 import { AdvisorStore } from './advisor-store.mjs'
+import { loadTrustedUpgradeRule } from './advisor-upgrade-rule.mjs'
+import {
+  registerAdvisorReadIpc,
+  registerAppearanceIpc,
+  registerCourseSelectionIpc,
+  registerCourseWorkQueueIpc,
+  registerMailboxIpc,
+  registerModelRuntimeIpc,
+  registerWindowIpc,
+} from './ipc-registration.mjs'
+import { createPriorityJobQueue } from './priority-job-queue.mjs'
+import { BACKGROUND_PROTOCOL, createAppearanceService } from './appearance-service.mjs'
+import { createAuthActorManager } from './auth-actor-manager.mjs'
+import { CourseWorkQueue } from '../core/course-work-queue.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const PARTITION = 'persist:theia'
 const MAIL_PARTITION = 'persist:theia-mail'
 const APP_ICON = resolve(import.meta.dirname, 'theia-icon.ico')
-const BACKGROUND_PROTOCOL = 'theia-background'
-const BACKGROUND_HOST = 'local'
-const BACKGROUND_DIRECTORY = resolve(defaultDataRoot(), 'appearance')
-const APPEARANCE_PRESET_SCHEMA = 'theia-appearance-presets/v1'
 const smokeFile = process.env.THEIA_SMOKE_FILE ? resolve(process.env.THEIA_SMOKE_FILE) : null
 const inspectionOutput = process.env.THEIA_INSPECT_OUTPUT ? resolve(process.env.THEIA_INSPECT_OUTPUT) : null
 const pageCaptureOutput = process.env.THEIA_CAPTURE_OUTPUT ? resolve(process.env.THEIA_CAPTURE_OUTPUT) : null
+const theolMobileDiagnosticOutput = process.env.THEIA_EXPORT_THEOL_MOBILE_OUTPUT
+  ? resolve(process.env.THEIA_EXPORT_THEOL_MOBILE_OUTPUT)
+  : null
 app.setName('THEIA')
 app.setAppUserModelId('io.github.bakahuiii.theia')
 app.setPath('userData', defaultDataRoot())
 app.setPath('sessionData', resolve(app.getPath('userData'), 'session'))
+const appearanceService = createAppearanceService({
+  root: app.getPath('userData'),
+  onDiagnostic: (event, fields) => writeDiagnostic(event, fields),
+})
 protocol.registerSchemesAsPrivileged([
   {
     scheme: BACKGROUND_PROTOCOL,
@@ -106,79 +124,6 @@ function suppressNativeMenu(window) {
 
 app.on('browser-window-created', (_event, window) => suppressNativeMenu(window))
 
-function imageMediaType(filename) {
-  switch (extname(filename).toLowerCase()) {
-    case '.png': return 'image/png'
-    case '.jpg':
-    case '.jpeg': return 'image/jpeg'
-    case '.webp': return 'image/webp'
-    case '.gif': return 'image/gif'
-    case '.avif': return 'image/avif'
-    default: return 'application/octet-stream'
-  }
-}
-
-function backgroundAssetUrl(filename) {
-  return `${BACKGROUND_PROTOCOL}://${BACKGROUND_HOST}/${encodeURIComponent(filename)}`
-}
-
-function appearancePresetFile() {
-  return resolve(app.getPath('userData'), 'appearance', 'presets.json')
-}
-
-async function readAppearancePresets() {
-  try {
-    const raw = await readFile(appearancePresetFile(), 'utf8')
-    const parsed = JSON.parse(raw)
-    return {
-      exists: true,
-      updatedAt: typeof parsed?.updatedAt === 'string' ? parsed.updatedAt : null,
-      presets: Array.isArray(parsed?.presets) ? parsed.presets : [],
-    }
-  } catch (error) {
-    if (error?.code === 'ENOENT') {
-      return { exists: false, updatedAt: null, presets: [] }
-    }
-    void writeDiagnostic('appearance.presets_read_failed', { error: diagnosticError(error) })
-    return { exists: false, updatedAt: null, presets: [] }
-  }
-}
-
-async function writeAppearancePresets(value) {
-  const presets = Array.isArray(value) ? value.slice(0, 16) : []
-  const record = {
-    schema: APPEARANCE_PRESET_SCHEMA,
-    updatedAt: new Date().toISOString(),
-    presets,
-  }
-  const destination = appearancePresetFile()
-  await mkdir(dirname(destination), { recursive: true })
-  const temporary = `${destination}.${randomUUID()}.tmp`
-  await writeFile(temporary, `${JSON.stringify(record, null, 2)}\n`, 'utf8')
-  await rm(destination, { force: true })
-  await rename(temporary, destination)
-  return record
-}
-
-async function handleBackgroundAsset(request) {
-  try {
-    const url = new URL(request.url)
-    const filename = decodeURIComponent(url.pathname.replace(/^\/+/, ''))
-    if (url.hostname !== BACKGROUND_HOST || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(filename)) {
-      return new Response('Not found', { status: 404 })
-    }
-    const contents = await readFile(resolve(BACKGROUND_DIRECTORY, filename))
-    return new Response(contents, {
-      headers: {
-        'Content-Type': imageMediaType(filename),
-        'Cache-Control': 'private, max-age=31536000, immutable',
-      },
-    })
-  } catch {
-    return new Response('Not found', { status: 404 })
-  }
-}
-
 async function handleCalendarAsset(request) {
   const asset = parseCalendarAssetUrl(request.url)
   if (!asset || !academicCalendarAssetsService) return new Response('Not found', { status: 404 })
@@ -199,7 +144,7 @@ async function handleCalendarAsset(request) {
 }
 
 function registerLocalProtocols() {
-  protocol.handle(BACKGROUND_PROTOCOL, handleBackgroundAsset)
+  protocol.handle(BACKGROUND_PROTOCOL, appearanceService.handleBackgroundAsset)
   protocol.handle(CALENDAR_ASSET_PROTOCOL, handleCalendarAsset)
 }
 
@@ -219,15 +164,21 @@ let mailVault
 let mailService
 let webmailService
 let courseWorkService
+let courseWorkQueue
 let modelVault
 let modelService
 let advisorRuntime
 let advisorThreadStore
+let advisorUpgradeRule = null
 let courseSelectionService
 let courseSelectionJournal
 let courseSelectionApiClient
 let academicCalendarAssetsService
 let academicCalendarProbeTimer
+// A calendar refresh may run while the renderer is starting. Keep the
+// in-flight promise visible so consumers can wait for the first authoritative
+// snapshot instead of querying the manifest half-way through a refresh.
+let academicCalendarRefreshInFlight = null
 let smokeCompleted = false
 let requestedExitCode = 0
 const modelProbeTickets = new ModelProbeTickets()
@@ -244,6 +195,8 @@ const SYNC_DOMAIN_TARGETS = Object.freeze({
   'jwglxt-notices': { source: 'jwglxt', domain: 'notices' },
   'theol-courses': { source: 'theol', domain: 'courses' },
   'theol-notices': { source: 'theol', domain: 'notices' },
+  'academic-extras': { source: 'jwglxt', domain: 'academic-extras' },
+  ...Object.fromEntries(JWGLXT_EXTRA_DOMAIN_NAMES.map((domain) => [domain, { source: 'jwglxt', domain }])),
 })
 
 const ipcMain = createTrustedIpc({
@@ -257,30 +210,20 @@ const ipcMain = createTrustedIpc({
 let shutdownPromise = null
 let shutdownComplete = false
 let syncPageWindow
-let syncPageJobRunning = false
-const syncPageJobQueue = []
-function drainSyncPageQueue() {
-  if (syncPageJobRunning || syncPageJobQueue.length === 0) return
-  syncPageJobQueue.sort((a, b) => b.priority - a.priority)
-  const { fn, resolve, reject } = syncPageJobQueue.shift()
-  syncPageJobRunning = true
-  fn().then(resolve, reject).finally(() => { syncPageJobRunning = false; drainSyncPageQueue() })
-}
+const syncPageQueue = createPriorityJobQueue()
 let fitnessPageWindow
-let fitnessPageJobRunning = false
-const fitnessPageJobQueue = []
-function drainFitnessPageQueue() {
-  if (fitnessPageJobRunning || fitnessPageJobQueue.length === 0) return
-  fitnessPageJobQueue.sort((a, b) => b.priority - a.priority)
-  const { fn, resolve, reject } = fitnessPageJobQueue.shift()
-  fitnessPageJobRunning = true
-  fn().then(resolve, reject).finally(() => { fitnessPageJobRunning = false; drainFitnessPageQueue() })
-}
+const fitnessPageQueue = createPriorityJobQueue()
 let pageCaptureIndex = 0
 const preloadErrors = []
 const verifiedSessions = { jwglxt: null, theol: null, tygl: null }
 
-async function refreshAcademicCalendarAssets({ force = false, trigger = 'scheduled' } = {}) {
+function refreshAcademicCalendarAssets({ force = false, trigger = 'scheduled' } = {}) {
+  if (academicCalendarRefreshInFlight) return academicCalendarRefreshInFlight
+  if (!force && academicCalendarAssetsService && !academicCalendarAssetsService.needsRefresh()) {
+    void writeDiagnostic('academic_calendar.refresh_skipped', { trigger, reason: 'cache_healthy' })
+    return Promise.resolve(academicCalendarAssetsService.snapshot())
+  }
+  const run = (async () => {
   const startedAt = Date.now()
   const attemptedAt = new Date(startedAt).toISOString()
   const runId = randomUUID()
@@ -308,8 +251,12 @@ async function refreshAcademicCalendarAssets({ force = false, trigger = 'schedul
     sendSnapshot()
     throw error
   }
+  })()
+  academicCalendarRefreshInFlight = run
+  return run.finally(() => {
+    if (academicCalendarRefreshInFlight === run) academicCalendarRefreshInFlight = null
+  })
 }
-const authPendingSources = new Set()
 const credentialAttempts = new Map()
 const sourceWindows = new Set()
 const pendingSourceOpens = []
@@ -318,7 +265,6 @@ let feedWrite = Promise.resolve()
 let explicitlyLoggedOut = false
 let authEpoch = 0
 const AUTH_SOURCES = ['jwglxt', 'theol', 'tygl']
-const authActors = new Map()
 let theolInteractiveActor = null
 const authRecovery = Object.fromEntries(AUTH_SOURCES.map((source) => [source, {
   lastAt: 0,
@@ -330,9 +276,36 @@ const AUTH_RECOVERY_COOLDOWN_MS = 60_000
 const AUTH_RECOVERY_MAX_ATTEMPTS = 3
 const AUTH_BACKGROUND_TIMEOUT_MS = 180_000
 // CAS invalidates or overwrites the shared browser session when two campus
-// entry points authenticate at once. Serialize actor lifecycles globally so
-// a second source never opens until the first source has completed or closed.
-let authActorQueue = Promise.resolve()
+// entry points authenticate at once. The actor manager serializes lifecycles
+// globally while keeping source-specific browser behavior in this process.
+const authActorManager = createAuthActorManager({
+  sources: AUTH_SOURCES,
+  getEpoch: () => authEpoch,
+  isExplicitlyLoggedOut: () => explicitlyLoggedOut,
+  run: (actor) => runAuthActor(actor),
+  finish: (actor) => finishAuthActor(actor),
+  onFailure: (error, actor) => {
+    if (!actor.invalidated && actor.epoch === authEpoch) {
+      void writeDiagnostic('auth.actor_failed', { source: actor.source, error: diagnosticError(error) })
+    }
+  },
+  createActor: (source, options) => ({
+    ...options,
+    source,
+    pollTimer: null,
+    pollActive: false,
+    timeoutTimer: null,
+    credentialTimers: new Set(),
+    lastPollError: null,
+    resumeAssignments: null,
+    sessionReused: false,
+    userInitiated: Boolean(options.userInitiated),
+    requireBrowser: Boolean(options.requireBrowser),
+    skipSync: Boolean(options.skipSync),
+  }),
+})
+const authActors = authActorManager.actors
+const authPendingSources = authActorManager.pendingSources
 
 function schoolScheduleArchiveTerms() {
   const snapshot = store?.snapshot()
@@ -469,6 +442,7 @@ async function finishSmoke(result) {
   if (!smokeFile || smokeCompleted) return
   smokeCompleted = true
   const report = {
+    schema: 'theia-packaged-smoke/v1',
     ...result,
     preloadErrors,
     versions: process.versions,
@@ -591,6 +565,58 @@ async function inspectAuthenticatedPages() {
     result.tyglFitness = { error: diagnosticError(error) }
   }
   await writeFile(resolve(inspectionOutput, 'meta.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8')
+}
+
+function redactDiagnosticSessionValues(value) {
+  if (Array.isArray(value)) return value.map(redactDiagnosticSessionValues)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [
+    key,
+    /^(?:sessionid|session|token|ticket)$/iu.test(key) ? '[REDACTED]' : redactDiagnosticSessionValues(entry),
+  ]))
+}
+
+async function exportTheolMobileDiagnostic() {
+  if (!theolMobileDiagnosticOutput) return
+  const browserSession = session.fromPartition(PARTITION)
+  await browserSession.setProxy({ mode: 'direct' })
+  const client = new SessionClient(browserSession)
+  const endpoint = 'http://course.buct.edu.cn/mobile/stuUnDoTaskList.do'
+  const cookieSummary = (cookies) => cookies.map((cookie) => ({
+    name: cookie.name,
+    domain: cookie.domain,
+    path: cookie.path,
+    secure: Boolean(cookie.secure),
+    httpOnly: Boolean(cookie.httpOnly),
+  }))
+  const [httpCookies, httpsCookies] = await Promise.all([
+    browserSession.cookies.get({ url: endpoint }),
+    browserSession.cookies.get({ url: endpoint.replace(/^http:/, 'https:') }),
+  ])
+  const result = await client.request(endpoint, {}, {
+    source: 'THEOL mobile pending tasks',
+    allowLogin: true,
+  })
+  let payload
+  try {
+    payload = JSON.parse(result.text)
+  } catch {
+    payload = { responseText: result.text }
+  }
+  const output = {
+    schema: 'theia-diagnostic/theol-mobile-pending-tasks/v1',
+    capturedAt: new Date().toISOString(),
+    endpoint,
+    httpStatus: result.response.status,
+    sessionCookies: {
+      http: cookieSummary(httpCookies),
+      https: cookieSummary(httpsCookies),
+    },
+    payload: redactDiagnosticSessionValues(payload),
+  }
+  await mkdir(dirname(theolMobileDiagnosticOutput), { recursive: true })
+  await writeFile(theolMobileDiagnosticOutput, `${JSON.stringify(output, null, 2)}\n`, 'utf8')
+  console.log(`[THEIA] THEOL mobile diagnostic written: ${theolMobileDiagnosticOutput}`)
 }
 
 async function rememberVerifiedSession(source, url, expectedEpoch) {
@@ -1189,17 +1215,69 @@ async function loadSourceWindowUrl(window, target, { signal = null } = {}) {
   }
 }
 
-async function createSourceWindow(rawUrl, title = '学校原站', { pauseAssignments = false } = {}) {
+async function createSourceWindow(rawUrl, title = '学校原站', { pauseAssignments = false, show = true } = {}) {
   const url = permittedSourceUrl(rawUrl)
   const source = sourceFromUrl(url)
   if (source === 'theol') return openTheolInteractiveWindow(url, title)
-  const window = new BrowserWindow(sourceWindowOptions({ title }))
+  const window = new BrowserWindow(sourceWindowOptions({ title, show }))
   guardSourceWindow(window, { source, pauseAssignments, upgradeTyglRedirects: source === 'tygl' })
   try {
     await loadSourceWindowUrl(window, url)
     return window
   } catch (error) {
     if (!window.isDestroyed()) window.close()
+    throw error
+  }
+}
+
+async function inspectLoadedSourcePage(window, source, fallbackUrl) {
+  if (!window || window.isDestroyed()) return { authenticated: false, url: fallbackUrl, html: '' }
+  const finalUrl = permittedSourceUrl(window.webContents.getURL() || fallbackUrl)
+  const html = await window.webContents.executeJavaScript('document.documentElement?.outerHTML || ""')
+  const loginUrl = /experimental-auth-endpoint|(?:^|\/)login(?:[._/?#]|$)|login_slogin/i.test(finalUrl)
+  // Parsing the homepage is useful evidence for JWGLXT, but detail pages do
+  // not contain the homepage menu/profile markers. Treat a non-login page on
+  // the expected campus host as authenticated after the explicit login checks.
+  const page = source === 'jwglxt' ? parseJwHomepage(html, finalUrl) : null
+  const loginMarkup = source === 'jwglxt' && page?.loggedIn
+    ? false
+    : htmlLooksLikeLogin(html, finalUrl)
+  const expectedHost = source === 'jwglxt'
+    ? 'jwglxt.buct.edu.cn'
+    : source === 'tygl'
+      ? 'tygl.buct.edu.cn'
+      : new URL(fallbackUrl).hostname
+  const sameCampusHost = new URL(finalUrl).hostname === expectedHost
+  return {
+    authenticated: sameCampusHost && !loginUrl && !loginMarkup,
+    url: finalUrl,
+    html,
+    parserLoggedIn: Boolean(page?.loggedIn),
+  }
+}
+
+async function openAuthenticatedSourceWindow(rawUrl, title = '学校原站', { pauseAssignments = false } = {}) {
+  const url = permittedSourceUrl(rawUrl)
+  const source = sourceFromUrl(url)
+  if (!source || source === 'theol') return createSourceWindow(url, title, { pauseAssignments })
+  const window = await createSourceWindow(url, title, { pauseAssignments, show: false })
+  try {
+    const state = await inspectLoadedSourcePage(window, source, url)
+    if (!state.authenticated) {
+      void writeDiagnostic('source.page_requires_auth', {
+        source,
+        requestedUrl: diagnosticUrl(url),
+        finalUrl: diagnosticUrl(state.url),
+        parserLoggedIn: state.parserLoggedIn,
+      })
+      await closeWindowAndWait(window)
+      return null
+    }
+    window.show()
+    window.focus()
+    return window
+  } catch (error) {
+    await closeWindowAndWait(window)
     throw error
   }
 }
@@ -1244,7 +1322,10 @@ async function openSchedulePdf(expectedEpoch = authEpoch) {
     assertAuthEpoch(epoch)
   }
   if (!status.connected) {
-    await openLoginWindow({ sources: ['jwglxt'], expectedEpoch: epoch })
+    const credentials = await credentialVault.status().catch(() => ({ saved: false }))
+    if (credentials?.saved) {
+      await openLoginWindow({ background: true, sources: ['jwglxt'], expectedEpoch: epoch, requireBrowser: true, skipSync: true })
+    } else await openLoginWindow({ sources: ['jwglxt'], expectedEpoch: epoch })
     assertAuthEpoch(epoch)
     throw new Error('教务系统会话未连接，请完成认证后重试')
   }
@@ -1253,7 +1334,16 @@ async function openSchedulePdf(expectedEpoch = authEpoch) {
     assertAuthEpoch(epoch)
   }
   assertAuthEpoch(epoch)
-  const window = await createSourceWindow(JWGLXT_URLS.schedule, 'THEIA · 教务系统课表')
+  const window = await openAuthenticatedSourceWindow(JWGLXT_URLS.schedule, 'THEIA · 教务系统课表')
+  if (!window) {
+    verifiedSessions.jwglxt = null
+    const credentials = await credentialVault.status().catch(() => ({ saved: false }))
+    if (credentials?.saved) {
+      await openLoginWindow({ background: true, sources: ['jwglxt'], expectedEpoch: epoch, requireBrowser: true, skipSync: true })
+    } else await openLoginWindow({ sources: ['jwglxt'], expectedEpoch: epoch })
+    assertAuthEpoch(epoch)
+    throw new Error('教务系统浏览器会话未连接，请完成认证后重试')
+  }
   assertAuthEpoch(epoch)
   await writeDiagnostic('schedule.pdf_page_opened', { url: diagnosticUrl(window.webContents.getURL() || JWGLXT_URLS.schedule) })
   await waitForSchedulePdfButton(window)
@@ -1604,20 +1694,14 @@ function loadWithFitnessBrowser(url, options = {}) {
 
 function loadSchoolPage(url, options = {}) {
   const priority = typeof options === 'number' ? options : Number(options?.priority) || 0
-  return new Promise((resolve, reject) => {
-    const signal = typeof options === 'object' ? options?.signal || null : null
-    syncPageJobQueue.push({ fn: () => loadWithSchoolBrowser(url, { signal }), resolve, reject, priority })
-    drainSyncPageQueue()
-  })
+  const signal = typeof options === 'object' ? options?.signal || null : null
+  return syncPageQueue.enqueue(() => loadWithSchoolBrowser(url, { signal }), { priority })
 }
 
 function loadFitnessBrowserPage(url, options = {}) {
   const priority = typeof options === 'number' ? options : Number(options?.priority) || 0
-  return new Promise((resolve, reject) => {
-    const signal = typeof options === 'object' ? options?.signal || null : null
-    fitnessPageJobQueue.push({ fn: () => loadWithFitnessBrowser(url, { signal }), resolve, reject, priority })
-    drainFitnessPageQueue()
-  })
+  const signal = typeof options === 'object' ? options?.signal || null : null
+  return fitnessPageQueue.enqueue(() => loadWithFitnessBrowser(url, { signal }), { priority })
 }
 
 async function loadFitnessPageWithSchoolBrowser({ year } = {}) {
@@ -1702,10 +1786,7 @@ async function loadFitnessPageWithSchoolBrowser({ year } = {}) {
 }
 
 function loadFitnessPage(options) {
-  return new Promise((resolve, reject) => {
-    fitnessPageJobQueue.push({ fn: () => loadFitnessPageWithSchoolBrowser(options), resolve, reject, priority: 2 })
-    drainFitnessPageQueue()
-  })
+  return fitnessPageQueue.enqueue(() => loadFitnessPageWithSchoolBrowser(options), { priority: 2 })
 }
 
 const FITNESS_YEAR_KEY = /^20\d{2}-20\d{2}_\d+$/
@@ -1891,18 +1972,12 @@ async function submitWithFitnessBrowser(rawUrl, values, { referer } = {}) {
 }
 
 function submitSchoolForm(url, values, options) {
-  return new Promise((resolve, reject) => {
-    syncPageJobQueue.push({ fn: () => submitWithSchoolBrowser(url, values, options), resolve, reject, priority: 0 })
-    drainSyncPageQueue()
-  })
+  return syncPageQueue.enqueue(() => submitWithSchoolBrowser(url, values, options), { priority: 0 })
 }
 
 function submitFitnessForm(url, values, options = {}) {
   const priority = Number(options?.priority) || 0
-  return new Promise((resolve, reject) => {
-    fitnessPageJobQueue.push({ fn: () => submitWithFitnessBrowser(url, values, options), resolve, reject, priority })
-    drainFitnessPageQueue()
-  })
+  return fitnessPageQueue.enqueue(() => submitWithFitnessBrowser(url, values, options), { priority })
 }
 
 async function flushPendingSourceOpens(source, epoch = authEpoch) {
@@ -1948,11 +2023,34 @@ async function openSourceWindow(rawUrl, { title = '学校原站', expectedEpoch 
           assertAuthEpoch(epoch)
         }
       }
-      if (!status.connected) {
+      // A configured academic API authenticates its own cookie jar and cannot
+      // prove that an Electron source window is authenticated. Probe the
+      // actual page in the shared browser partition before showing it. This
+      // also recovers a healthy browser session that was not remembered yet.
+      if (source !== 'theol') {
+        const opened = await openAuthenticatedSourceWindow(url, title, { pauseAssignments: false })
+        assertAuthEpoch(epoch)
+        if (opened) {
+          if (!verifiedSessions[source]) {
+            await rememberVerifiedSession(source, opened.webContents.getURL() || status.url || url, epoch)
+            assertAuthEpoch(epoch)
+          }
+          resumeAssignments?.({ schedule: false })
+          return true
+        }
+      }
+      if (!status.connected || source !== 'theol') {
         resumeAssignments?.({ schedule: false })
         assertAuthEpoch(epoch)
         pendingSourceOpens.push({ source, url, title })
-        await openLoginWindow({ sources: [source], expectedEpoch: epoch })
+        const credentials = await credentialVault.status().catch(() => ({ saved: false }))
+        await openLoginWindow({
+          background: Boolean(credentials?.saved),
+          sources: [source],
+          expectedEpoch: epoch,
+          requireBrowser: source === 'jwglxt',
+          skipSync: true,
+        })
         assertAuthEpoch(epoch)
         return true
       }
@@ -1978,15 +2076,8 @@ async function openSourceWindow(rawUrl, { title = '学校原站', expectedEpoch 
 }
 
 function isCurrentAuthActor(actor, window = actor?.window) {
-  return Boolean(
-    actor
-    && !actor.invalidated
-    && actor.epoch === authEpoch
-    && authActors.get(actor.source) === actor
-    && window
-    && actor.window === window
-    && !window.isDestroyed(),
-  )
+  if (!window) return false
+  return authActorManager.isCurrent(actor, window)
 }
 
 function clearAuthActorTimers(actor) {
@@ -2168,14 +2259,18 @@ async function pollAuthStatus(actor) {
 
 async function sourceAlreadyAuthenticated(actor) {
   if (actor.source === 'tygl') return { connected: await fitnessSessionReady() }
+  if (actor.requireBrowser && actor.source === 'jwglxt') {
+    const adapter = syncService.jwglxt
+    if (typeof adapter.browserStatus === 'function') return adapter.browserStatus()
+    if (typeof adapter.browserAdapter?.status === 'function') return adapter.browserAdapter.status()
+  }
   const verified = await verifiedStatus(actor.source)
   if (verified) return verified
   return syncService[actor.source].status()
 }
 
 async function runAuthActor(actor) {
-  const run = async () => {
-    if (actor.source === 'theol') {
+  if (actor.source === 'theol') {
     actor.resumeAssignments = syncService.pauseAssignmentScan()
     await syncService.waitForAssignmentScan()
     if (actor.invalidated || actor.epoch !== authEpoch) return
@@ -2186,6 +2281,7 @@ async function runAuthActor(actor) {
     const status = await sourceAlreadyAuthenticated(actor)
     if (actor.invalidated || actor.epoch !== authEpoch || authActors.get(actor.source) !== actor) return
     if (status.connected) {
+      actor.sessionReused = true
       if (!verifiedSessions[actor.source] && actor.source !== 'tygl') {
         await rememberVerifiedSession(actor.source, status.url || loginTargetDetails(actor.source).url, actor.epoch)
         if (actor.invalidated || actor.epoch !== authEpoch || authActors.get(actor.source) !== actor) return
@@ -2250,18 +2346,19 @@ async function runAuthActor(actor) {
     void pollAuthStatus(actor)
     actor.resolveOpened()
     if (actor.background) {
-      const timer = setTimeout(() => {
-        actor.credentialTimers.delete(timer)
-        if (isCurrentAuthActor(actor, window)) window.show()
-      }, 1_500)
-      actor.credentialTimers.add(timer)
+      // Saved credentials are an unattended path. Keep the authentication
+      // window hidden while the form and redirects are healthy; only expose
+      // it after the bounded automatic attempt expires so the user can finish
+      // a CAPTCHA, changed form, or other provider-side fallback manually.
       actor.timeoutTimer = setTimeout(() => {
+        actor.timeoutTimer = null
         if (!isCurrentAuthActor(actor, window)) return
-        void writeDiagnostic('auth.background_timeout', {
+        void writeDiagnostic('auth.background_fallback_shown', {
           source: actor.source,
           timeoutMs: AUTH_BACKGROUND_TIMEOUT_MS,
         })
-        void closeWindowAndWait(window)
+        window.show()
+        window.focus()
       }, AUTH_BACKGROUND_TIMEOUT_MS)
     }
     await actor.closed
@@ -2269,12 +2366,8 @@ async function runAuthActor(actor) {
 
   // Holding this lease for the complete THEOL login window lifetime also
   // serializes requests caused by form submission and redirect navigation.
-    if (actor.source === 'theol') await syncService.runTheolExclusive(runLifecycle)
-    else await runLifecycle()
-  }
-  const queued = authActorQueue.catch(() => {}).then(run)
-  authActorQueue = queued.catch(() => {})
-  return queued
+  if (actor.source === 'theol') await syncService.runTheolExclusive(runLifecycle)
+  else await runLifecycle()
 }
 
 async function finishAuthActor(actor) {
@@ -2293,82 +2386,54 @@ async function finishAuthActor(actor) {
   recovery.failures = 0
   if (actor.source === 'theol') syncService.enableAssignmentScan({ schedule: false })
   if (actor.source === 'jwglxt' || actor.source === 'theol') {
-    try {
-      // The actor lifecycle (and therefore the THEOL lease) has completed
-      // before source-scoped synchronization is queued here.
-      await syncService.syncNow({ sources: [actor.source] })
-    } catch (error) {
-      if (actor.epoch === authEpoch && !explicitlyLoggedOut) {
-        void writeDiagnostic('sync.post_auth_failed', { source: actor.source, error: diagnosticError(error) })
+    // A saved cookie/session that was already healthy does not need a full
+    // campus scrape every time THEIA starts. Explicit login and a newly
+    // authenticated actor still refresh the fast-path datasets.
+    const shouldRefresh = !actor.skipSync && (actor.userInitiated || !actor.sessionReused)
+    if (!shouldRefresh) {
+      void writeDiagnostic('sync.post_auth_skipped', {
+        source: actor.source,
+        reason: actor.skipSync ? 'source_open' : 'session_reused',
+      })
+    }
+    if (shouldRefresh) {
+      try {
+        // The actor lifecycle (and therefore the THEOL lease) has completed
+        // before source-scoped synchronization is queued here.
+        await syncService.syncNow({ sources: [actor.source] })
+      } catch (error) {
+        if (actor.epoch === authEpoch && !explicitlyLoggedOut) {
+          void writeDiagnostic('sync.post_auth_failed', { source: actor.source, error: diagnosticError(error) })
+        }
       }
     }
   }
   if (actor.epoch === authEpoch && !explicitlyLoggedOut) await flushPendingSourceOpens(actor.source, actor.epoch)
 }
 
-function createAuthActor(source, { background }) {
-  let resolveOpened
-  let resolveClosed
-  const opened = new Promise((resolveOpenedPromise) => { resolveOpened = resolveOpenedPromise })
-  const closed = new Promise((resolveClosedPromise) => { resolveClosed = resolveClosedPromise })
-  const actor = {
-    source,
-    epoch: authEpoch,
-    background,
-    window: null,
-    windows: new Set(),
-    pollTimer: null,
-    pollActive: false,
-    timeoutTimer: null,
-    credentialTimers: new Set(),
-    lastPollError: null,
-    resumeAssignments: null,
-    authenticated: false,
-    invalidated: false,
-    opened,
-    closed,
-    resolveOpened,
-    resolveClosed,
-    lifecycle: null,
-  }
-  authActors.set(source, actor)
-  authPendingSources.add(source)
-  actor.lifecycle = runAuthActor(actor)
-    .catch((error) => {
-      // Never leave callers waiting forever when the initial status check or
-      // queued actor fails before a BrowserWindow exists.
-      actor.resolveOpened()
-      actor.resolveClosed()
-      if (!actor.invalidated && actor.epoch === authEpoch) {
-        void writeDiagnostic('auth.actor_failed', { source, error: diagnosticError(error) })
-      }
-    })
-    .finally(() => finishAuthActor(actor))
-  return actor
-}
-
-async function openLoginWindow({ background = false, sources, expectedEpoch = authEpoch, userInitiated = false } = {}) {
+async function openLoginWindow({ background = false, sources, expectedEpoch = authEpoch, userInitiated = false, requireBrowser = false, skipSync = false } = {}) {
   assertAuthEpoch(expectedEpoch, { allowLoggedOut: userInitiated })
   if (userInitiated) {
     syncService.enable()
     explicitlyLoggedOut = false
+    await courseWorkQueue?.setEnabled(true)
   }
   const requestedSources = Array.isArray(sources) && sources.length
     ? [...new Set(sources.filter((source) => AUTH_SOURCES.includes(source)))]
     : ['theol', 'jwglxt']
   void writeDiagnostic('auth.open_requested', { background, sources: requestedSources })
-  const actors = requestedSources.map((source) => {
-    const current = authActors.get(source)
-    if (current && !current.invalidated && current.epoch === authEpoch) {
-      if (!background && current.window && !current.window.isDestroyed()) {
-        current.window.show()
-        current.window.focus()
-      }
-      return current
-    }
-    return createAuthActor(source, { background })
+  await authActorManager.open({
+    background,
+    requestedSources,
+    expectedEpoch,
+    userInitiated,
+    skipSync: skipSync || (!userInitiated && !background
+      && requestedSources.length === 1 && requestedSources[0] === 'jwglxt'),
+    // The JWGLXT API and the rendered browser use separate cookie jars. Any
+    // JWGLXT login actor must therefore establish the browser session too.
+    requireBrowser: requireBrowser
+      || (requestedSources.includes('jwglxt') && (requestedSources.length === 1 || background)),
   })
-  await Promise.all(actors.map((actor) => actor.opened))
   assertAuthEpoch(expectedEpoch)
 }
 
@@ -2457,6 +2522,19 @@ async function startServices() {
   })
   const calendarManifest = await academicCalendarAssetsService.load()
   await store.update((state) => loadAcademicCalendarCatalog(state, { manifest: calendarManifest, runId: randomUUID() }))
+  // Complete one authoritative refresh before exposing the advisor runtime.
+  // Previously this was fire-and-forget at the end of startup, so an early
+  // question could build a workspace from the old/empty calendar manifest.
+  // A failed refresh is intentionally non-fatal: the catalog layer retains
+  // the last successful calendar and records the failed attempt.
+  if (!smokeFile) {
+    await refreshAcademicCalendarAssets({ trigger: 'startup' })
+      .catch((error) => writeDiagnostic('academic_calendar.refresh_failed', { error: diagnosticError(error) }))
+  }
+  advisorUpgradeRule = await loadTrustedUpgradeRule({
+    root: app.getPath('userData'),
+    onDiagnostic: (event, fields) => writeDiagnostic(event, fields),
+  })
   schoolSession = session.fromPartition(PARTITION)
   // School endpoints stay off the system proxy by default. This avoids routing
   // campus traffic through a local Clash-style port (for example 127.0.0.1:7897)
@@ -2525,16 +2603,30 @@ async function startServices() {
     onDiagnostic: (event, fields) => writeDiagnostic(event, fields),
   })
   const persistedAdvisorThreads = await advisorThreadStore.load()
-  advisorRuntime = new AdvisorRuntime({
-    store,
-    modelService,
-    onDiagnostic: (event, fields) => writeDiagnostic(event, fields),
-    threadStore: advisorThreadStore,
-    initialThreads: persistedAdvisorThreads,
-    onStream: (event) => {
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('theia:advisor:stream', event)
-    },
-  })
+
+  // Rebuild runtime when budgetLevel changes
+  const rebuildAdvisorRuntime = async () => {
+    const advisorBudgetLevel = store.state.settings.advisorConfig?.budgetLevel || 'high'
+    const { ADVISOR_BUDGET_PRESETS } = await import('./advisor-runtime.mjs')
+    const advisorBudget = ADVISOR_BUDGET_PRESETS[advisorBudgetLevel] || ADVISOR_BUDGET_PRESETS.high
+    const currentThreads = Array.from(advisorRuntime?.threads.values() || [])
+    advisorRuntime = new AdvisorRuntime({
+      store,
+      modelService,
+      ensureDataReady: async () => {
+        await academicCalendarRefreshInFlight?.catch(() => undefined)
+      },
+      onDiagnostic: (event, fields) => writeDiagnostic(event, fields),
+      threadStore: advisorThreadStore,
+      initialThreads: currentThreads.length ? currentThreads : persistedAdvisorThreads,
+      onStream: (event) => {
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('theia:advisor:stream', event)
+      },
+      budget: advisorBudget,
+    })
+  }
+
+  await rebuildAdvisorRuntime()
   webmailService = new WebmailService({
     store,
     vault: mailVault,
@@ -2683,13 +2775,65 @@ async function startServices() {
   void armCourseSelectionSentinel().catch((error) => writeDiagnostic('course_selection.sentinel_resume_failed', { error: diagnosticError(error) }))
   syncService.configureAutoSync(store.state.settings.autoSync, store.state.settings.syncIntervalMinutes)
   mailService.configure(store.state.settings.mail)
+  const notifiedQueueJobs = new Set()
+  let courseWorkQueueReady = false
+  courseWorkQueue = new CourseWorkQueue({
+    root: app.getPath('userData'),
+    concurrency: 1,
+    onDiagnostic: (event, fields) => writeDiagnostic(event, fields),
+    onChange: (queueSnapshot) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('theia:course-work-queue', queueSnapshot)
+      for (const job of queueSnapshot.jobs || []) {
+        if (!job.completedAt || !['succeeded', 'failed', 'cancelled'].includes(job.status)) continue
+        const notificationKey = `${job.id}:${job.status}:${job.updatedAt}`
+        if (notifiedQueueJobs.has(notificationKey)) continue
+        notifiedQueueJobs.add(notificationKey)
+        if (courseWorkQueueReady && Notification.isSupported()) {
+          const title = job.status === 'succeeded' ? 'THEIA · 课程任务完成' : 'THEIA · 课程任务未完成'
+          new Notification({
+            title,
+            body: `${job.assignmentId} · ${job.lastError || '本地结果已保存'}`.slice(0, 500),
+            silent: false,
+          }).show()
+        }
+      }
+    },
+    processor: async ({ job, signal }) => {
+      const epoch = authEpoch
+      const assertCurrent = () => {
+        if (signal.aborted) throw signal.reason || new Error('后台课程任务已取消')
+        assertAuthEpoch(epoch)
+      }
+      assertCurrent()
+      let result
+      if (job.operation === 'prepare') {
+        result = await syncService.runTheolInteraction(() => {
+          assertCurrent()
+          return courseWorkService.prepare(job.assignmentId)
+        })
+      } else if (job.operation === 'model') {
+        result = await modelService.process(job.assignmentId, store.snapshot().settings)
+      } else if (job.operation === 'notes') {
+        result = await modelService.generateNotes(job.assignmentId, store.snapshot().settings, job.options)
+      } else if (job.operation === 'paper') {
+        result = await modelService.generatePaper(job.assignmentId, store.snapshot().settings, job.options)
+      } else {
+        const error = new Error('不支持的后台课程任务操作')
+        error.retryable = false
+        throw error
+      }
+      assertCurrent()
+      sendSnapshot()
+      return { status: job.operation, message: '本地结果已保存' }
+    },
+  })
+  await courseWorkQueue.load()
+  courseWorkQueueReady = true
   localApi = await startLocalApi({ store, root: app.getPath('userData'), preferredPort: store.state.settings.apiPort, academicCalendarAssetsService })
   if (localApi.port !== store.state.settings.apiPort) {
     await store.update((state) => ({ ...state, settings: { ...state.settings, apiPort: localApi.port } }))
   }
   if (!smokeFile) {
-    void refreshAcademicCalendarAssets({ trigger: 'startup' })
-      .catch((error) => writeDiagnostic('academic_calendar.refresh_failed', { error: diagnosticError(error) }))
     academicCalendarProbeTimer = setInterval(() => {
       void refreshAcademicCalendarAssets({ trigger: 'timer' })
         .catch((error) => writeDiagnostic('academic_calendar.refresh_failed', { error: diagnosticError(error) }))
@@ -2699,6 +2843,17 @@ async function startServices() {
   if (!smokeFile && process.env.THEIA_FULL_SCHOOL_SCHEDULE_SCAN === '1') {
     void scanSchoolScheduleArchive().catch((error) => writeDiagnostic('school_schedule.archive_failed', { error: diagnosticError(error) }))
   }
+
+  registerModelRuntimeIpc({
+    ipcMain,
+    modelService,
+    modelVault,
+    store,
+    getLocalApi: () => localApi,
+    calendarAssetUrl,
+    sendSnapshot,
+  })
+  registerCourseWorkQueueIpc({ ipcMain, queue: courseWorkQueue })
 
   ipcMain.handle('theia:get-snapshot', () => {
     const snapshotStartedAt = Date.now()
@@ -2710,15 +2865,15 @@ async function startServices() {
     })
     return snapshot
   })
-  ipcMain.handle('theia:advisor:get-overview', () => advisorOverviewFromStore(store))
-  ipcMain.handle('theia:advisor:list-threads', () => advisorRuntime.listThreads())
-  ipcMain.handle('theia:advisor:create-thread', () => advisorRuntime.createThread())
-  ipcMain.handle('theia:advisor:prepare', (_event, request) => advisorRuntime.prepare(request))
-  ipcMain.handle('theia:advisor:send', (_event, request) => advisorRuntime.send(request))
-  ipcMain.handle('theia:advisor:cancel', (_event, request) => advisorRuntime.cancel(request))
-  ipcMain.handle('theia:advisor:delete-thread', (_event, threadId) => advisorRuntime.deleteThread(threadId))
-  ipcMain.handle('theia:advisor:academic-what-if', (_event, scenario) => advisorAcademicWhatIfFromStore(store, scenario))
-  ipcMain.handle('theia:advisor:course-decisions', (_event, request) => advisorCourseDecisionsFromStore(store, request))
+  registerAdvisorReadIpc({
+    ipcMain,
+    store,
+    advisorRuntime,
+    advisorOverviewFromStore,
+    getUpgradeRule: () => advisorUpgradeRule,
+    advisorAcademicWhatIfFromStore,
+    advisorCourseDecisionsFromStore,
+  })
   ipcMain.handle('theia:advisor:execute-action', async (_event, request) => {
     const resolution = resolveAdvisorActionFromStore(store, request)
     if (!resolution.ok) return resolution
@@ -2784,36 +2939,23 @@ async function startServices() {
     courseSelectionApiClient = null
     return { ...(await academicApiVault.clear()), enabled: store.snapshot().settings.academicApiEnabled }
   })
-  ipcMain.handle('theia:save-mail-credentials', async (_event, credentials) => {
-    const status = await mailVault.save(credentials || {})
-    if (store.snapshot().settings.mail.enabled) await mailService.poll({ notify: false })
-    return status
-  })
-  ipcMain.handle('theia:clear-mail-credentials', () => mailVault.clear())
-  ipcMain.handle('theia:refresh-mailbox', async () => {
-    await mailService.poll({ notify: false, force: true })
-    sendSnapshot()
-    return store.snapshot()
-  })
-  ipcMain.handle('theia:open-mailbox', () => mailService.open())
-  ipcMain.handle('theia:read-mailbox-message', (_event, id, options) => mailService.readMessage(String(id || ''), options || {}))
-  ipcMain.handle('theia:download-mailbox-attachment', async (_event, id, index) => {
-    const attachment = await mailService.downloadAttachment(String(id || ''), Number(index))
-    const filename = basename(String(attachment.filename || '附件'))
-      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
-      .replace(/^\.+$/, '') || '附件'
-    const chosen = await dialog.showSaveDialog({
-      defaultPath: resolve(app.getPath('downloads'), filename),
-      properties: ['createDirectory', 'showOverwriteConfirmation'],
-    })
-    if (chosen.canceled || !chosen.filePath) return { canceled: true }
-    await writeFile(chosen.filePath, attachment.content)
-    await writeDiagnostic('mail.imap_attachment_saved', { bytes: attachment.content.length })
-    return { canceled: false, filePath: chosen.filePath, filename }
+  registerMailboxIpc({
+    ipcMain,
+    mailVault,
+    mailService,
+    store,
+    dialog,
+    getDownloadsDirectory: () => app.getPath('downloads'),
+    writeFile,
+    resolvePath: resolve,
+    basename,
+    sendSnapshot,
+    writeDiagnostic,
   })
   ipcMain.handle('theia:logout', async () => {
     explicitlyLoggedOut = true
     syncService.disable()
+    await courseWorkQueue?.setEnabled(false)
     authEpoch += 1
     statusChecks.jwglxt = null
     statusChecks.theol = null
@@ -2835,8 +2977,8 @@ async function startServices() {
     authPendingSources.clear()
     credentialAttempts.clear()
     pendingSourceOpens.splice(0)
-    syncPageJobQueue.splice(0).forEach((job) => job.reject(new Error('Explicit logout cancelled the queued school request')))
-    fitnessPageJobQueue.splice(0).forEach((job) => job.reject(new Error('Explicit logout cancelled the queued fitness request')))
+    syncPageQueue.cancelPending(new Error('Explicit logout cancelled the queued school request'))
+    fitnessPageQueue.cancelPending(new Error('Explicit logout cancelled the queued fitness request'))
     const windows = new Set([
       ...actors.map((actor) => actor.window).filter(Boolean),
       ...(interactiveActor ? [...interactiveActor.windows] : []),
@@ -2895,49 +3037,18 @@ async function startServices() {
     }
     return snapshot
   })
-  ipcMain.handle('theia:get-course-selection', () => courseSelectionSnapshot())
-  ipcMain.handle('theia:discover-course-selection', async () => {
-    const portal = await courseSelectionService.discover()
-    return { ...portal, context: undefined }
-  })
-  ipcMain.handle('theia:get-course-selection-candidates', async (_event, blockId, target, options) => courseSelectionService.candidates(String(blockId || ''), target || null, options || {}))
-  ipcMain.handle('theia:search-school-schedule', async (_event, query) => schoolScheduleWithProvenance(query || {}))
-  ipcMain.handle('theia:sync-school-schedule-archive', () => scanSchoolScheduleArchive())
-  ipcMain.handle('theia:get-cached-school-schedule', async (_event, scope) => cachedSchoolScheduleResult(store.snapshot().dataCatalog, scope || null))
-  ipcMain.handle('theia:save-course-selection-target', async (_event, target) => {
-    const record = await courseSelectionJournal.addTarget(target || {})
-    void writeDiagnostic('course_selection.target_saved', { targetCount: record.targets.length })
-    if (record.sentinel?.enabled) await armCourseSelectionSentinel()
-    sendCourseSelectionSnapshot()
-    return courseSelectionSnapshot()
-  })
-  ipcMain.handle('theia:remove-course-selection-target', async (_event, id) => {
-    const record = await courseSelectionJournal.removeTarget(String(id || ''))
-    void writeDiagnostic('course_selection.target_removed', { targetCount: record.targets.length })
-    sendCourseSelectionSnapshot()
-    return courseSelectionSnapshot()
-  })
-  ipcMain.handle('theia:set-course-selection-sentinel', async (_event, config) => {
-    const record = await courseSelectionJournal.setSentinel(config || { enabled: false })
-    if (record.sentinel.enabled) await armCourseSelectionSentinel()
-    else courseSelectionService.stop()
-    void writeDiagnostic('course_selection.sentinel_changed', { enabled: record.sentinel.enabled, startAt: record.sentinel.startAt, endAt: record.sentinel.endAt, concurrency: record.sentinel.concurrency })
-    sendCourseSelectionSnapshot()
-    return courseSelectionSnapshot()
-  })
-  ipcMain.handle('theia:start-course-selection', async (_event, options) => {
-    courseSelectionService.start(options || {})
-    const candidate = options?.candidate
-    if (candidate) await courseSelectionJournal.addTarget({
-      ...candidate, classId: candidate.classId || null, className: candidate.className || null, chosenAt: new Date().toISOString(),
-    })
-    void writeDiagnostic('course_selection.job_started', { targetCount: Array.isArray(options?.targets) ? options.targets.length : Number(Boolean(candidate)) })
-    sendCourseSelectionSnapshot()
-    return courseSelectionSnapshot()
-  })
-  ipcMain.handle('theia:stop-course-selection', () => {
-    courseSelectionService.stop()
-    return courseSelectionSnapshot()
+  registerCourseSelectionIpc({
+    ipcMain,
+    courseSelectionService,
+    courseSelectionJournal,
+    store,
+    cachedSchoolScheduleResult,
+    schoolScheduleWithProvenance,
+    scanSchoolScheduleArchive,
+    armCourseSelectionSentinel,
+    sendCourseSelectionSnapshot,
+    courseSelectionSnapshot,
+    writeDiagnostic,
   })
   ipcMain.handle('theia:get-academic-calendar-assets', () => academicCalendarAssetsService.snapshot())
   ipcMain.handle('theia:refresh-academic-calendar-assets', async (_event, options) => {
@@ -2973,75 +3084,19 @@ async function startServices() {
     assertAuthEpoch(epoch)
     return importFitnessArchive(selectedYear, epoch)
   })
-  // Window controls for frameless mode
-  ipcMain.handle('theia:window-minimize', (event) => {
-    const window = BrowserWindow.fromWebContents(event.sender) || mainWindow
-    window?.minimize()
-  })
-  ipcMain.handle('theia:window-maximize', (event) => {
-    const window = BrowserWindow.fromWebContents(event.sender) || mainWindow
-    if (window?.isMaximized()) window.unmaximize()
-    else window?.maximize()
-  })
-  ipcMain.handle('theia:window-close', (event) => {
-    const window = BrowserWindow.fromWebContents(event.sender) || mainWindow
-    window?.close()
-  })
-  ipcMain.handle('theia:window-is-maximized', (event) => {
-    const window = BrowserWindow.fromWebContents(event.sender) || mainWindow
-    return window?.isMaximized() ?? false
-  })
+  registerWindowIpc({ ipcMain, BrowserWindow, getMainWindow: () => mainWindow })
 
-  // ── Appearance ──────────────────────────────────────────────────────────
-  // Zoom
-  ipcMain.handle('theia:zoom:get', (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    const level = win && !win.isDestroyed() ? win.webContents.getZoomLevel() : 0
-    const percent = Math.round(Math.pow(1.2, level) * 100)
-    return { level, percent }
-  })
-  ipcMain.on('theia:zoom:set-percent', (event, percent) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win || win.isDestroyed()) return
-    const level = Math.log(Number(percent) / 100) / Math.log(1.2)
-    win.webContents.setZoomLevel(Math.max(-3, Math.min(3, level)))
-  })
-  // Dark mode toggle — sends 'dark' | 'light' to renderer via store
-  ipcMain.on('theia:appearance:mode', (_event, mode) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('theia:appearance:mode', mode)
-    }
-  })
-  ipcMain.handle('theia:select-app-background', async (event) => {
-    const owner = BrowserWindow.fromWebContents(event.sender) || mainWindow
-    const selected = await dialog.showOpenDialog(owner, {
-      title: '选择 THEIA 客户端背景图片',
-      properties: ['openFile'],
-      filters: [
-        { name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif'] },
-        { name: '所有文件', extensions: ['*'] },
-      ],
-    })
-    const filePath = selected.filePaths[0]
-    if (selected.canceled || !filePath) return { canceled: true }
-    const extension = extname(filePath).toLowerCase()
-    if (!['.png', '.jpg', '.jpeg', '.webp', '.gif', '.avif'].includes(extension)) {
-      throw new Error('请选择 PNG、JPG、WebP、GIF 或 AVIF 图片')
-    }
-    await mkdir(BACKGROUND_DIRECTORY, { recursive: true })
-    const filename = `background-${Date.now()}${extension}`
-    await copyFile(filePath, resolve(BACKGROUND_DIRECTORY, filename))
-    return {
-      canceled: false,
-      url: backgroundAssetUrl(filename),
-      name: basename(filePath),
-    }
-  })
-  ipcMain.handle('theia:appearance-presets:get', () => readAppearancePresets())
-  ipcMain.handle('theia:appearance-presets:save', async (_event, presets) => {
-    const record = await writeAppearancePresets(presets)
-    void writeDiagnostic('appearance.presets_saved', { count: record.presets.length })
-    return { updatedAt: record.updatedAt, presets: record.presets }
+  registerAppearanceIpc({
+    ipcMain,
+    BrowserWindow,
+    dialog,
+    getMainWindow: () => mainWindow,
+    appearanceService,
+    copyFile,
+    mkdir,
+    basename,
+    extname,
+    writeDiagnostic,
   })
   ipcMain.handle('theia:open-schedule-pdf', () => openSchedulePdf(authEpoch))
   ipcMain.handle('theia:prepare-course-work', async (_event, assignmentId) => {
@@ -3111,7 +3166,6 @@ async function startServices() {
     sendSnapshot()
     return { snapshot, ...result }
   })
-  ipcMain.handle('theia:get-model-status', () => modelService.status(store.snapshot().settings))
   ipcMain.handle('theia:discover-models', async (_event, config) => {
     const next = config && typeof config === 'object' ? config : {}
     const baseUrl = normalizeModelServiceBaseUrl(next.baseUrl)
@@ -3141,14 +3195,35 @@ async function startServices() {
     const provider = normalizeModelProvider(next.provider)
     if (baseUrl.length > 1_000 || requestedModel.length > 300) throw new Error('Model service configuration is too long')
     const explicitApiKey = typeof next.apiKey === 'string' ? next.apiKey.trim() : ''
-    const models = modelProbeTickets.consume({
-      probeId: String(next.probeId || ''),
-      baseUrl,
-      apiKey: explicitApiKey,
-      modelName: requestedModel,
-      allowManualModel: next.allowManualModel,
-      provider,
-    })
+    const probeId = String(next.probeId || '').trim()
+    let models
+    if (probeId) {
+      models = modelProbeTickets.consume({
+        probeId,
+        baseUrl,
+        apiKey: explicitApiKey,
+        modelName: requestedModel,
+        allowManualModel: next.allowManualModel,
+        provider,
+      })
+    } else {
+      // A settings-only edit must not force the user to probe the same
+      // service again. Reuse is allowed only when the service identity and
+      // selected model are unchanged, no new key is supplied, and the
+      // existing binding can still be read. Any service change still fails
+      // closed and requires a fresh probe ticket.
+      const currentSettings = store.snapshot().settings || {}
+      const currentBaseUrl = normalizeModelServiceBaseUrl(currentSettings.modelBaseUrl)
+      const sameService = currentBaseUrl === baseUrl
+        && normalizeModelProvider(currentSettings.modelProvider) === provider
+        && String(currentSettings.modelName || '').trim() === requestedModel
+      if (!sameService || explicitApiKey) {
+        throw new Error('修改了模型地址、协议、模型或 API Key，请先检测连接再保存')
+      }
+      if (provider !== 'ollama-chat') await modelVault.readApiKey(baseUrl)
+      models = Array.isArray(currentSettings.modelModels) ? [...currentSettings.modelModels] : []
+      if (!models.includes(requestedModel)) models.push(requestedModel)
+    }
     const modelName = preferredModel(models, requestedModel)
     if (!modelName) throw new Error('No selectable model was detected. Enter a model ID manually.')
     await saveModelConfigTransaction({
@@ -3158,30 +3233,17 @@ async function startServices() {
       modelName,
       models,
       modelRouting: next.modelRouting,
+      advisorConfig: next.advisorConfig,
       modelProvider: provider,
       allowKeyless: provider === 'ollama-chat' && !explicitApiKey,
       apiKey: explicitApiKey,
       publishSnapshot: sendSnapshot,
     })
+    // Rebuild advisor runtime if budgetLevel changed
+    if (next.advisorConfig?.budgetLevel && next.advisorConfig.budgetLevel !== store.snapshot().settings.advisorConfig?.budgetLevel) {
+      await rebuildAdvisorRuntime()
+    }
     return modelService.status(store.snapshot().settings)
-  })
-  ipcMain.handle('theia:clear-model-api-key', async () => modelVault.clear())
-  ipcMain.handle('theia:cancel-model-requests', () => ({ cancelled: modelService.cancelAll() }))
-  ipcMain.handle('theia:get-api-status', () => ({
-    baseUrl: localApi.baseUrl,
-    port: localApi.port,
-    host: '127.0.0.1',
-    academicCalendarAssets: {
-      calendar: calendarAssetUrl('calendar'),
-      teachingSchedule: calendarAssetUrl('teachingSchedule'),
-      weeklyCalendar: calendarAssetUrl('weeklyCalendar'),
-    },
-  }))
-  ipcMain.handle('theia:validate-model-connection', () => modelService.validate(store.snapshot().settings))
-  ipcMain.handle('theia:process-course-work-with-model', async (_event, assignmentId) => {
-    const result = await modelService.process(assignmentId, store.snapshot().settings)
-    sendSnapshot()
-    return result.snapshot
   })
   ipcMain.handle('theia:render-answer-pdf', async (_event, assignmentId) => {
     const workspace = courseWorkService.validatedWorkspace(assignmentId)
@@ -3512,10 +3574,20 @@ async function shutdownServices() {
     if (academicCalendarProbeTimer) clearInterval(academicCalendarProbeTimer)
     modelService?.cancelAll()
     advisorRuntime?.cancelAll()
+    syncPageQueue.cancelPending(new Error('Application shutdown cancelled the queued school request'))
+    fitnessPageQueue.cancelPending(new Error('Application shutdown cancelled the queued fitness request'))
+    courseSelectionService?.stop()
     syncService?.stop()
     mailService?.stop()
     webmailService?.stop()
-    await Promise.allSettled([localApi?.close(), viteServer?.close()])
+    await Promise.allSettled([
+      advisorRuntime?.flush?.(),
+      courseWorkQueue?.close({ cancelRunning: true }),
+      feedWrite,
+      diagnosticWrite,
+      localApi?.close(),
+      viteServer?.close(),
+    ])
     shutdownComplete = true
   })()
   return shutdownPromise
@@ -3528,7 +3600,18 @@ process.on('uncaughtException', (error) => {
   console.error('[THEIA] uncaught exception:', error)
 })
 
-if (inspectionOutput) {
+if (theolMobileDiagnosticOutput) {
+  migrateFromLegacyDir().then(() => app.whenReady()).then(async () => {
+    Menu.setApplicationMenu(null)
+    registerLocalProtocols()
+    await startServices()
+    await autoLoginOnStartup()
+    await exportTheolMobileDiagnostic()
+  }).then(() => app.quit()).catch((error) => {
+    console.error('[THEIA] THEOL mobile diagnostic failed', error)
+    app.exit(1)
+  })
+} else if (inspectionOutput) {
   app.whenReady().then(inspectAuthenticatedPages).then(() => app.quit()).catch((error) => {
     console.error('[THEIA] inspection failed', error)
     app.exit(1)

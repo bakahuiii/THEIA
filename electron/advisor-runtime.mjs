@@ -18,22 +18,61 @@ import {
 export const ADVISOR_THREAD_SCHEMA = 'theia-advisor-thread/v1'
 export const ADVISOR_PREPARED_SCHEMA = 'theia-advisor-prepared-request/v1'
 export const ADVISOR_ANSWER_SCHEMA = 'theia-advisor-answer/v1'
-export const ADVISOR_RUN_BUDGET = Object.freeze({
-  deadlineMs: 300_000,
-  maxModelCalls: 20,
-  maxInputBytes: 200_000,
-  maxInputTokens: 50_000,
-  maxOutputBytes: 512_000,
-  maxOutputTokens: 8_000,
-  maxClaims: 32,
-  maxRecommendations: 8,
+export const ADVISOR_BUDGET_PRESETS = Object.freeze({
+  high: {
+    deadlineMs: 300_000,       // 5min
+    maxModelCalls: 20,
+    maxInputBytes: 200_000,
+    maxInputTokens: 50_000,
+    maxOutputBytes: 512_000,
+    maxOutputTokens: 8_000,
+    maxClaims: 32,
+    maxRecommendations: 8,
+    maxSteps: 15,
+  },
+  xhigh: {
+    deadlineMs: 600_000,       // 10min
+    maxModelCalls: 50,
+    maxInputBytes: 400_000,
+    maxInputTokens: 100_000,
+    maxOutputBytes: 1_024_000,
+    maxOutputTokens: 16_000,
+    maxClaims: 64,
+    maxRecommendations: 16,
+    maxSteps: 30,
+  },
+  max: {
+    deadlineMs: 1_800_000,     // 30min
+    maxModelCalls: 100,
+    maxInputBytes: 800_000,
+    maxInputTokens: 200_000,
+    maxOutputBytes: 2_048_000,
+    maxOutputTokens: 32_000,
+    maxClaims: 128,
+    maxRecommendations: 32,
+    maxSteps: 50,
+  },
+  ultra: {
+    deadlineMs: 3_600_000,     // 60min
+    maxModelCalls: 200,
+    maxInputBytes: 1_600_000,
+    maxInputTokens: 400_000,
+    maxOutputBytes: 4_096_000,
+    maxOutputTokens: 64_000,
+    maxClaims: 256,
+    maxRecommendations: 64,
+    maxSteps: 100,
+  },
 })
+
+// Legacy budget (deprecated, use ADVISOR_BUDGET_PRESETS.high)
+export const ADVISOR_RUN_BUDGET = ADVISOR_BUDGET_PRESETS.high
 
 const PREPARED_TTL_MS = 5 * 60 * 1000
 const MAX_THREADS = 20
 const MAX_THREAD_MESSAGES = 40
 const MAX_THREAD_SUMMARIES = 6
-const READ_ONLY_AGENT_MAX_STEPS = 15
+const READ_ONLY_AGENT_MAX_STEPS_LEGACY = 15
 const MAX_THREAD_HINT_ENTRIES = 2
 const MAX_THREAD_HINT_BYTES = 1_200
 const AGENT_INPUT_BYTES_DEFAULT = 200_000
@@ -528,7 +567,7 @@ export class AdvisorRuntime {
             }
           },
           budget: {
-            maxSteps: Math.max(0, Math.min(READ_ONLY_AGENT_MAX_STEPS, this.budget.maxModelCalls - 1)),
+            maxSteps: Math.max(0, Math.min(this.budget.maxSteps || READ_ONLY_AGENT_MAX_STEPS_LEGACY, this.budget.maxModelCalls - 1)),
             maxInputBytes: agentInputBytesBudget(this.budget),
             maxInputTokens: this.budget.maxInputTokens,
             maxOutputBytes: this.budget.maxOutputBytes,

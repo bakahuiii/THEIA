@@ -1,7 +1,7 @@
 import { Bot, CircleDot, Plus, Trash2, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { bridge, isDesktop } from "../../bridge";
-import type { AdvisorThread } from "../../types";
+import type { AdvisorThread, CampusState } from "../../types";
 import { AdvisorComposer } from "./AdvisorComposer";
 import { AdvisorMessage } from "./AdvisorMessage";
 
@@ -67,6 +67,7 @@ export function AdvisorWorkbench() {
   const [streamText, setStreamText] = useState({ requestId: "", text: "" });
   const [toolSteps, setToolSteps] = useState<ToolStep[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [budgetLevel, setBudgetLevel] = useState<CampusState["settings"]["advisorConfig"]["budgetLevel"]>("high");
   const activeRequestRef = useRef("");
   const activeThreadRef = useRef("");
   const conversationRef = useRef<HTMLOListElement | null>(null);
@@ -113,6 +114,10 @@ export function AdvisorWorkbench() {
     }).catch((caught) => {
       if (!cancelled) setError(advisorErrorText(caught));
     });
+    void bridge.getState().then((state) => {
+      if (cancelled) return;
+      setBudgetLevel(state.settings.advisorConfig?.budgetLevel || "high");
+    }).catch(() => {});
     return () => { cancelled = true; };
   }, []);
 
@@ -269,6 +274,12 @@ export function AdvisorWorkbench() {
         <span className="flex min-w-0 items-center gap-2">
           <span className="advisor-agent-status" title="所有已保存的本地校园数据可由 Agent 按问题读取">
             <CircleDot className="size-3" aria-hidden="true" /> 本地工具就绪
+          </span>
+          <span className="rounded-md border border-[var(--line)] bg-[var(--paper)] px-2 py-1 text-[10px] text-[var(--muted-foreground)]" title="当前预算档位">
+            {budgetLevel === "high" && "High"}
+            {budgetLevel === "xhigh" && "XHigh"}
+            {budgetLevel === "max" && "Max"}
+            {budgetLevel === "ultra" && "Ultra"}
           </span>
           <select
             value={current?.id || ""}

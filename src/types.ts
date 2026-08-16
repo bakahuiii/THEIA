@@ -161,6 +161,102 @@ export interface AcademicProgress {
   capturedAt?: string | null;
 }
 
+export type AcademicOutcome = "passed" | "failed" | "in-progress" | "unknown";
+export type AcademicCreditTreatment =
+  | "normal"
+  | "substitution"
+  | "exemption"
+  | "overage"
+  | "unknown";
+
+export interface GradeAttempt {
+  schema: "theia-grade-attempt/v1";
+  id: string;
+  courseKey: string;
+  courseCode?: string | null;
+  courseName?: string | null;
+  termId?: string | null;
+  attemptIndex: number;
+  outcome: AcademicOutcome;
+  score?: string | null;
+  point?: number | null;
+  credits?: number | null;
+  gpaIncluded: boolean;
+  gpaEligibility?: string | null;
+  creditIncluded?: boolean | null;
+  sourceUrl?: string | null;
+}
+
+export interface AcademicCourseAnalysis {
+  schema: "theia-course-analysis/v1";
+  courseKey: string;
+  courseCode?: string | null;
+  courseName?: string | null;
+  attempts: GradeAttempt[];
+  attemptCount: number;
+  isRetake: boolean;
+  status: AcademicOutcome;
+  representativeAttemptId?: string | null;
+  gpaAttemptId?: string | null;
+  creditAttemptId?: string | null;
+  earnedCredits?: number | null;
+}
+
+export interface AcademicRequirementLedger {
+  id: string;
+  parentId?: string | null;
+  title: string;
+  relation?: "and" | "or" | null;
+  treatment: AcademicCreditTreatment;
+  required?: number | null;
+  earned?: number | null;
+  remaining?: number | null;
+  confidence: "official" | "derived" | "unknown";
+  status: "complete" | "incomplete" | "unknown";
+  allocations: Array<{
+    requirementCourseId: string;
+    courseKey?: string | null;
+    basis: "course-code" | "unique-title" | "unmatched" | "unknown";
+    status: "earned" | "not-earned" | "unknown";
+    credits?: number | null;
+    treatment: AcademicCreditTreatment;
+  }>;
+  alternatives: AcademicRequirementLedger[];
+  children: AcademicRequirementLedger[];
+}
+
+export interface AcademicAnalysis {
+  schema: "theia-academic-analysis/v1";
+  evaluatedAt?: string | null;
+  gpa: {
+    value?: number | null;
+    officialValue?: number | null;
+    computedValue?: number | null;
+    source: "official" | "computed" | "unknown";
+    credits: number;
+    includedCourses: number;
+  };
+  gradeAttempts: GradeAttempt[];
+  courses: AcademicCourseAnalysis[];
+  requirements: {
+    source: "official-tree" | "flat" | "missing";
+    roots: AcademicRequirementLedger[];
+    nodeCount: number;
+  };
+  creditLedger: {
+    earnedCredits: number;
+    earnedCourses: number;
+    attemptedCourses: number;
+    unknownAttempts: number;
+    unknownCredits: number;
+    requirementRoots: AcademicRequirementLedger[];
+  };
+  coverage: {
+    grades: "complete" | "partial" | "missing";
+    requirements: "complete" | "partial" | "missing";
+  };
+}
+
 export interface Assignment {
   id: string;
   kind?: "assignment" | "online-test" | string;
@@ -209,6 +305,32 @@ export interface CourseWorkspace {
   modelProcessedAt?: string | null;
 }
 
+export type CourseWorkQueueJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+
+export interface CourseWorkQueueJob {
+  id: string;
+  dedupeKey: string;
+  assignmentId: string;
+  operation: "prepare" | "model" | "notes" | "paper" | string;
+  options?: { title?: string | null; wordCount?: number };
+  status: CourseWorkQueueJobStatus;
+  attempts: number;
+  maxAttempts: number;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  lastError?: string | null;
+  result?: { status?: string | null; message?: string | null } | null;
+}
+
+export interface CourseWorkQueueSnapshot {
+  schema: "theia-course-work-queue/v1";
+  enabled: boolean;
+  updatedAt: string;
+  jobs: CourseWorkQueueJob[];
+}
+
 export interface Notice {
   id: string;
   title: string;
@@ -236,6 +358,38 @@ export interface EmailMessage {
   capturedAt?: string;
 }
 
+export interface AcademicExtraRecord {
+  id: string;
+  title?: string | null;
+  fields?: Array<{ name?: string | null; label: string; value: string | number }>;
+  [key: string]: unknown;
+}
+
+export interface AcademicExtraDomain {
+  label: string;
+  routeCodes: string[];
+  sourceUrl?: string | null;
+  capturedAt?: string | null;
+  completeness: "complete" | "partial" | "unknown";
+  queryStats: {
+    attempted: number;
+    succeeded: number;
+    failed: number;
+    capped: boolean;
+  };
+  messages?: string[];
+  filters: string[];
+  attachments: Array<{ id: string | null; label: string | null; type: string | null; sourceUrl: string | null }>;
+  records: AcademicExtraRecord[];
+}
+
+export interface AcademicExtras {
+  schema: string;
+  capturedAt: string | null;
+  parserVersion: string;
+  domains: Record<string, AcademicExtraDomain>;
+}
+
 export interface CampusState {
   schema: string;
   appVersion: string;
@@ -249,6 +403,7 @@ export interface CampusState {
   grades: Grade[];
   selectedCourses: SelectedCourse[];
   academicProgress: AcademicProgress | null;
+  academicExtras?: AcademicExtras;
   assignments: Assignment[];
   workspaces: CourseWorkspace[];
   notices: Notice[];
@@ -324,6 +479,13 @@ export interface CampusState {
       courseworkModel: string | null;
       fallbackModel: string | null;
     };
+    advisorConfig: {
+      reasoningEffort: "none" | "low" | "medium" | "high" | "xhigh" | "max";
+      responseStyle: "direct" | "balanced" | "detailed";
+      responseLength: "adaptive" | "short" | "standard" | "detailed";
+      temperature: number;
+      budgetLevel: "high" | "xhigh" | "max" | "ultra";
+    };
   };
 }
 
@@ -371,7 +533,23 @@ export type SyncRetryDomain =
   | "mailbox"
   | "academic-calendar"
   | "fitness"
-  | "school-schedule";
+  | "school-schedule"
+  | "academic-extras"
+  | "academic-plan"
+  | "academic-warning"
+  | "graduation-audit"
+  | "grade-details"
+  | "exam-extra"
+  | "free-classroom"
+  | "jwglxt-school-schedule"
+  | "weekly-schedule"
+  | "thesis"
+  | "profile-extra"
+  | "academic-workflows"
+  | "student-status"
+  | "student-workflows"
+  | "selection-workflows"
+  | "evaluation";
 
 export interface ModelStatus {
   configured: boolean;
@@ -387,6 +565,7 @@ export interface ModelStatus {
   models?: string[];
   serviceIdentity?: string;
   modelRouting?: CampusState["settings"]["modelRouting"];
+  advisorConfig?: CampusState["settings"]["advisorConfig"];
 }
 
 export interface ActivityLogEntry {
@@ -400,6 +579,23 @@ export type AdvisorAvailability = "available" | "empty-confirmed" | "absent" | "
 export type AdvisorFreshness = "fresh" | "stale" | "unknown";
 export type AdvisorCompleteness = "complete" | "partial" | "unknown";
 
+export interface AdvisorSourceAttempt {
+  source: string[];
+  attemptedAt: string | null;
+  completedAt: string | null;
+  capturedAt: string | null;
+  sourceSucceededAt: string | null;
+  status: "never" | "not-attempted" | "succeeded" | "failed" | "auth-required";
+  completeness: AdvisorCompleteness;
+  retainedPrevious: boolean;
+  errorCode: string | null;
+  parserVersion: string | null;
+  receivedRecordCount: number | null;
+  previousRecordCount: number | null;
+  successfulTermIds: string[];
+  failedTermIds: string[];
+}
+
 export interface AdvisorDomainQuality {
   domain: string;
   availability: AdvisorAvailability;
@@ -412,6 +608,8 @@ export interface AdvisorDomainQuality {
   parserVersion: string | null;
   recordCount: number;
   contentDigest: string;
+  sourceAttempts: AdvisorSourceAttempt[];
+  derivedFrom: string[];
   lastAttempt: {
     runId: string | null;
     attemptedAt: string | null;
@@ -778,51 +976,15 @@ export interface AdvisorStreamEvent {
   delta: string;
 }
 
-export interface AdvisorModelNarrative {
-  schema: "theia-advisor-model-narrative/v1";
-  blocks: Array<{ claimIds: string[]; referenceIds: string[]; explanation: string }>;
-  recommendations: Array<{ text: string; basedOnClaimIds: string[]; basedOnReferenceIds: string[] }>;
-  uncertainties: string[];
-  questionsForUser: string[];
-  suggestedActionIds: string[];
-}
-
-export interface AdvisorUntrustedReference {
-  schema: "theia-advisor-untrusted-reference/v1";
-  id: string;
-  entityDigest: string;
-  contentDigest: string;
-  scope: "notices" | "mailbox" | "mail-body" | "attachment-text";
-  domain: string;
-  trust: "untrusted";
-  snapshotRevision: string;
-}
-
-export interface AdvisorResolvedAction {
-  id: string;
-  kind: "open-view" | "show-evidence" | "propose-sync-source" | "propose-prepare-workspace" | "propose-save-course-target" | "none";
-  label: string;
-  requiresConfirmation: boolean;
-  proposalId?: string | null;
-}
-
 export interface AdvisorAnswer {
   schema: "theia-advisor-answer/v1";
   requestId: string;
   threadId: string;
   intent: AdvisorIntent;
   snapshotRevision: string;
-  stale: boolean;
-  narrative: AdvisorModelNarrative;
-  claims: AdvisorClaim[];
-  evidence: AdvisorEvidence[];
-  untrustedReferences: AdvisorUntrustedReference[];
-  recommendations: Array<{ id: string; text: string; basedOnClaimIds: string[]; basedOnReferenceIds: string[]; caveats: string[] }>;
-  nextActions: AdvisorResolvedAction[];
-  uncertainties: string[];
-  questionsForUser: string[];
+  rawText: string;
   model: { serviceIdentity: string; modelId: string } | null;
-  usage: { inputTokens?: number; outputTokens?: number; inputBytes: number; outputBytes: number };
+  usage: { inputTokens: number; outputTokens: number; estimated: boolean; inputBytes: number; outputBytes: number };
 }
 
 export type AdvisorThreadMessage =
@@ -1114,14 +1276,8 @@ export interface TheiaBridge {
   prepareAdvisorRequest(request: {
     threadId: string;
     question: string;
-    intent: AdvisorIntent;
-    selectedNoticeIds?: string[];
-    selectedMailIds?: string[];
-    includeMailBodyIds?: string[];
-    agent?: boolean;
-    readableDomains?: string[];
   }): Promise<AdvisorPreparedRequest>;
-  sendAdvisorRequest(request: { requestId: string; approved: boolean; stream?: boolean }): Promise<AdvisorAnswer>;
+  sendAdvisorRequest(request: { requestId?: string; threadId?: string; question?: string }): Promise<AdvisorAnswer>;
   cancelAdvisorRequest(request: { requestId?: string; threadId?: string }): Promise<{ cancelled: boolean; requestId: string | null }>;
   deleteAdvisorThread(threadId: string): Promise<{ deleted: boolean; threadId: string }>;
   onAdvisorStream(callback: (event: AdvisorStreamEvent) => void): () => void;
@@ -1187,6 +1343,16 @@ export interface TheiaBridge {
     filePath?: string;
     bytes?: number;
   }>;
+  getCourseWorkQueue(): Promise<CourseWorkQueueSnapshot>;
+  setCourseWorkQueueEnabled(enabled: boolean): Promise<CourseWorkQueueSnapshot>;
+  enqueueCourseWork(request: {
+    assignmentId: string;
+    operation: "prepare" | "model" | "notes" | "paper";
+    options?: { title?: string; wordCount?: number };
+    dedupeKey?: string;
+    maxAttempts?: number;
+  }): Promise<{ deduplicated: boolean; job: CourseWorkQueueJob; snapshot: CourseWorkQueueSnapshot }>;
+  cancelCourseWorkJob(jobId: string): Promise<CourseWorkQueueSnapshot>;
   prepareCourseWork(assignmentId: string): Promise<CampusState>;
   openCourseWork(assignmentId: string): Promise<boolean>;
   importCourseWorkFile(
@@ -1218,6 +1384,7 @@ export interface TheiaBridge {
     probeId: string;
     allowManualModel?: boolean;
     modelRouting?: CampusState["settings"]["modelRouting"];
+    advisorConfig?: CampusState["settings"]["advisorConfig"];
   }): Promise<ModelStatus>;
   clearModelApiKey(): Promise<ModelStatus>;
   cancelModelRequests(): Promise<{ cancelled: number }>;
@@ -1274,6 +1441,7 @@ export interface TheiaBridge {
   onCourseSelection(
     callback: (snapshot: CourseSelectionSnapshot) => void,
   ): () => void;
+  onCourseWorkQueue(callback: (snapshot: CourseWorkQueueSnapshot) => void): () => void;
   onNewMail(callback: (mail: EmailMessage) => void): () => void;
   windowMinimize?: () => Promise<void>;
   windowMaximize?: () => Promise<void>;
