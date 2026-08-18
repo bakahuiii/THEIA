@@ -1,65 +1,119 @@
 # THEIA
 
-THEIA 是面向北京化工大学校园服务的本地优先 Windows 桌面工作台。
+> THEIA v0.5.0 是面向北京化工大学学生的本地优先 Windows 校园工作台。
 
-## 主要能力
+THEIA 把教务系统、北化在线 THEOL、校园邮箱和本地学习工具放到同一个桌面应用中。它负责读取、整理、计算、提醒和准备操作；学校系统中的最终提交、选课决定和成绩认定仍由用户确认。
 
-- 使用学校统一身份认证浏览器会话访问北化在线 THEOL 和其他校园网页。启用 API 优先级后，也可使用独立加密凭据建立隔离的正方教务 API 会话。
-- 将课表、课程、已选课程、考试、成绩、官方学业进度、通知、作业和在线测试读取为本地规范化快照。
-- 即使北化在线 THEOL 仍显示已截止作业，也会在本地将其过滤。
-- 高优先级教务域可以并发读取，北化在线 THEOL 首页读取可与教务同步并行；主同步完成后，每门课程的 `Course task` 扫描才通过严格串行队列静默执行。
-- 通过隔离的正方教务 API 会话提供选课队列。它只操作用户明确选择的目标，并且绝不会在会话过期后自动重放选课 `POST`。
-- 提供昌平校区高清地图，并对齐校园图层与卫星底图。
-- 为作业生成本地工作区，其中包含题目、附件、解析后的在线测试题目、`manifest.json` 和模板。
-- 调用用户自行配置的 OpenAI 兼容模型服务处理已准备的工作区。
-- 普通作业生成本地 `model-answer.md`；在线测试经校验后生成 `answers.json`。
-- 在 THEIA 内置浏览器中打开学校原页面，用于上传文件或填写测试答案。THEIA 永远不会点击学校页面上的最终提交按钮。
+[下载 Windows x64 v0.5.0](https://github.com/bakahuiii/THEIA/releases/tag/v0.5.0) · [用户指南](docs/guides/USER_GUIDE.md) · [发行说明](docs/releases/v0.5.0.md)
 
-## 模型服务与隐私
+## 你可以用它做什么
 
-在“设置”中填写服务地址与 API 密钥。THEIA 会检查兼容的 `/v1/models` 端点、列出可用模型并选择合适的文本模型；对于不提供模型列表的中转服务，仍可手动填写模型 ID。`openai-compatible` 服务一律使用 Responses API：
+- **校园概览**：在一个本地视图中查看今天的课表、下一场考试、待办作业、成绩和通知。
+- **课表与考试**：按学期、周次和范围查看课表；查看考试时间、地点、校区和座号；调用教务系统原生流程导出课表 PDF。
+- **成绩与学业**：查看成绩明细、已获学分和 GPA 趋势；页面同时保留学校 GPA，并展示按本地规则计算的辅助 GPA。学业页展示培养方案、课程完成情况、学分缺口和已选课程。
+- **我的课程与作业**：同步 THEOL 课程、作业和在线测试，准备本地工作区、答案草稿和测试答案；最终内容由用户在学校页面核对并提交。
+- **学业顾问 Agent**：针对当前问题按需读取本地校园数据，给出带证据的回答、风险提示和下一步行动。没有配置模型服务时，页面会明确提示 Agent 不可用并引导前往设置。
+- **课程与抢课**：读取教学班和全校课表，保存明确选择的目标，并在用户启动的时间窗口内执行有限尝试。不会自动退课、评教或提交其它学校业务。
+- **通知与邮箱**：集中查看教务通知、THEOL 通知和校园邮箱；邮件正文按需读取，附件仍由用户决定是否打开。
+- **学习工具**：校历与教学进程、官方培养计划、空闲教室、体测评分、学业预警、创新学分、第二课堂和昌平校区地图。
+- **外观**：主题、缩放、3D 背景、动效、色板和渐变映射都可以在“设置与接入”中调整并保存在本机。
+
+## 第一次使用
+
+THEIA 的完整功能需要桌面客户端。纯浏览器预览只用于查看前端，不能提供学校认证、Windows 加密存储、文件选择、内置浏览器或本地模型密钥能力。
+
+1. 从 [v0.5.0 Release](https://github.com/bakahuiii/THEIA/releases/tag/v0.5.0) 下载并安装 Windows x64 安装包。
+2. 启动后在“统一身份认证”中保存学校账号。CAS 登录后，THEIA 会分别检查教务系统（JWGLXT）和北化在线 THEOL 的会话，顶部会独立显示两个来源的状态；一个来源失败不会把另一个来源的成功结果清空。
+3. 点击同步。首次同步后，课表、考试、成绩、学业进度、课程、作业和通知会按来源逐步出现；短暂的单域失败会保留上一次有效的本地结果。
+4. 如果要使用“学业顾问”，打开“设置与接入 -> 模型服务”，选择协议、填写服务地址、API Key 和模型 ID，先检测连接再保存。支持 OpenAI Responses、Anthropic Messages、Gemini GenerateContent 和 Ollama Chat。
+5. 如果要使用抢课或教务 API 优先通道，在“设置与接入 -> 数据与接口”单独保存教务系统 API 凭据并启用。它与 CAS 浏览器会话隔离；未启用或失败时，普通教务读取会回退到浏览器认证路径。
+
+### 两套认证不要混用
+
+- **统一身份认证（CAS）**：用于教务页面、北化在线 THEOL 和其它支持统一认证的校园页面。
+- **教务系统 API 凭据**：可选，用于 API 优先同步和抢课；不是 CAS 浏览器密码的替代品。
+- **校园邮箱凭据**：可选，在邮箱设置中单独保存，使用 IMAP 收信。
+
+所有来源都会独立显示连接状态。THEIA 不会把 API Cookie 复制到 CAS 会话，也不会在认证失败时用空结果覆盖本地数据。
+
+## 学业顾问 Agent
+
+学业顾问是内置的有界 Agent，不是把整份校园数据库直接上传给模型。
+
+- 模型先收到问题、当前快照版本和工具边界，再按需读取课程、课表、考试、成绩、学业进度、作业、通知、邮箱、体测等数据。
+- 默认权限为 **只读（受控 Agent）**，只允许声明过的校园工具和本地分析；不会获得通用 Shell、任意网页或文件系统权限。
+- 用户可以显式切换到 **完全访问**。此模式允许 Agent 读写本地文件、执行命令、发起 HTTP(S) 请求和打开网页，后果由本机用户负责。
+- 预算档位为 `High`、`XHigh`、`Max` 和实验性的 `Ultra`。档位控制探索步数、输出长度和超时，不代表模型一定会使用所有预算。
+- Agent 只在用户发送问题后发起模型请求；工具调用、回答和使用量会在会话中显示并保存在本机。
+
+模型服务未配置、API Key 无法由当前 Windows 账户解密或流式接口不可用时，Agent 会停止并显示可操作的错误，不会生成伪造的本地答案。
+
+## 数据与隐私
+
+- 默认数据目录为 `%APPDATA%\THEIA`；可使用 `THEIA_DATA_ROOT` 指定隔离目录。
+- 账号密码、校园 API 凭据、邮箱密码和模型 API Key 使用 Electron `safeStorage` / Windows DPAPI 加密保存。
+- 凭据、Cookie、浏览器存储、认证页面、绝对路径和运行期缓存不会进入普通校园快照、AI 导出、本地回环 API 或诊断日志。
+- 模型请求只包含用户当前问题和 Agent 实际读取到的最小数据切片。THEIA 不创建云端账号，也不会把学校密码、Cookie 或已认证页面发送给模型服务。
+- “导出给 AI”是用户主动生成的静态阅读包，不是实时校园会话，也不能导回或写入学校系统。它仍可能包含成绩、课程、邮件等敏感学业信息，请只交给你信任的模型服务。
+
+## 本地 API 与外部 Agent
+
+桌面客户端运行时会启动只绑定 `127.0.0.1` 的只读回环服务。实际端口写入数据目录中的 `api-runtime.json`，不要把默认端口硬编码到客户端中。
+
+常用端点包括：
 
 ```text
-POST {服务地址}/v1/responses
-Authorization: Bearer {API 密钥}
+GET /v1/health
+GET /v1/feed
+GET /v1/snapshot
+GET /v1/terms
+GET /v1/schedule
+GET /v1/exams
+GET /v1/grades
+GET /v1/academic-progress
+GET /v1/selected-courses
+GET /v1/assignments
+GET /v1/notices
+GET /v1/emails
+GET /v1/calendar.ics
 ```
 
-服务地址和模型名称保存在 THEIA 设置中。API 密钥由 Electron `safeStorage` / Windows DPAPI 单独加密，绝不会进入校园数据、导出、回环 API、任务清单或诊断日志。模型请求只由 Electron 主进程发起，渲染进程无法取得 API 密钥。
-
-模型只会收到已准备的本地任务上下文。THEIA 不会把学校密码、Cookie、浏览器存储或已认证页面发送给模型服务。
-
-## 顾问能力现状
-
-顾问在用户发起后把问题交给配置的模型服务。普通模型文本按流式增量显示，完成后以原文保存和展示，不再被本地叙述 schema、引用校验、数据新旧提示或“未确定”模板改写。
-
-模型可在同一轮返回唯一白名单格式 `theia-advisor-tool-call/v1` 来请求本地数据或已声明的 Agent 操作；只有精确匹配该格式与当前工具白名单的 JSON 才会被执行。默认“只读（受控 Agent）”保留同步校园资料、公开 HTTPS 请求、校园页面、THEIA 设置和已保存选课控制，但不授予通用文件系统、Shell 或任意网页访问。“完全访问”额外提供本地文件/目录读写删除、命令执行、任意 HTTP(S) 请求和网页打开，操作后果由本机用户负责；两种模式都不会把保存的 Cookie、密码、API Key、会话或原始 IPC 交给模型。顾问会话保存在本机并由系统加密存储保护。
-
-## 作业流程
-
-1. 同步北化在线 THEOL，然后打开“作业与测试”。
-2. 选择“准备工作区”，保存本地任务包。
-3. 选择“使用模型”，生成答案草稿或完整的答案 JSON 文件。
-4. 在“打开工作区”中检查文件。
-5. 在线测试请选择“写入测试页面”，在内置浏览器中核对后自行在学校页面提交。
-6. 普通作业请选择要上传的文件，在内置浏览器中核对后自行在学校页面提交。
+仓库还提供标准 MCP stdio 桥接 [integration/theia-mcp.mjs](integration/theia-mcp.mjs)。它复用 Agent 的脱敏和工具白名单，只暴露当前快照的只读投影，不暴露凭据、Cookie、浏览器会话、任意网络或学校侧写入。完整配置见[本地数据接口](integration/README.md)。
 
 ## 从源码运行
 
-需要 Node.js 22.12+ 和 npm 10+。
+需要 Node.js `22.12+` 和 npm `10+`。
 
 ```powershell
+git clone https://github.com/bakahuiii/THEIA.git
+cd THEIA
 npm install
+
+# Electron 桌面开发模式
 npm run dev
+
+# 仅启动浏览器预览
+npm run dev:web
 ```
 
-纯浏览器预览有意限制功能：学校认证、加密凭据存储、文件选择、本地模型密钥和内置来源浏览器操作都必须使用已安装的 Electron 桌面客户端。
+常用验证和打包命令：
 
-## 命令行与本地数据 API
+```powershell
+npm test                         # node --test --test-concurrency=4
+npm run lint
+npm run build
+npm run smoke:packaged
+npm run dist:installer          # Windows x64 安装包 + 源码归档
+npm run dist:source
+```
 
-THEIA 为同一台电脑上的脚本和工具提供通用的只读本地数据接口。
+测试故意限制为 4 个并发 worker，避免 Windows 本地环境因无限并发卡死。真实校园登录、真实模型服务请求和桌面人工验收不能由离线测试替代。
+
+命令行导出示例：
 
 ```powershell
 npm run cli -- status
+npm run cli -- doctor
 npm run cli -- export --format theia --output .\theia-feed.json
 npm run cli -- export --format json --output .\theia-snapshot.json
 npm run cli -- export --format ai --output .\theia-ai-exports
@@ -67,103 +121,22 @@ npm run cli -- export --format ics --output .\theia-calendar.ics
 npm run cli -- export --format csv --collection grades --output .\grades.csv
 npm run cli -- work list
 npm run cli -- work show <assignment-id>
-npm run cli -- doctor
 ```
 
-`export --format ai` 会在所选父目录内新建 `THEIA-AI-EXPORT-YYYYMMDD-HHmmss` 目录，其中包含 16 份规范化数据域 JSON、`AI_CONTEXT.md`、`DATA_DICTIONARY.md` 和 `manifest.json`；清单为其余 18 个文件记录 SHA-256 摘要。该数据包是由用户主动导出的静态 AI 阅读快照，不是学校系统的实时会话，也不能用于导入或写入。它会排除凭据、Cookie、浏览器状态、绝对路径、原始附件和工作区输出，但仍可能包含敏感的学业与邮件数据。请只保存在本机，或仅交给你明确信任的模型服务。准确结构和校验规则见[《AI 导出契约》](docs/reference/ai-export-contract.md)。
+## 文档
 
-桌面端“设置”提供单独加密的教务 API 凭据槽和明确的数据源选择器。启用 API 优先且已保存凭据时，THEIA 使用隔离的教务 API 适配器；未启用或未配置时，使用统一身份认证浏览器路径。API 失败的来源域会尝试一次统一身份认证浏览器回退；已成功的 API 域继续保留。浏览器认证也失败时会明确报告认证错误，不会静默吞掉失败或用空结果覆盖现有本地快照。
-
-直接 API 会话必须与 `persist:theia` 隔离，因为北化可能在第二次登录时使先前的教务会话失效。API Cookie 不得复制到统一身份认证浏览器会话。
-
-桌面客户端运行时，回环服务只绑定 `127.0.0.1`。默认端口为 `8765`，实际端口记录在 `api-runtime.json`：
-
-```text
-GET /v1/health
-GET /v1/snapshot
-GET /v1/feed
-GET /v1/terms
-GET /v1/courses
-GET /v1/schedule
-GET /v1/exams
-GET /v1/grades
-GET /v1/academic-progress
-GET /v1/selected-courses
-GET /v1/assignments
-GET /v1/workspaces
-GET /v1/notices
-GET /v1/calendar.ics
-```
-
-`/v1/feed` 使用 `theia-campus-feed/v1` Schema；可复用的本地客户端和 Schema 见[《本地集成接口》](integration/README.md)。
-
-## 数据边界
-
-- 数据默认位于 `%APPDATA%\THEIA`；`THEIA_DATA_ROOT` 可指定隔离目录。使用默认目录启动时，仅当 THEIA 对应文件不存在，才可能从 `%APPDATA%\BUCT` 复制特定旧版文件，旧目录会被保留。
-- `auth-diagnostics.ndjson` 只记录认证阶段、脱敏后的主机和路径以及错误摘要，不包含密码、API 密钥、Cookie 或 URL 查询参数。
-- 统一身份认证、教务 API、邮箱和模型服务凭据分别使用 DPAPI 加密，并从业务快照、导出和本地 API 响应中排除。
-- 只有用户明确选择教学班并启动有限任务后才会选课。THEIA 不会自动退课、评教或提交申请。
-
-## 开源许可
-
-THEIA 的源代码以 [MIT License](LICENSE) 发布。该许可只适用于本仓库的代码和文档，不授予北京化工大学、学校平台或其商标的任何权利，也不覆盖用户本地数据、认证凭据、课程材料、邮件或学校服务内容。使用者应自行遵守学校的服务规则与课程要求。
-
-安全问题请不要通过公开 Issue 披露，处理方式见 [SECURITY.md](SECURITY.md)。Windows 安装包的可信代码签名是独立于 MIT 许可的发布流程；未签名构建可能触发 SmartScreen，详见 [发行兼容与恢复](docs/ai/22-distribution-compatibility-and-recovery.md)。
-
-## 文档导航
-
-### 使用与产品
-
-- [文档总索引](docs/README.md)：按用户、开发、数据和运维主题查找文档。
-- [用户指南](docs/guides/USER_GUIDE.md)：桌面端完整操作说明。
-- [新生快速开始](docs/guides/FRESHMAN_START.md)：首次使用与基础同步。
-- [AI 方向](AI_DIRECTION.md)：AI 顾问的目标、阶段和原则。
-- [当前 Agent 说明](docs/ai/20-a-b-c-advisor-agent-sidecar.md)：内嵌顾问、惰性工具和权限边界。
-- [顾问数据流与开放 Agent](docs/ai/19-p6-data-flow-and-open-agent.md)：数据流、线程和开放式只读 Agent 记录。
-- [学业顾问交接](docs/ai/21-advisor-handoff.md)：当前 Agent 维护入口和验证命令。
-- [发行兼容与恢复](docs/ai/22-distribution-compatibility-and-recovery.md)：打包兼容、认证恢复和诊断边界。
-
-### 架构、数据与开发
-
+- [用户指南](docs/guides/USER_GUIDE.md)：按登录、同步、页面和排障顺序说明桌面端用法。
+- [文档总索引](docs/README.md)：用户、开发、数据和运维文档入口。
 - [系统架构](docs/architecture.md)：进程、模块、信任边界和主要数据流。
-- [数据生命周期](docs/data-lifecycle.md)：采集、规范化、存储、导出和清理规则。
-- [数据归属矩阵](docs/data-ownership-matrix.md)：各数据域的来源、所有者与消费者。
-- [数据模型参考](docs/reference/data-model.md)：状态、实体和字段契约。
-- [API 与 IPC 参考](docs/reference/api-and-ipc.md)：桌面桥接与本地接口。
-- [AI 导出契约](docs/reference/ai-export-contract.md)：AI 数据包结构、脱敏和完整性校验。
-- [开发指南](docs/developer-guide.md)：开发环境、代码组织和改动流程。
-- [开发工作流](DEVELOPMENT.md)：仓库级开发、验证与提交约定。
-- [运维与测试](docs/operations-and-testing.md)：诊断、测试、构建和发布检查。
-- [本地集成接口](integration/README.md)：回环 API 与集成客户端用法。
+- [API 与 IPC 参考](docs/reference/api-and-ipc.md)：桌面桥接和本地接口契约。
+- [开发指南](docs/developer-guide.md) 与 [开发工作流](DEVELOPMENT.md)：源码组织、验证和发布流程。
+- [发行兼容与恢复](docs/ai/22-distribution-compatibility-and-recovery.md)：安装包、认证恢复和诊断边界。
+- [安全策略](SECURITY.md)：安全问题请不要通过公开 Issue 披露。
 
-### 专题开发文档
+## 发布说明
 
-- [专题开发索引](docs/ai/README.md)：按任务路由到相应专题。
-- [项目规则](docs/ai/00-project-rules.md)
-- [运行时数据流](docs/ai/01-runtime-data-flow.md)
-- [前端外壳与样式](docs/ai/02-frontend-shell-styles.md)
-- [前端页面](docs/ai/03-frontend-views.md)
-- [设置与个性化](docs/ai/04-settings-personalization.md)
-- [IPC 与 Bridge 契约](docs/ai/05-ipc-bridge.md)
-- [存储 Schema](docs/ai/06-storage-schema.md)
-- [认证与同步](docs/ai/07-auth-and-sync.md)
-- [教务数据来源](docs/ai/08-academic-sources.md)
-- [作业、模型与抢课](docs/ai/09-coursework-model-selection.md)
-- [邮箱](docs/ai/10-mailbox.md)
-- [体测与工具](docs/ai/11-fitness-tools.md)
-- [本地 API、CLI 与导出](docs/ai/12-local-api-cli.md)
-- [测试与发布](docs/ai/13-testing-release.md)
-- [代码索引](docs/ai/14-code-map.md)
-- [选课 API](docs/ai/15-course-selection-api.md)
-- [顾问 P0 可信底座](docs/ai/16-advisor-p0-foundation.md)
-- [顾问 P1-P3 本地工作台](docs/ai/17-advisor-p1-p3-local-workbench.md)
-- [顾问 P4-P5 模型运行时](docs/ai/18-advisor-p4-p5-model-runtime.md)
+v0.5.0 的 Windows 安装包当前未配置可公开验证的 Authenticode 证书，Windows 可能显示未知发布者或 SmartScreen 提示。安装前请核对 Release 页面提供的 SHA-256；安装包、源码归档和 blockmap 的校验值记录在 [v0.5.0 发行说明](docs/releases/v0.5.0.md) 中。
 
-## 验证与打包
+## 许可
 
-```powershell
-npm test
-npm run lint
-npm run build
-npm run dist:installer
-```
+THEIA 代码和文档以 [MIT License](LICENSE) 发布。许可不授予北京化工大学、学校平台或其商标的任何权利，也不覆盖用户本地数据、认证凭据、课程材料、邮件或学校服务内容。使用者应遵守学校服务规则与课程要求。
