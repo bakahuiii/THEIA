@@ -98,9 +98,39 @@ test('trusted IPC rejects unregistered channels, invalid schemas, and oversized 
     probeId: 'probe',
     unexpected: true,
   }]), /unknown field unexpected/)
+  assert.doesNotThrow(() => validateIpcArguments('theia:update-settings', [{
+    advisorConfig: {
+      budgetLevel: 'xhigh',
+      permissionMode: 'full-access',
+      reasoningEffort: 'high',
+      temperature: 0.7,
+    },
+  }]))
+  assert.throws(() => validateIpcArguments('theia:update-settings', [{
+    advisorConfig: { budgetLevel: 'unsupported' },
+  }]), /advisorConfig\.budgetLevel is invalid/)
+  assert.throws(() => validateIpcArguments('theia:update-settings', [{
+    advisorConfig: { permissionMode: 'unrestricted' },
+  }]), /advisorConfig\.permissionMode is invalid/)
+  assert.throws(() => validateIpcArguments('theia:update-settings', [{
+    advisorConfig: { unexpected: true },
+  }]), /unknown field unexpected/)
   assert.throws(() => validateIpcArguments('theia:open-source', ['x'.repeat(MAX_IPC_ARGUMENT_BYTES + 1)]), /too long|byte limit/)
   assert.doesNotThrow(() => validateIpcArguments('theia:open-assignment-source', ['assignment-123']))
   assert.throws(() => validateIpcArguments('theia:open-assignment-source', ['']), /non-empty string/)
+  assert.doesNotThrow(() => validateIpcArguments('theia:get-course-work-queue', []))
+  assert.doesNotThrow(() => validateIpcArguments('theia:get-user-data-overview', []))
+  assert.doesNotThrow(() => validateIpcArguments('theia:get-user-data-domain-summary', ['academic-plan']))
+  assert.doesNotThrow(() => validateIpcArguments('theia:get-user-data-records', ['academic-plan', {
+    query: '培养', scope: 'all', limit: 50, cursor: '0', recordType: 'plan-row',
+  }]))
+  assert.throws(() => validateIpcArguments('theia:get-user-data-records', ['academic-plan', { limit: 101 }]), /outside the supported range/)
+  assert.throws(() => validateIpcArguments('theia:get-user-data-records', ['academic-plan', { unexpected: true }]), /unknown field unexpected/)
+  assert.doesNotThrow(() => validateIpcArguments('theia:set-course-work-queue-enabled', [true]))
+  assert.throws(() => validateIpcArguments('theia:set-course-work-queue-enabled', ['true']), /boolean/)
+  assert.doesNotThrow(() => validateIpcArguments('theia:enqueue-course-work', [{ assignmentId: 'assignment-1', operation: 'model', options: { wordCount: 800 } }]))
+  assert.throws(() => validateIpcArguments('theia:enqueue-course-work', [{ assignmentId: 'assignment-1', operation: 'submit' }]), /operation is invalid/)
+  assert.doesNotThrow(() => validateIpcArguments('theia:cancel-course-work-job', ['job-1']))
   assert.doesNotThrow(() => validateIpcArguments('theia:open-data-directory', []))
   assert.throws(() => validateIpcArguments('theia:open-data-directory', ['C:\\']), /expected 0 arguments/)
   assert.doesNotThrow(() => validateIpcArguments('theia:read-saved-secret', ['unified-password']))
@@ -109,6 +139,15 @@ test('trusted IPC rejects unregistered channels, invalid schemas, and oversized 
   assert.doesNotThrow(() => validateIpcArguments('theia:sync-domain', ['academic-progress']))
   assert.throws(() => validateIpcArguments('theia:sync-domain', ['https://example.com/']), /sync domain is invalid/)
   assert.throws(() => validateIpcArguments('theia:sync-domain', ['C:\\secrets.json']), /sync domain is invalid/)
+  assert.doesNotThrow(() => validateIpcArguments('theia:query-free-classrooms', [{
+    termId: '2026-3', date: '2026-09-01', weeks: [1], weekdays: [1, 3], periods: [1, 2], minSeats: 20, maxSeats: 80,
+  }]))
+  assert.throws(() => validateIpcArguments('theia:query-free-classrooms', [{
+    termId: '2026-3', weeks: [], weekdays: [1], periods: [1],
+  }]), /weeks must be a non-empty array/)
+  assert.throws(() => validateIpcArguments('theia:query-free-classrooms', [{
+    termId: '2026-3', weeks: [1], weekdays: [8], periods: [1],
+  }]), /weekdays contains an invalid value/)
   assert.doesNotThrow(() => validateIpcArguments('theia:advisor:academic-what-if', [{
     snapshotRevision: 'revision-1',
     additionalRequiredCredits: 4,
@@ -202,45 +241,28 @@ test('trusted IPC rejects unregistered channels, invalid schemas, and oversized 
   }]), /unknown field url/)
   assert.doesNotThrow(() => validateIpcArguments('theia:advisor:prepare', [{
     threadId: 'thread-1',
-    question: '请根据我的成绩和考试安排给出建议',
-    intent: 'general',
-    agent: true,
-    readableDomains: ['grades', 'exams', 'academic-progress', 'profile'],
+    question: '请问一下',
   }]))
-  assert.throws(() => validateIpcArguments('theia:advisor:prepare', [{
-    threadId: 'thread-1',
-    question: '测试',
-    intent: 'general',
-    readableDomains: ['filesystem'],
-  }]), /readableDomains item is invalid/)
-  assert.throws(() => validateIpcArguments('theia:advisor:prepare', [{
-    threadId: 'thread-1',
-    question: '测试',
-    intent: 'general',
-    readableDomains: Array.from({ length: 13 }, () => 'grades'),
-  }]), /readableDomains has too many items/)
-  assert.throws(() => validateIpcArguments('theia:advisor:prepare', [{
-    threadId: 'thread-1',
-    question: '测试',
-    intent: 'general',
-    readableDomains: 'grades',
-  }]), /readableDomains has too many items/)
-  assert.throws(() => validateIpcArguments('theia:advisor:prepare', [{
-    threadId: 'thread-1',
-    question: '测试',
-    intent: 'general',
-    readableDomains: [42],
-  }]), /readableDomains item must be a non-empty string/)
-  assert.throws(() => validateIpcArguments('theia:advisor:prepare', [{
-    threadId: 'thread-1',
-    question: '测试',
-    intent: 'general',
-    agent: 'true',
-  }]), /agent must be boolean/)
+  for (const legacyField of ['agent', 'readableDomains', 'selectedNoticeIds', 'selectedMailIds', 'includeMailBodyIds']) {
+    assert.throws(() => validateIpcArguments('theia:advisor:prepare', [{
+      threadId: 'thread-1',
+      question: '测试',
+      [legacyField]: legacyField === 'agent' ? true : [],
+    }]), new RegExp(`unknown field ${legacyField}`))
+  }
+  assert.doesNotThrow(() => validateIpcArguments('theia:advisor:send', [{ requestId: 'request-1' }]))
+  assert.doesNotThrow(() => validateIpcArguments('theia:advisor:send', [{ threadId: 'thread-1', question: '我是谁' }]))
+  assert.throws(() => validateIpcArguments('theia:advisor:send', [{ threadId: 'thread-1' }]), /requestId or threadId and question are required/)
+  assert.throws(() => validateIpcArguments('theia:advisor:prepare', [{ threadId: 'thread-1', question: '测试', intent: 'general' }]), /unknown field intent/)
+  assert.throws(() => validateIpcArguments('theia:advisor:send', [{ requestId: 'request-1', stream: false }]), /unknown field stream/)
+  assert.throws(() => validateIpcArguments('theia:advisor:send', [{ requestId: 'request-1', approved: true }]), /unknown field approved/)
 })
 
 test('every registered theia IPC channel has a runtime schema', async () => {
-  const source = await readFile(new URL('../electron/main.mjs', import.meta.url), 'utf8')
+  const source = (await Promise.all([
+    readFile(new URL('../electron/main.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../electron/ipc-registration.mjs', import.meta.url), 'utf8'),
+  ])).join('\n')
   const channels = [...source.matchAll(/ipcMain\.(?:handle|on)\(\s*['"](theia:[^'"]+)['"]/g)].map((match) => match[1])
   assert.ok(channels.length > 50)
   assert.deepEqual(channels.filter((channel) => !THEIA_IPC_SCHEMAS.has(channel)), [])

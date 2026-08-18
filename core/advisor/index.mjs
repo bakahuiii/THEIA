@@ -29,16 +29,35 @@ export {
   normalizeAiDataAccessPolicy,
 } from './p6-data-policy.mjs'
 export {
+  ADVISOR_AGENT_TOOL_NAMES,
   ADVISOR_READ_ONLY_TOOL_NAMES,
   ADVISOR_TOOL_RESULT_SCHEMA,
+  advisorToolNamesForPermission,
   createAdvisorReadOnlyTools,
+  createAdvisorLazyWorkspace,
   executeAdvisorReadOnlyTool,
 } from './read-only-tools.mjs'
 export {
+  ADVISOR_FULL_ACCESS_TOOL_NAMES,
+  ADVISOR_PERMISSION_MODES,
+  advisorPermissionCapabilities,
+  isAdvisorFullAccess,
+  normalizeAdvisorPermissionMode,
+} from './agent-permissions.mjs'
+export { createAdvisorFullAccessTools } from './full-access-tools.mjs'
+export {
   ADVISOR_READ_ONLY_AGENT_BUDGET,
+  ADVISOR_RESPONSE_LENGTHS,
+  ADVISOR_PROMPT_CACHE_KEY,
+  ADVISOR_PROMPT_CACHE_MIN_TOKENS,
+  ADVISOR_STATIC_SYSTEM_PROMPT,
   ADVISOR_TOOL_CALL_SCHEMA,
   ReadOnlyAgentError,
+  createAdvisorPromptCachePrefix,
+  estimateAdvisorPromptTokens,
+  normalizeAdvisorCacheProfile,
   parseAdvisorAgentTurn,
+  resolveAdvisorOutputTokens,
   runReadOnlyAdvisorAgent,
 } from './read-only-agent.mjs'
 export { DOMAIN_FRESHNESS_POLICY, evaluateDataQuality } from './data-quality.mjs'
@@ -61,12 +80,6 @@ export {
   createCourseDecisions,
 } from './course-decision-engine.mjs'
 export { assertAdvisorOverview, createAdvisorOverview, serializeAdvisorOverview } from './overview.mjs'
-export {
-  AdvisorConsentError,
-  assertAdvisorConsent,
-  buildAdvisorContext,
-  planAdvisorDisclosure,
-} from './context-builder.mjs'
 export {
   ADVISOR_ACTION_KINDS,
   SENSITIVE_ADVISOR_SCOPES,
@@ -107,18 +120,3 @@ export {
   sanitizeUntrustedCampusText,
   sanitizeUntrustedText,
 } from './notice-mail-context.mjs'
-export {
-  DEFAULT_SEARCH_SCOPES,
-  LEXICAL_DEFAULT_SEARCH_SCOPES,
-  LEXICAL_DOCUMENT_SCHEMA,
-  LEXICAL_INDEX_LIMITS,
-  LEXICAL_INDEX_SCHEMA,
-  LEXICAL_PRIVACY_SCOPES,
-  LEXICAL_SENSITIVE_SCOPES,
-  LexicalIndex,
-  PRIVACY_SCOPES,
-  createLexicalIndex,
-  normalizeLexicalTerms,
-  replaceLexicalFragments,
-  searchLexicalIndex,
-} from './lexical-index.mjs'

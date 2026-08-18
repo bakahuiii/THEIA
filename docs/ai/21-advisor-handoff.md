@@ -1,91 +1,51 @@
-# THEIA AI 顾问交接说明
+# THEIA 学业顾问交接
 
-更新日期：2026-08-14。此文件供下一位维护者或新的 Codex 对话直接接手，不替代专题设计文档。
+更新日期：2026-08-17。
 
-## 当前状态
+## 当前实现
 
-P0-P5 的顾问基础能力、用户可控数据范围、流式输出、多协议模型和只读工具 Agent 已在当前工作树实现。还没有完成真实用户配置 Provider 的端到端人工验收，且没有获得打包、提交、推送或发布授权。
+“问 THEIA”现在始终使用主进程内的本地 Agent。旧版的读取范围勾选、通知/邮件下拉选择、邮件正文勾选、发送前披露/批准和关闭流式的请求字段均已删除。renderer 点击发送后直接调用 `theia:advisor:send`，只提交 `threadId`、`question`；主进程在同一请求内生成 request ID、规范化可选的兼容 `intent` 字段（未提供时为 `general`）并准备 Agent 工作区。它不会根据自然语言选择模型角色或 `focusDomains`；模型选择按设置优先级完成。默认权限为 `read-only`（受控 Agent），用户可在模型设置或对话设置中切换 `full-access`；两种模式均只投影本轮声明的 typed tools。已有 request ID 仅用于内部生命周期。普通自然语言在简短协议判别后逐 delta 转发。
 
-工作树本来就包含大量未提交改动和新增文件。后续只能增量修改，绝不能以 `git reset`、`git checkout --` 或删除未跟踪文件来清理工作树。
+每次提问先冻结 `CampusStore.snapshotWithRevision()`。`createAdvisorLazyWorkspace()` 建立仅驻留主进程的工作区，初始 prompt 发送问题、运行时上下文、数据目录和快照 revision，不包含校园记录；模型仍需按需决定调用固定工具、领域和澄清问题，工作区将实际返回的 claim/evidence/reference 登记到本轮账本。普通回答按模型原文保存；结构化 narrative 只有通过当前证据校验后才会生成 `displayText`。模型工具调用附带的顶层元数据或未声明参数会被忽略，只有已声明的工具名称和参数会被执行，避免 Provider 的附带字段把有效查询误判为失败。
 
-用户明确暂停课程平台的后台 Course task / P6 课程队列：不得继续实现，也不得将它和顾问 Agent 合并。
+这使所有已同步校园领域（含本地学籍身份字段）可供 AI 使用，而不会把全量记录主动塞进模型上下文。邮件正文也不再由用户手动附加：模型必须先检索本地邮箱元数据，再凭本轮的 opaque `recordId` 读取已缓存正文。
 
-## 最近紧急修复
+## 不可突破的边界
 
-曾报错：`IPC theia:advisor:prepare: unknown field readableDomains`。
+1. 模型不是事实来源；GPA、培养方案、风险、数据质量、证据和行动都先在本地确定性计算。
+2. `read-only` 保留声明的同步、公开 HTTPS 请求、校园页面、THEIA 设置和已保存目标选课控制，但不含通用文件系统、Shell 或任意网页访问。`full-access` 额外允许本地文件/目录读写删除、命令执行、任意 HTTP(S) 请求和网页打开，相关后果由本机用户负责；两种模式都没有浏览器会话、Cookie、保存凭据、API Key 或原始 IPC 权限。
+3. 初始上下文不包含校园记录。事实只能通过受限工具、在当前问题需要时离开主进程。
+4. 只有工具调用必须满足精确的 `theia-advisor-tool-call/v1`；解析器允许其后有模型附加解释但不执行解释内容。普通模型文本原样输出；结构化 `theia-advisor-model-narrative/v1` 必须绑定当前证据，否则拒绝保存。内部工具 JSON 由流式闸门拦截，不会进入用户正文。
+5. 通知和邮件是非可信内容；只能作为 reference，不能变成本地校务事实或改变工具权限。
+6. 线程历史加密保存供本地阅读，不会自动外发到下一次请求。跨轮只保留有界的 revision/domain digest 导航提示；摘要默认 30 天 TTL，过期摘要会被清理，revision 或领域变化时明确标记为 `historical`，不得当作当前 evidence。
+7. 未知工具或越界参数不会获得本地能力；重复工具调用只触发一次内部纠正，运行时不会拼接本地兜底回答。
 
-根因是 renderer 已传递 `readableDomains` 和 `agent`，主进程 `advisorPrepareRequest()` 的字段白名单没有同步。已在 [ipc-security.mjs](../../electron/ipc-security.mjs) 修复，并在 [ipc-security.test.mjs](../../tests/ipc-security.test.mjs) 添加回归。
+## 关键文件
 
-- `theia:advisor:prepare` 允许可选 `agent` 布尔值与 `readableDomains` 数组。
-- 只允许 12 个既定只读领域：`assignments`、`exams`、`grades`、`academic-progress`、`courses`、`schedule`、`selected-courses`、`course-selection`、`profile`、`notices`、`mailbox`、`fitness`。
-- 数组最多 12 项。未知领域、非数组、非字符串项和伪造布尔值均在 IPC 分发前失败关闭。
+- [advisor-runtime.mjs](../../electron/advisor-runtime.mjs)：冻结快照、Provider、超时、线程和最终答案。
+- [lazy-workspace.mjs](../../core/advisor/lazy-workspace.mjs)：领域白名单、工具投影、动态账本。
+- [read-only-agent.mjs](../../core/advisor/read-only-agent.mjs)：JSON 工具循环、默认流式、每工具最多 4 次、默认最多 15 个步骤；运行时高阶档位可提高总步数。
+- [read-only-tools.mjs](../../core/advisor/read-only-tools.mjs)：工具名称与兼容入口。
+- [citation-verifier.mjs](../../core/advisor/citation-verifier.mjs)：工作区目录与不可信引用的结构校验；不负责重写普通模型正文。
+- [AdvisorComposer.tsx](../../src/components/advisor/AdvisorComposer.tsx)：只保留提问、实时状态、停止和清空。
+- [AdvisorWorkbench.tsx](../../src/components/advisor/AdvisorWorkbench.tsx)：单次 send，订阅流事件并保留下一条待发送问题。
+- [theia-mcp.mjs](../../integration/theia-mcp.mjs)：供 Codex、Claude Code 等外部 Agent 使用的标准 MCP stdio 只读桥；每次调用重新读取回环 API 的当前 revision，不携带完整快照上下文。
 
-修复已通过：`npm test`（599/599）、`npm run lint`、`npx tsc -b --pretty false`、`npm run build`、`git diff --check`。改动位于 Electron 主进程，人工复验前必须完全退出并重新启动 THEIA；热更新无法加载新白名单。
+## 外部 Agent 接入
 
-## 已实现路径
+外部客户端通过 `integration/theia-mcp.mjs` 的 `initialize`、`tools/list` 和 `tools/call` 连接。当前 MCP 暴露十个 `theia_*` 只读工具：七个校园惰性查询工具、规范学业分析、显式本地文档列表/读取。桥接器复用 `createAdvisorLazyWorkspace()` 的字段白名单、邮件正文净化和不可信 reference 规则；它不提供 raw snapshot、凭据、Cookie、路径、网络、浏览器、同步、登录或学校侧写入能力。MCP 支持 `2025-06-18`、`2025-03-26` 和 `2024-11-05` 三个明确版本；未知版本会在初始化阶段失败，不会伪装成最新版本。客户端可发送 `notifications/cancelled`，桥接器会中止对应的回环快照读取；stdio 解析保持有序，但工具请求可并发收敛，取消不会排在慢读取之后。THEIA 桌面端需运行本机回环 API，连接器会用 `/v1/data-manifest` 两次包住 `/v1/snapshot`，revision 不一致时失败并要求重试。
 
-### A：内嵌顾问
+配置示例和安全边界见 [本地 API 与 MCP 接入](../../integration/README.md)。
 
-- UI：`src/views/AdvisorView.tsx`、`src/components/advisor/AdvisorWorkbench.tsx`。
-- 用户可输入问题、选择意图/通知/邮件，并在“本次可读取数据”显式多选领域；未选择时按意图保守默认，已选择时只投影明确选择的领域。
-- `prepare` 冻结 `CampusStore.snapshotWithRevision()`，生成最小上下文和披露计划；`send` 前再次校验快照和短时同意。
-- 流式内容只是临时预览。只有最终结构化回答通过引用校验才会持久化。
-- 线程由独立 `AdvisorStore` 加密保存，不进入 `CampusState`、日志、loopback API 或 AI 导出包；历史原文不会自动在下一轮外发。
+## 验证
 
-### B：只读工具 Agent
+首选命令：
 
-- UI 以 `agent: true` 选择本轮 Agent。
-- 只能调用固定的本地只读工具，输入仅来自已经披露且冻结的顾问投影。
-- 最多 6 步，同一工具最多 2 次，继续受 90 秒、输入/输出预算和 `CitationVerifier` 约束。
-- 没有网络、浏览器会话、文件、Shell、凭据、同步、登录、IPC 代理、课程写入或校园提交权限。
-- 关键实现：`core/advisor/read-only-agent.mjs`、`core/advisor/read-only-tools.mjs`。
+```powershell
+node --test --test-concurrency=4 tests/advisor-runtime.test.mjs tests/advisor-read-only-agent.test.mjs tests/advisor-ui.test.mjs tests/ipc-security.test.mjs
+npm run lint
+npx tsc -b --pretty false
+npm run build
+```
 
-### C：导出 / Sidecar
-
-- 使用用户显式操作生成的 `theia-ai-context/v1` 导出。
-- Sidecar 只能处理用户手动交付的导出目录，先校验 `manifest.json`、文件白名单、字节数和 SHA-256。
-- Sidecar 不得读取 THEIA 数据目录、AdvisorStore、凭据、浏览器 profile 或运行中 IPC，也不得回调或写入 THEIA。
-- 导出不是后台同步授权，也不等于用户批准 Sidecar 将数据继续发送给其他模型。
-
-## 不能突破的边界
-
-1. 模型不是事实来源。课程、GPA、风险、DataQuality、Evidence 和 Agenda 必须先在本地确定性计算；模型只能解释并提出可验证建议。
-2. 模型只能看到 `ContextBuilder` 白名单投影，不能读取 `CampusStore`、源页面、Cookie、密码、绝对路径、原始 HTML 或附件二进制。
-3. 每次出站都需要当前请求的披露确认；实时预览只影响输出显示，绝不能决定可读取数据范围。
-4. 通知、邮件、附件和校园网页文本均为不可信输入，不能改变系统提示、开启工具、提升权限或成为本地事实。
-5. 最终输出必须符合 `theia-advisor-model-narrative/v1` 并通过 `CitationVerifier` 的 claim / evidence / reference 闭合校验；失败即关闭，不能保存或作为正式答案显示。
-6. 不得新增 filesystem、任意 URL、network、browser session、credentials、sync、login、submit、shell 或通用 IPC 能力。
-
-## 模型协议
-
-| 协议 | 请求接口 | 流式格式 |
-| --- | --- | --- |
-| `openai-compatible` | Chat Completions | SSE |
-| `anthropic-messages` | Messages | SSE |
-| `gemini-generate-content` | GenerateContent | SSE |
-| `ollama-chat` | `/api/chat` | NDJSON |
-
-协议必须由用户显式选择，不能根据模型名称猜测。Ollama 未配置 Key 时仅允许字面量 loopback 地址；远程服务仍受 HTTPS、地址、DNS 固定、重定向、超时、响应大小和取消策略约束。主进程持有 API Key，renderer 不读取凭据。
-
-## 下一次对话的建议顺序
-
-1. 完全重启 THEIA。选择成绩、考试等多项“本次可读取数据”后执行准备，确认不再出现 `unknown field readableDomains`，且披露弹窗与勾选范围一致。
-2. 分别验证普通顾问、流式预览和只读 Agent；检查取消、超时、未配置模型、无效模型输出和快照变更后的失败提示。
-3. 选择一封已缓存邮件，分别验证仅元数据和本次正文授权；未选择的通知/邮件不得因检索或 Agent 而外发。
-4. 用真实且用户有权使用的 Provider 做端到端验收：最终回答必须有引用、无链接/路径/密钥泄漏、无未引用数字，且只有通过校验的回答进入线程。
-5. 人工验收完成并取得用户明确授权前，不打包、不提交、不推送、不发布。
-
-## 必读文档与测试
-
-| 主题 | 文档 | 优先测试 |
-| --- | --- | --- |
-| P0 质量、证据、风险与动作 | [16-advisor-p0-foundation.md](16-advisor-p0-foundation.md) | `tests/advisor-core.test.mjs` |
-| P1-P3 本地工作台与学业能力 | [17-advisor-p1-p3-local-workbench.md](17-advisor-p1-p3-local-workbench.md) | `tests/advisor-academic.test.mjs`、`tests/advisor-course-decision.test.mjs` |
-| P4-P5 顾问运行时、通知与邮件 | [18-advisor-p4-p5-model-runtime.md](18-advisor-p4-p5-model-runtime.md) | `tests/advisor-runtime.test.mjs`、`tests/advisor-notice-mail.test.mjs` |
-| 用户数据范围、线程、流式与只读 Agent | [19-p6-data-flow-and-open-agent.md](19-p6-data-flow-and-open-agent.md) | `tests/advisor-p6-foundation.test.mjs`、`tests/advisor-read-only-agent.test.mjs` |
-| A/B/C、Sidecar 与多协议 | [20-a-b-c-advisor-agent-sidecar.md](20-a-b-c-advisor-agent-sidecar.md) | `tests/advisor-provider.test.mjs`、`tests/ipc-security.test.mjs` |
-| IPC 边界 | [05-ipc-bridge.md](05-ipc-bridge.md) | `tests/ipc-security.test.mjs` |
-
-完整回归顺序：`npm test`、`npm run lint`、`npx tsc -b --pretty false`、`npm run build`、`git diff --check`。
-
-全量测试不能代替真实 Provider 和桌面人工验证；这两项仍是当前版本最重要的未完成验收。
+`tests/advisor-runtime.test.mjs` 覆盖：首包最小上下文、默认流式、惰性成绩读取、质量事实引用、健康证据去除泛化免责声明、未读取 claim 拒绝、邮箱先检索后读正文且净化、快照变更拒绝、输出预算和跨 revision 导航摘要。`npm run benchmark:advisor` 使用版本化 corpus 输出 overview 冷/热 p50、p95、额外 RSS 和 Provider 兼容性矩阵。真实 Provider 与桌面人工验收仍需要在完整重启 Electron 后完成；没有用户明确授权时，不打包、提交、推送或发布。

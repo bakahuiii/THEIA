@@ -2,11 +2,13 @@ import * as cheerio from 'cheerio'
 import { compactError } from '../util.mjs'
 import { AuthRequiredError } from '../source-client.mjs'
 import { parseTheolAssignments, parseTheolCourse, parseTheolHome } from '../parsers/theol.mjs'
+import { parseTheolMobileTaskList } from '../parsers/theol-mobile.mjs'
 import { sourceDomainOutcome } from '../domain-provenance.mjs'
 
 const BASE = 'https://course.buct.edu.cn/meol/'
 const PERSONAL = new URL('personal.do', BASE).toString()
-const PARSER_VERSION = 'theol-adapter/1'
+const MOBILE_UNDONE_TASKS = 'http://course.buct.edu.cn/mobile/stuUnDoTaskList.do'
+const PARSER_VERSION = 'theol-adapter/2'
 const COURSE_IDENTITY_PARAMETERS = new Set(['courseid', 'lid', 'cateid'])
 
 class CourseContextMismatchError extends Error {
@@ -171,6 +173,9 @@ export class TheolAdapter {
     const successfulCourseIds = []
     const failedCourseIds = []
     const listedCourses = Array.isArray(courses) ? courses.filter((item) => item?.source === 'theol').slice(0, 60) : []
+    let mobileFallback = { attempted: false, status: 'not-needed', added: 0 }
+    let mobileFallbackIds = new Set()
+    let primaryAssignmentIds = new Set()
 
     for (const listedCourse of listedCourses) {
       if (!shouldContinue()) return { aborted: true, capturedAt, errors }
@@ -210,9 +215,44 @@ export class TheolAdapter {
       }
     }
 
+    // The old official mobile endpoint is only a read-only fallback. It has a
+    // global pending-task feed, so it can recover the entire course set when a
+    // rendered course page changes shape or fails mid-scan.
+    if ((errors.length > 0 || assignments.length === 0) && typeof this.client?.json === 'function') {
+      try {
+        const payload = await this.client.json(MOBILE_UNDONE_TASKS, {}, {
+          source: 'THEOL mobile pending-task fallback', signal,
+        })
+        if (!shouldContinue()) return { aborted: true, capturedAt, errors }
+        const mobile = parseTheolMobileTaskList(payload, { courses: listedCourses, capturedAt })
+        if (mobile.authenticated) {
+          primaryAssignmentIds = new Set(assignments.map((item) => item.id))
+          mobileFallbackIds = new Set(mobile.assignments.map((item) => item.id))
+          assignments.push(...mobile.assignments)
+          for (const course of listedCourses) successfulCourseIds.push(String(course.id))
+          mobileFallback = {
+            attempted: true,
+            status: 'used',
+            added: 0,
+          }
+          errors.length = 0
+          failedCourseIds.length = 0
+        } else {
+          mobileFallback = { attempted: true, status: 'not-authenticated', added: 0 }
+        }
+      } catch (error) {
+        if (!shouldContinue() || signal?.aborted) return { aborted: true, capturedAt, errors }
+        mobileFallback = { attempted: true, status: 'failed', added: 0, error: compactError(error) }
+      }
+    }
+
     const now = Date.now()
     const currentAssignments = [...new Map(assignments.map((item) => [item.id, item])).values()]
       .filter((item) => isCurrentTask(item, now))
+    if (mobileFallback.status === 'used') {
+      mobileFallback.added = currentAssignments.filter((item) =>
+        mobileFallbackIds.has(item.id) && !primaryAssignmentIds.has(item.id)).length
+    }
     return {
       assignments: currentAssignments,
       successfulCourseIds: [...new Set(successfulCourseIds)],
@@ -233,7 +273,7 @@ export class TheolAdapter {
         }),
       },
       errors,
-      source: { connected: true, checkedAt: capturedAt, errors },
+      source: { connected: true, checkedAt: capturedAt, errors, mobileFallback },
     }
   }
 }
@@ -243,4 +283,5 @@ export const THEOL_URLS = {
   login: new URL('homepage/common/sso_login.jsp', BASE).toString(),
   home: PERSONAL,
   personal: PERSONAL,
+  mobileUndoneTasks: MOBILE_UNDONE_TASKS,
 }

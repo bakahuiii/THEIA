@@ -261,7 +261,7 @@ manifest 的最小形状如下：
   "exportSchema": "theia-ai-context/v1",
   "producer": {
     "name": "THEIA",
-    "version": "0.4.2"
+    "version": "0.5.0"
   },
   "exportedAt": "2026-08-12T02:30:00.000Z",
   "timeZone": "Asia/Shanghai",

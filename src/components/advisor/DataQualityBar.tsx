@@ -11,6 +11,7 @@ import type {
   AdvisorOverview,
 } from "../../types";
 import { advisorDomainLabel } from "../../hooks/advisor-presentation.mjs";
+import { formatDateTime } from "../../ui/app-shared";
 
 const SOURCE_LABELS: Record<string, string> = {
   jwglxt: "教务系统",
@@ -38,28 +39,35 @@ const SIGNAL_CLASSES: Record<QualitySignal["tone"], string> = {
     "border-slate-500 bg-slate-100 text-slate-950 dark:border-slate-400 dark:bg-slate-800 dark:text-white",
 };
 
-function sourceLabel(sources: string[]) {
-  const labels = sources
+function sourceLabel(sources: string[] | null | undefined) {
+  const labels = (Array.isArray(sources) ? sources : [])
     .map((source) => SOURCE_LABELS[source])
     .filter((label): label is string => Boolean(label));
   return labels.length ? [...new Set(labels)].join(" / ") : "本地数据";
 }
 
+function lastAttemptOf(quality: AdvisorDomainQuality) {
+  const lastAttempt = (quality as Partial<AdvisorDomainQuality>).lastAttempt;
+  return lastAttempt && typeof lastAttempt === "object"
+    ? lastAttempt
+    : {
+        runId: null,
+        attemptedAt: null,
+        completedAt: null,
+        status: "never" as const,
+        emptyConfirmed: false,
+        retainedPrevious: false,
+        errorCode: null,
+      };
+}
+
 function formatTimestamp(value: string | null | undefined) {
-  if (!value) return "尚无可验证快照时间";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "快照时间未知";
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  return value ? formatDateTime(value) : "尚无可验证快照时间";
 }
 
 function qualitySignals(quality: AdvisorDomainQuality): QualitySignal[] {
   const signals: QualitySignal[] = [];
-  const attempt = quality.lastAttempt.status;
+  const attempt = lastAttemptOf(quality).status;
 
   if (attempt === "failed") {
     signals.push({ key: "failed", label: "最近读取失败", tone: "failed" });
@@ -103,9 +111,11 @@ function DomainQualityItem({
   onSelect?: (quality: AdvisorDomainQuality) => void;
 }) {
   const signals = qualitySignals(quality);
+  const lastAttempt = lastAttemptOf(quality);
   const hasFailure = signals.some((signal) => signal.tone === "failed");
+  const needsAttention = signals.some((signal) => signal.tone !== "good" && signal.tone !== "empty");
   const Icon = hasFailure
-    ? quality.lastAttempt.status === "auth-required"
+    ? lastAttempt.status === "auth-required"
       ? LogIn
       : AlertCircle
     : signals.length === 1 && signals[0].tone === "good"
@@ -132,6 +142,9 @@ function DomainQualityItem({
             </span>
           ))}
         </span>
+        {needsAttention && onSelect && (
+          <span className="mt-2 block text-[10px] font-semibold text-[var(--teal)]">点击查看原因与保留数据</span>
+        )}
       </span>
     </>
   );
@@ -178,7 +191,7 @@ export function DataQualityBar({
   );
   const verifiedCount = domains.filter(
     (domain) =>
-      domain.lastAttempt.status === "succeeded" &&
+      lastAttemptOf(domain).status === "succeeded" &&
       domain.freshness === "fresh" &&
       domain.completeness === "complete" &&
       domain.availability !== "unknown" &&

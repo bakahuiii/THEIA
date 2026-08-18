@@ -330,7 +330,8 @@ test('academic API failure falls back to the existing browser SSO session', asyn
   assert.equal(browserCalls, 1)
   assert.equal(result.source.connected, true)
   assert.equal(result.source.api.fallback, true)
-  assert.deepEqual(result.schedule, [{ id: 'browser-schedule' }])
+  assert.equal(result.schedule[0].id, 'browser-schedule')
+  assert.match(result.schedule[0].color, /^#/u)
 })
 
 test('academic API does not swallow browser SSO expiry during fallback', async () => {
@@ -442,6 +443,58 @@ test('academic API browser fallback never replaces a failed domain with an undef
   assert.equal(result.domainOutcomes.grades.succeeded, false)
 })
 
+test('academic API browser fallback merges extension domains one-by-one', async () => {
+  const adapter = new AcademicApiFirstAdapter({
+    browserAdapter: {
+      onProgress: null,
+      async status() { return { connected: true } },
+      async sync() {
+        return {
+          academicExtras: {
+            domains: {
+              'grade-details': { records: [{ id: 'browser-detail' }] },
+            },
+          },
+          domainOutcomes: {
+            'grade-details': { attempted: true, succeeded: true, status: 'succeeded', completeness: 'complete' },
+          },
+          source: { connected: true },
+          errors: [],
+        }
+      },
+    },
+    credentialVault: { async readCredentials() { return { username: '2024000000', password: 'secret' } } },
+    isEnabled: () => true,
+    clientFactory: () => ({ async login() {} }),
+    adapterFactory: () => ({
+      async sync() {
+        return {
+          academicExtras: {
+            domains: {
+              'academic-plan': {
+                records: [{ id: 'legacy-plan-row' }],
+                attachments: [{ id: 'api-plan-pdf', label: '培养计划.pdf', type: 'pdf', sourceUrl: 'https://jwglxt.buct.edu.cn/jwglxt/plan.pdf', cached: true }],
+              },
+              'grade-details': { records: [{ id: 'api-detail' }] },
+            },
+          },
+          domainOutcomes: {
+            'academic-plan': { attempted: true, succeeded: true, status: 'succeeded', completeness: 'complete' },
+            'grade-details': { attempted: true, succeeded: false, status: 'failed', completeness: 'unknown', errorCode: 'grade_details_read_failed' },
+          },
+          source: { connected: true },
+          errors: ['grade details failed'],
+        }
+      },
+    }),
+  })
+
+  const result = await adapter.sync({ domains: ['grade-details'] })
+  assert.deepEqual(result.academicExtras.domains['academic-plan'].records, [])
+  assert.equal(result.academicExtras.domains['academic-plan'].attachments[0].id, 'api-plan-pdf')
+  assert.equal(result.academicExtras.domains['grade-details'].records[0].id, 'browser-detail')
+})
+
 test('academic API re-authenticates once when a domain is rejected mid-session', async () => {
   let loginCount = 0
   let syncCount = 0
@@ -477,6 +530,57 @@ test('academic API re-authenticates once when a domain is rejected mid-session',
   assert.equal(syncCount, 2)
   assert.equal(result.grades.length, 1)
   assert.equal(result.domainOutcomes.grades.succeeded, true)
+})
+
+test('academic API retry is scoped to failed domains and preserves first-pass data', async () => {
+  let loginCount = 0
+  let syncCount = 0
+  let retryOptions = null
+  const adapter = new AcademicApiFirstAdapter({
+    browserAdapter: { onProgress: null, async status() { return { connected: true } } },
+    credentialVault: { async readCredentials() { return { username: '2024000000', password: 'secret' } } },
+    isEnabled: () => true,
+    clientFactory: () => ({
+      async login() { loginCount += 1 },
+      async academicProgressDetails() { return { progress: { categories: [] }, details: [], errors: [] } },
+    }),
+    adapterFactory: () => ({
+      async sync(options) {
+        syncCount += 1
+        if (syncCount === 2) retryOptions = options
+        if (syncCount === 1) {
+          return {
+            grades: [{ id: 'first-pass-grade' }],
+            exams: undefined,
+            academicProgress: { gpa: 3.2, roots: [{ id: 'root', children: [] }], requirementSource: 'api-tree-detail' },
+            domainOutcomes: {
+              grades: { attempted: true, succeeded: true, status: 'succeeded', completeness: 'complete' },
+              exams: { attempted: true, succeeded: false, status: 'failed', errorCode: 'exams_read_failed' },
+            },
+            source: { connected: true },
+            errors: ['exams session expired'],
+          }
+        }
+        return {
+          exams: [{ id: 'retried-exam' }],
+          domainOutcomes: {
+            exams: { attempted: true, succeeded: true, status: 'succeeded', completeness: 'complete' },
+          },
+          source: { connected: true },
+          errors: [],
+        }
+      },
+    }),
+  })
+
+  const result = await adapter.sync({ domains: ['grades', 'exams'] })
+  assert.equal(loginCount, 2)
+  assert.equal(syncCount, 2)
+  assert.deepEqual(retryOptions, { domains: ['exams'] })
+  assert.equal(result.grades[0].id, 'first-pass-grade')
+  assert.equal(result.exams[0].id, 'retried-exam')
+  assert.equal(result.domainOutcomes.grades.succeeded, true)
+  assert.equal(result.domainOutcomes.exams.succeeded, true)
 })
 
 test('academic API enriches its GPA summary with same-session degree-plan details', async () => {

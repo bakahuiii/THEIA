@@ -1,5 +1,5 @@
-import { Bell, CheckCircle2, ChevronRight, FileText } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Bell, CheckCircle2, ChevronLeft, ChevronRight, FileText } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { AssignmentRow } from "../components/AssignmentRow";
 import {
   Dialog,
@@ -38,6 +38,8 @@ type AssignmentViewProps = {
   modelConfigured: boolean;
 };
 
+const LIST_PAGE_SIZE = 50;
+
 export function AssignmentsView({
   items,
   workspaces,
@@ -45,6 +47,7 @@ export function AssignmentsView({
   ...actions
 }: AssignmentViewProps) {
   const [mode, setMode] = useState<"pending" | "submitted" | "all">("pending");
+  const [page, setPage] = useState(0);
   const workspaceByAssignment = useMemo(
     () => new Map(workspaces.map((item) => [item.assignmentId, item])),
     [workspaces],
@@ -67,6 +70,12 @@ export function AssignmentsView({
         ),
     [items, mode],
   );
+  const pageCount = Math.max(1, Math.ceil(filtered.length / LIST_PAGE_SIZE));
+  useEffect(() => setPage(0), [mode]);
+  useEffect(() => {
+    if (page >= pageCount) setPage(pageCount - 1);
+  }, [page, pageCount]);
+  const pageItems = filtered.slice(page * LIST_PAGE_SIZE, (page + 1) * LIST_PAGE_SIZE);
   return (
     <div className="data-page">
       <div className="segmented">
@@ -91,7 +100,7 @@ export function AssignmentsView({
       </div>
       {filtered.length ? (
         <div className="panel task-list wide">
-          {filtered.map((item) => (
+            {pageItems.map((item) => (
             <AssignmentRow
               item={item}
               key={item.id}
@@ -100,6 +109,13 @@ export function AssignmentsView({
               {...actions}
             />
           ))}
+          {filtered.length > LIST_PAGE_SIZE && (
+            <nav className="communications-pagination" aria-label="作业分页">
+              <button type="button" className="icon-button" onClick={() => setPage((value) => Math.max(0, value - 1))} disabled={page === 0} aria-label="上一页" title="上一页"><ChevronLeft size={16} /></button>
+              <span>{page * LIST_PAGE_SIZE + 1}–{Math.min((page + 1) * LIST_PAGE_SIZE, filtered.length)} / {filtered.length}</span>
+              <button type="button" className="icon-button" onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))} disabled={page >= pageCount - 1} aria-label="下一页" title="下一页"><ChevronRight size={16} /></button>
+            </nav>
+          )}
         </div>
       ) : (
         <EmptyState
@@ -114,6 +130,7 @@ export function AssignmentsView({
 
 export function NoticesView({ state, query = "" }: { state: CampusState; query?: string }) {
   const [selected, setSelected] = useState<Notice | null>(null);
+  const [page, setPage] = useState(0);
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const visibleNotices = normalizedQuery
     ? state.notices.filter((notice) =>
@@ -122,6 +139,12 @@ export function NoticesView({ state, query = "" }: { state: CampusState; query?:
           .some((value) => String(value).toLocaleLowerCase().includes(normalizedQuery)),
       )
     : state.notices;
+  const pageCount = Math.max(1, Math.ceil(visibleNotices.length / LIST_PAGE_SIZE));
+  useEffect(() => setPage(0), [query]);
+  useEffect(() => {
+    if (page >= pageCount) setPage(pageCount - 1);
+  }, [page, pageCount]);
+  const pageNotices = visibleNotices.slice(page * LIST_PAGE_SIZE, (page + 1) * LIST_PAGE_SIZE);
   if (!state.notices.length)
     return (
       <EmptyState
@@ -143,7 +166,7 @@ export function NoticesView({ state, query = "" }: { state: CampusState; query?:
   return (
     <>
       <div className="notice-list">
-        {visibleNotices.map((notice) => (
+        {pageNotices.map((notice) => (
           <article key={notice.id}>
             <button
               type="button"
@@ -169,6 +192,13 @@ export function NoticesView({ state, query = "" }: { state: CampusState; query?:
           </article>
         ))}
       </div>
+      {visibleNotices.length > LIST_PAGE_SIZE && (
+        <nav className="communications-pagination" aria-label="通知分页">
+          <button type="button" className="icon-button" onClick={() => setPage((value) => Math.max(0, value - 1))} disabled={page === 0} aria-label="上一页" title="上一页"><ChevronLeft size={16} /></button>
+          <span>{page * LIST_PAGE_SIZE + 1}–{Math.min((page + 1) * LIST_PAGE_SIZE, visibleNotices.length)} / {visibleNotices.length}</span>
+          <button type="button" className="icon-button" onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))} disabled={page >= pageCount - 1} aria-label="下一页" title="下一页"><ChevronRight size={16} /></button>
+        </nav>
+      )}
 
       <Dialog
         open={Boolean(selected)}

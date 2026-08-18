@@ -126,3 +126,32 @@ test('academic calendar replaces its local image and OCR record only after the o
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('academic calendar retries a failed OCR parse without requiring a new source image', async () => {
+  const root = await mkdtemp(resolve(tmpdir(), 'theia-calendar-ocr-retry-'))
+  let ocrCalls = 0
+  try {
+    const service = new AcademicCalendarAssetsService({
+      root,
+      fetchImpl: async (url) => responseFor(String(url)),
+      ocrRunner: async () => {
+        ocrCalls += 1
+        if (ocrCalls === 1) throw new Error('transient OCR worker failure')
+        return {
+          schoolYear: '2025-2026',
+          semesters: [{ label: '第一学期', startDate: '2025-09-01', endDate: '2026-01-18', weeks: 20 }],
+          vacations: [{ label: '暑假', startDate: '2026-07-27', endDate: '2026-08-30' }],
+        }
+      },
+    })
+    await service.refresh()
+    assert.equal(service.manifest.calendar, null)
+    assert.match(service.manifest.calendarError, /transient OCR/u)
+    await service.refresh()
+    assert.equal(ocrCalls, 2)
+    assert.equal(service.manifest.calendar.schoolYear, '2025-2026')
+    assert.equal(service.manifest.calendarError, null)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})

@@ -13,11 +13,12 @@ THEIA 是面向北京化工大学学习生活的 Windows 本地优先桌面客�
 | 理解整个产品如何工作 | [系统架构](architecture.md) | 进程、模块、信任边界与核心服务的鸟瞰图。 |
 | 维护或扩展代码 | [开发者指南](developer-guide.md) | 环境、目录、改动路径、质量门槛和扩展原则。 |
 | 理解本地数据如何产生、保存和恢复 | [数据生命周期](data-lifecycle.md) | 同步、规范化、分片存储、Feed、导出和迁移。 |
+| 需要按代码入口排查“抓取--存储”链路 | [数据抓取--数据存储操作手册](data-capture-storage-handbook.md) | 当前实现的触发条件、扩展域、空数据语义、来源页认证、分片提交和手工验收。 |
 | 快速审查每个数据的来源、持久化和读取面 | [数据所有权矩阵](data-ownership-matrix.md) | 用一张矩阵检查集合所有权、敏感边界和失败语义。 |
 | 对接本机 HTTP 接口、CLI 或 Electron bridge | [接口与 IPC 参考](reference/api-and-ipc.md) | 当前可调用的接口、响应包装、限制和兼容规则。 |
 | 读取全部状态与每个集合的结构 | [数据模型参考](reference/data-model.md) | `CampusState`、集合、来源标记与字段语义。 |
 | 为外部 AI 消费 THEIA 数据 | [AI 数据导出契约](reference/ai-export-contract.md) | 已实现 AI 包的选择方式、严格文件结构、校验与隐私边界。 |
-| 理解模型接入前的可信顾问底座 | [Advisor P0 基础](ai/16-advisor-p0-foundation.md) | 已实现的离线 DataQuality、Evidence、Claim、Risk、Agenda 与仍未实现的模型边界。 |
+| 理解确定性顾问底座与当前模型 Agent | [当前 Agent 说明](ai/20-a-b-c-advisor-agent-sidecar.md) | 冻结快照、惰性只读工具、Responses 流式传输与通知/邮件安全边界；P0-P3 历史设计见专题文档。 |
 | 测试、调试、打包或运维 | [运行、测试与发布](operations-and-testing.md) | 本地运行、验证顺序、诊断文件、打包与恢复。 |
 
 ## 文档层次
@@ -30,6 +31,7 @@ docs/
   architecture.md                   系统架构和模块边界
   developer-guide.md                开发者入门和扩展约定
   data-lifecycle.md                 数据采集、持久化、导出和恢复
+  data-capture-storage-handbook.md  抓取入口、解析、存储和生命周期操作手册
   data-ownership-matrix.md          数据来源、持久化与接口边界矩阵
   operations-and-testing.md         运行、测试、诊断、打包与发布
   reference/

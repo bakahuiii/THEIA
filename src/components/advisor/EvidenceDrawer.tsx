@@ -7,6 +7,7 @@ import {
   X,
 } from "lucide-react";
 import type { AdvisorEvidence } from "../../types";
+import { formatDateTime } from "../../ui/app-shared";
 import {
   Sheet,
   SheetClose,
@@ -74,17 +75,7 @@ function sourceLabel(source: string | null) {
 }
 
 function formatTimestamp(value: string | null) {
-  if (!value) return "捕获时间未知";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "捕获时间未知";
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).format(date);
+  return value ? formatDateTime(value, true) : "捕获时间未知";
 }
 
 function qualityLabels(evidence: AdvisorEvidence) {

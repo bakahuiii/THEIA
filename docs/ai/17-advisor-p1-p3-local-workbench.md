@@ -1,6 +1,6 @@
 # Advisor P1-P3 本地决策工作台
 
-本文记录 P0 可信底座之上已经落地的 P1-P3 无模型能力、保守降级规则、安全动作边界和验收方法。P0 的快照、数据质量、证据与 claim 合同见 [16-advisor-p0-foundation.md](16-advisor-p0-foundation.md)；后来落地的 P4-P5 模型运行时见 [18-advisor-p4-p5-model-runtime.md](18-advisor-p4-p5-model-runtime.md)；完整路线和历史决策见 [THEIA AI 顾问接入与实施方案](../../../../THEIA_AI_ADVISOR_IMPLEMENTATION_PLAN.md)。
+本文记录 P0 可信底座之上已经落地的 P1-P3 无模型能力、保守降级规则、安全动作边界和验收方法。P0 的快照、数据质量、证据与 claim 合同见 [16-advisor-p0-foundation.md](16-advisor-p0-foundation.md)；当前 Agent 运行时见 [20-a-b-c-advisor-agent-sidecar.md](20-a-b-c-advisor-agent-sidecar.md)；完整路线和历史决策见 [THEIA AI 顾问接入与实施方案](THEIA_AI_ADVISOR_IMPLEMENTATION_PLAN.md)。
 
 ## 1. 当前结论
 
@@ -13,9 +13,9 @@ P1-P3 已将 THEIA 从只返回底层 `overview` 的可信底座扩展为可直�
 - 顾问读取 `CampusStore.snapshotWithRevision()` 的冻结快照，不读取 loopback、Feed 或 AI 导出包，也不写回 `CampusState`；
 - 顾问不会调用学校选课 POST，不会自动抢课、填答、发信或最终提交。
 
-P1-P3 本身仍然是无模型能力：模型未配置、断网或 P4 请求失败时，这些本地结论照常可用。P4 后来已在其上接入 `ContextBuilder`、授权披露、`AdvisorRuntime`、Provider、严格 narrative/`CitationVerifier`、内存线程、取消和并发预算，但没有改变 P1-P3 的计算来源。
+P1-P3 本身仍然是无模型能力：模型未配置、断网或 Agent 请求失败时，这些本地结论照常可用。当前 Agent 在其上接入 `AdvisorRuntime`、Provider、惰性只读工具、强制流式、原文保存、加密 `AdvisorStore`、取消和并发预算，但没有改变 P1-P3 的计算来源。
 
-仍未实现的是持久加密 `AdvisorStore`、受约束的多轮摘要、有界只读工具循环、Agent Provider、多代理、自动工具调用和流式输出。现有 `electron/model-service.mjs` 只提供模型传输；完整顾问请求生命周期由独立 `electron/advisor-runtime.mjs` 管理。
+仍未实现的是跨 revision 摘要、密钥轮换、多代理和后台作业 AutoQueue。受约束的只读工具循环、Agent Provider、流式输出和线程加密持久化已由 `electron/advisor-runtime.mjs`、`core/advisor/lazy-workspace.mjs` 与 `electron/advisor-store.mjs` 实现；现有 `electron/model-service.mjs` 仍只提供模型传输与作业内容工作流。
 
 ## 2. 统一数据流
 
@@ -77,6 +77,7 @@ P1 将以下本地风险放进同一 Agenda：
 - loading、error、confirmed empty 与 unconfirmed empty 分开呈现。
 - “今日行动为空”只核对会实际生成 Agenda 的作业、考试、成绩、学业进度与校历领域；邮箱、体测等无关领域未知不会阻止空状态，但任一相关领域缺失、过期、部分、失败保留或来源推断时仍保持未确认。
 - stale、partial、failed 和 unknown 使用可见文字，不只依赖颜色或 tooltip。
+- 每一个数据质量领域卡都可打开“数据诊断”。失败、需要登录、部分结果、保留旧数据、过期、未知和推断来源都必须给出可读原因；学校 GPA 双来源不一致的黄色提示也必须能打开对应来源证据。
 - `dismiss` 只允许非紧急项，按 `{snapshotRevision, actionId}` 在当前 renderer 会话隐藏。
 - `snooze` 按 `{snapshotRevision, actionId, urgencyBand}` 在当前会话隐藏；revision 或紧迫度分段变化后重新出现。
 - 两种状态都不修改风险基础分、不写入 `CampusState`，也不形成持久用户偏好。
@@ -111,9 +112,13 @@ renderer: { snapshotRevision, actionId }
 
 原始 `assignmentId` 不进入 renderer 顾问链；过期 revision、伪造动作、越权动作、目标不唯一或内部执行失败都以结构化错误失败关闭。普通作业页已有的来源入口不受这条顾问专用链影响。
 
-### 3.5 证据抽屉
+### 3.5 数据诊断与证据抽屉
 
-证据抽屉显示安全标签、校园来源、捕获时间、可见字段和数据质量。公开 DTO 已先移除任意 URL、查询参数、本机路径、token、Cookie、密码、credential、session、原始学校实体 ID 和 operation 字段，并把 `runId`、`parserVersion`、`errorCode` 的原始值清成 `null`；抽屉再隐藏仅供结构校验的 digest/revision。证据 ID 只用于当前本地合同闭包，不作为可执行目标。overview revision 一旦变化，旧抽屉会立即关闭，不能继续展示上一快照的证据。
+数据诊断不是日志查看器。它只为当前领域展示用户能够据此决定是否重试的本地摘要：当前保留记录数、最后可信时间、来源、每个最近来源读取的状态与完整性、同步前本地记录数、本次可确认返回数、成功/失败学期范围、稳定错误类别和解析版本。`retainedPrevious=true` 时必须明确说明页面正在使用同步前的可确认快照，而不能把本次空或失败结果误报成“没有记录”。派生领域同时显示其依赖领域。
+
+从“学业仪表盘”打开数据诊断或证据抽屉时，先收起仪表盘；关闭抽屉后恢复仪表盘。不要在一个 Radix modal 上叠另一个同层 Sheet，否则遮罩会截获点击，形成 DOM 有内容但用户看不到或无法操作的假成功。视觉测试必须检查 Sheet 实际处于点击前景，不能只检查 `body.innerText`。
+
+证据抽屉显示安全标签、校园来源、捕获时间、可见字段和数据质量。公开 DTO 已先移除任意 URL、查询参数、本机路径、token、Cookie、密码、credential、session、原始学校实体 ID 和 operation 字段；证据抽屉继续隐藏仅供结构校验的 digest/revision。数据诊断额外白名单传递受约束的 `runId`、`parserVersion`、`errorCode` 和学期 ID，只为显示稳定类别与范围，绝不能传递原始异常文本、HTML、请求头或运行时路径。证据 ID 只用于当前本地合同闭包，不作为可执行目标。overview revision 一旦变化，旧抽屉会立即关闭，不能继续展示上一快照的证据。
 
 ## 4. P2：本地学业分析
 
@@ -159,7 +164,9 @@ GPA 同时保留三个来源：
 
 失败课程只有通过显式培养方案节点 ID 或课程号关联时，才声明对具体节点的影响为 known；仅课程名称相同只作为候选关联，不能升级成官方关系。
 
-升级线默认显示“尚未配置”。只有注入包含 `rulesVersion`、来源标签和阈值的版本化规则后，才显示门槛、计入学分和算术距离；范围重叠、节点缺失或已获学分未知时返回 unknown。即使规则完整，结果也只是一项算术核对，不是升级、毕业、退学或学籍结论。
+升级线默认显示“尚未配置”。生产桌面只读取 `%APPDATA%/THEIA/advisor/upgrade-rule.v1.json`（自定义 `THEIA_DATA_ROOT` 时相对于该根目录）；文件必须是 `theia-advisor-upgrade-rule-config/v1`、版本 `1`，包含受控官方来源元数据和对 canonical `{schema,version,source,rule}` 的 SHA-256 `digest`。缺失、篡改、版本不支持或官方来源缺少发布日期时 fail-closed 为未配置。只有通过校验的规则才显示门槛、计入学分和算术距离；范围重叠、节点缺失或已获学分未知时返回 unknown。即使规则完整，结果也只是一项算术核对，不是升级、毕业、退学或学籍结论。
+
+线程摘要不是长期事实缓存。每条摘要只保存 revision/domain digest、响应摘要和 `expiresAt`，默认 30 天；过期摘要在加载后的线程列表、下一次请求提示和持久化写入前清理。revision 或领域 digest 变化时，仍可在 TTL 内作为 `historical` 导航提示，但不会作为当前 evidence 发送给模型。
 
 What-if 当前只允许：
 
@@ -298,20 +305,20 @@ git diff --check
 7. 培养方案、课程和规则引用均为 revision-bound opaque ref；What-if 对伪造、过期、歧义和非父子组合失败关闭。
 8. 公开 provenance 使用逐字段 allowlist；作业动作持续复核 revision，overview/What-if/候选/P3 决策仅允许最新请求更新 UI。
 
-## 8. 与 P4-P5 的边界
+## 8. 与 Agent 的边界
 
-P4 已按下列路径接入模型顾问：
+Agent 按下列路径接入模型顾问：
 
 ```text
 冻结本地快照
-  -> 本地确定性 claims/actions
-  -> 按问题与 consent 生成最小 DisclosurePlan
-  -> ProviderAdapter 调用模型
-  -> 严格解析模型 narrative
-  -> 针对请求时冻结的 allowlist 验证引用
+  -> 建立惰性只读工作区
+  -> Provider 流式调用模型
+  -> 模型按需查询固定工具
+  -> 动态登记 claim/evidence/reference
+  -> 针对本轮账本验证 narrative
   -> UI 只渲染通过验证的叙述和本地关键值
 ```
 
-`AdvisorRuntime`、授权披露、模型叙述校验和请求级冻结 catalog 已完成首发接线。现有 `ModelService` 仍不能直接绕过该链连接顾问页；模型也不能生成 URL、原始学校 ID、任意工具参数或执行学校操作。
+`AdvisorRuntime`、模型叙述校验和动态账本已完成接线。现有 `ModelService` 仍不能直接绕过该链连接顾问页；模型也不能生成 URL、原始学校 ID、任意工具参数或执行学校操作。
 
-`projectAdvisorOverview()` 的顶层、claims、risks 和 urgentItems 已改为逐字段 DTO；P4 ContextBuilder 还会再次执行模型专用白名单投影。P1-P3 的固定本地动作与 P4 模型建议继续分离：前者只能通过原有主进程重验链执行，后者目前不构成工具调用或执行授权。P4-P5 的准确边界见 [模型运行时与按需上下文](18-advisor-p4-p5-model-runtime.md)。
+`projectAdvisorOverview()` 的顶层、claims、risks 和 urgentItems 保持逐字段 DTO。P1-P3 的固定本地动作与模型建议继续分离：前者只能通过原有主进程重验链执行，后者不构成工具调用或执行授权。当前边界见 [内嵌顾问与本地 Agent](20-a-b-c-advisor-agent-sidecar.md)。

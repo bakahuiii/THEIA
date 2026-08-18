@@ -87,7 +87,7 @@ if kind === 'assignment'   → renderAnswerPdf(id)
 
 ---
 
-## 线二：顾问 AI（P0 底座已有，模型层规划）
+## 线二：顾问 AI（P0-P3 与惰性 Agent 已有）
 
 ### 架构：计算层 + AI 叙述层
 
@@ -95,7 +95,7 @@ if kind === 'assignment'   → renderAnswerPdf(id)
 
 **计算层（纯逻辑，不需要 AI）**
 
-当前 P0 已实现逐领域 DataQuality、EvidenceRegistry、typed LocalClaim、数据质量风险、作业/考试时间记录风险、确定性 Agenda 与离线 `advisor:get-overview`。它不会调用模型或学校网络。以下升级线、GPA、体测窗口、第二课堂、创新学分和完整顾问 UI 仍是后续规则范围，不能按已完成功能展示：
+当前确定性层已实现逐领域 DataQuality、EvidenceRegistry、typed LocalClaim、数据质量风险、作业/考试时间记录风险、确定性 Agenda、培养方案/GPA 分析、纯算术 What-if、只读选课决策与离线 `advisor:get-overview`。它不会调用模型或学校网络。学业 GPA/学分页面统一使用 `theia-academic-analysis/v1` 派生模型；体测窗口、第二课堂和创新学分仍只有在来源、规则版本和失败语义明确后才能接入：
 
 从 `CampusState` 实时推断：
 - 升级线缺口：已获必修学分 vs 各年级门槛
@@ -109,14 +109,14 @@ if kind === 'assignment'   → renderAnswerPdf(id)
 输出：`RiskSignal[]`（学业风险）+ `UrgentItem[]`（近期截止），按优先级排序。
 每次打开应用实时重算，不缓存。
 
-**AI 叙述层（按需，用户主动触发）**
+**AI 叙述层（按需，用户主动触发，当前实现）**
 
 用户点击"解释"或"今天该做什么"时，AI 拿计算层输出生成自然语言：
 - 解释为什么这件事最重要
 - 数字的含义（"差 0.13 绩点" → "下学期两门课拿 C 就触发无学位警告"）
 - 当下具体可执行的一步建议
 
-传入 prompt 的上下文：`RiskSignal[]` + `UrgentItem[]` + `academicProgress` 结构，要求输出不超过 200 字中文，不做预测，只做解释和建议。
+当前模型首包只包含用户问题、快照 revision 和受限对话导航提示；模型通过惰性数据工具按需读取数据质量、校园记录、规范学业分析、截止事项和单封邮件正文，并可在任务需要时调用已声明的同步、公开 HTTPS、校园页面、THEIA 设置和已保存目标选课操作。工具结果绑定同一快照并保留不可信文本边界，流式回答按原文保存，不再使用旧的最终回答 JSON 校验或预投影 ContextBuilder。
 
 ### 顾问不做什么
 

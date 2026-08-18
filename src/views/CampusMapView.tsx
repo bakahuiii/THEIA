@@ -81,6 +81,9 @@ export function CampusMapView() {
   const zoomRef = useRef(initialView.zoom);
   const velocityRef = useRef<MapPosition>({ x: 0, y: 0 });
   const inertiaFrameRef = useRef<number | null>(null);
+  const zoomByRef = useRef<
+    (factor: number, event?: { clientX: number; clientY: number }) => void
+  >(() => {});
 
   const applyPosition = useCallback((next: MapPosition) => {
     positionRef.current = next;
@@ -121,13 +124,17 @@ export function CampusMapView() {
     if (!stage) return;
     const satellite = new Image();
     satellite.src = satelliteMap;
-    const preventPageWheel = (event: WheelEvent) => event.preventDefault();
-    stage.addEventListener("wheel", preventPageWheel, { passive: false });
+    const zoomWithWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      zoomByRef.current(event.deltaY < 0 ? 1.18 : 1 / 1.18, event);
+    };
+    stage.addEventListener("wheel", zoomWithWheel, { passive: false });
     syncMaxZoom();
     const observer = new ResizeObserver(syncMaxZoom);
     observer.observe(stage);
     return () => {
-      stage.removeEventListener("wheel", preventPageWheel);
+      stage.removeEventListener("wheel", zoomWithWheel);
       observer.disconnect();
     };
   }, [syncMaxZoom]);
@@ -209,6 +216,7 @@ export function CampusMapView() {
     factor: number,
     event?: { clientX: number; clientY: number },
   ) => updateZoom(zoomRef.current * factor, event?.clientX, event?.clientY);
+  zoomByRef.current = zoomBy;
   const resetMap = () => {
     stopInertia();
     zoomRef.current = 1;
@@ -285,12 +293,6 @@ export function CampusMapView() {
         onPointerUp={finishDrag}
         onPointerCancel={finishDrag}
         onDoubleClick={(event) => zoomBy(1.7, event)}
-        onWheelCapture={(event) => event.preventDefault()}
-        onWheel={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          zoomBy(event.deltaY < 0 ? 1.18 : 1 / 1.18, event);
-        }}
         onKeyDown={(event) => {
           if (event.key === "+" || event.key === "=") zoomBy(1.35);
           if (event.key === "-") zoomBy(1 / 1.35);

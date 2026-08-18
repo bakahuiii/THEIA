@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   Check,
+  ChevronDown,
   ChevronRight,
   Image,
   Monitor,
@@ -16,6 +17,7 @@ import {
   BUCT_LAKE_PRESET,
   matchesVisualPreset,
   VISUAL_PRESET_GROUPS,
+  type VisualPresetGroup,
 } from "@/lib/appearance-presets";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -45,8 +47,10 @@ const modeOptions: Array<{
 ];
 
 const basePresets: Array<{ id: ThemePreset; label: string; detail: string }> = [
-  { id: "classic", label: "Classic", detail: "清透" },
-  { id: "midnight", label: "Midnight", detail: "沉静" },
+  // These ids are kept stable for existing local preferences; the old
+  // renderer exposed their visible names in the opposite order.
+  { id: "midnight", label: "Classic", detail: "清透" },
+  { id: "classic", label: "Midnight", detail: "沉静" },
 ];
 
 export function ThemeMenu({
@@ -69,6 +73,44 @@ export function ThemeMenu({
   } = usePersonalization();
   const [section, setSection] = useState<"theme" | "background" | "motion">("theme");
   const hasBackground = preferences.background === "image" && Boolean(preferences.backgroundUrl);
+  const duotoneActive = hasBackground && preferences.gradientMap.enabled;
+  const menuPresetGroups: VisualPresetGroup[] = preferences.customVisualPresets.length
+    ? [
+        ...VISUAL_PRESET_GROUPS,
+        {
+          label: "我的预设",
+          detail: "保存在这台设备上的个人外观",
+          custom: true,
+          presets: preferences.customVisualPresets.map((preset) => ({
+            ...preset,
+            detail:
+              (preset.basePreset === "midnight" ? "Midnight" : "Classic") +
+              " · 本地预设",
+          })),
+        },
+      ]
+    : VISUAL_PRESET_GROUPS;
+  const renderPresetButtons = (group: VisualPresetGroup) => (
+    <div className="appearance-menu-preset-list" role="list">
+      {group.presets.map((preset) => {
+        const active = matchesVisualPreset(preset, preferences);
+        const seasonalPreset = preset.id === BUCT_LAKE_PRESET?.id
+          ? BUCT_LAKE_PRESET
+          : null;
+        return <button type="button" key={preset.id} className={active ? "active" : ""} onClick={() => seasonalPreset ? applySeasonalVisualSettings(seasonalPreset, seasonalPreset.seasonalVariants) : applyVisualSettings(preset)} aria-pressed={active}>
+          <span
+            className={`appearance-menu-preset-swatch${preset.previewImage ? " has-preview-image" : ""}`}
+            aria-hidden="true"
+            style={preset.previewImage ? { backgroundImage: `url("${preset.previewImage}")` } : undefined}
+          >
+            {!preset.previewImage && <><i style={{ backgroundColor: preset.gradientMap.shadow }} /><i style={{ backgroundColor: preset.gradientMap.highlight }} /></>}
+          </span>
+          <span className="appearance-menu-preset-copy"><strong>{preset.label}</strong><small>{preset.detail}</small></span>
+          {active && <Check size={14} aria-hidden="true" />}
+        </button>;
+      })}
+    </div>
+  );
 
   return (
     <DropdownMenu>
@@ -124,36 +166,29 @@ export function ThemeMenu({
               </section>
               <section className="appearance-menu-section">
                 <span className="appearance-menu-label">基础主题</span>
-                <div className="appearance-menu-base-options" role="group" aria-label="基础主题">
+                <div className="appearance-menu-base-options" role="group" aria-label="基础主题" aria-disabled={duotoneActive}>
                   {basePresets.map((preset) => {
                     const active = preferences.preset === preset.id;
-                    return <button type="button" key={preset.id} className={active ? "active" : ""} onClick={() => setPreset(preset.id)} aria-pressed={active}>
+                    return <button type="button" key={preset.id} className={active ? "active" : ""} onClick={() => setPreset(preset.id)} aria-pressed={active} disabled={duotoneActive}>
                       <span className={`appearance-menu-base-swatch ${preset.id}`} aria-hidden="true" />
                       <span><strong>{preset.label}</strong><small>{preset.detail}</small></span>
                       {active && <Check size={14} aria-hidden="true" />}
                     </button>;
                   })}
                 </div>
+                {duotoneActive && <p className="appearance-menu-disabled-note">双色映射开启时，基础主题样式由双色映射接管，此设置暂不可用。</p>}
               </section>
               <section className="appearance-menu-section">
                 <span className="appearance-menu-label">配色预设</span>
                 <div className="appearance-menu-preset-groups">
-                  {VISUAL_PRESET_GROUPS.map((group) => (
+                  {menuPresetGroups.map((group) => (
                     <section className="appearance-menu-preset-group" key={group.label}>
-                      <span>{group.label}</span>
-                      <div className="appearance-menu-preset-list" role="list">
-                        {group.presets.map((preset) => {
-                          const active = matchesVisualPreset(preset, preferences);
-                          const seasonalPreset = preset.id === BUCT_LAKE_PRESET?.id
-                            ? BUCT_LAKE_PRESET
-                            : null;
-                          return <button type="button" key={preset.id} className={active ? "active" : ""} onClick={() => seasonalPreset ? applySeasonalVisualSettings(seasonalPreset, seasonalPreset.seasonalVariants) : applyVisualSettings(preset)} aria-pressed={active}>
-                            <span className="appearance-menu-preset-swatch" aria-hidden="true"><i style={{ backgroundColor: preset.gradientMap.shadow }} /><i style={{ backgroundColor: preset.gradientMap.highlight }} /></span>
-                            <span className="appearance-menu-preset-copy"><strong>{preset.label}</strong><small>{preset.detail}</small></span>
-                            {active && <Check size={14} aria-hidden="true" />}
-                          </button>;
-                        })}
-                      </div>
+                      {group.label === "古典" ? (
+                        <details className="appearance-menu-collapsible">
+                          <summary><span>{group.label}<small>{group.detail}</small></span><ChevronDown size={14} aria-hidden="true" /></summary>
+                          {renderPresetButtons(group)}
+                        </details>
+                      ) : <><span>{group.label}</span>{renderPresetButtons(group)}</>}
                     </section>
                   ))}
                 </div>

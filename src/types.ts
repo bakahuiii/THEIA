@@ -3,6 +3,10 @@ export type SourceName = "jwglxt" | "theol";
 export interface SourceStatus {
   connected: boolean;
   checkedAt?: string;
+  /** A shared CAS session is being checked against this source. */
+  authPending?: boolean;
+  /** No authoritative probe has completed yet. */
+  unchecked?: boolean;
   authRequired?: boolean;
   error?: string;
   url?: string;
@@ -379,8 +383,19 @@ export interface AcademicExtraDomain {
   };
   messages?: string[];
   filters: string[];
-  attachments: Array<{ id: string | null; label: string | null; type: string | null; sourceUrl: string | null }>;
+  attachments: Array<{
+    id: string | null;
+    label: string | null;
+    type: string | null;
+    sourceUrl: string | null;
+    cached?: boolean;
+    bytes?: number | null;
+    sha256?: string | null;
+    filename?: string | null;
+  }>;
   records: AcademicExtraRecord[];
+  /** Present only in the bounded renderer snapshot; canonical storage keeps the records. */
+  recordCount?: number;
 }
 
 export interface AcademicExtras {
@@ -388,6 +403,22 @@ export interface AcademicExtras {
   capturedAt: string | null;
   parserVersion: string;
   domains: Record<string, AcademicExtraDomain>;
+}
+
+export interface AcademicPlanDocument {
+  schema: "theia-academic-plan-document/v1";
+  parserVersion: string;
+  sourceAttachmentId: string;
+  sourceSha256: string;
+  sourceBytes: number;
+  sourceFilename: string | null;
+  pageCount: number;
+  pages: Array<{ number: number; text: string }>;
+  title: string | null;
+  durationYears: number | null;
+  minimumGraduationCredits: number | null;
+  textDigest: string;
+  parsedAt: string;
 }
 
 export interface CampusState {
@@ -404,6 +435,7 @@ export interface CampusState {
   selectedCourses: SelectedCourse[];
   academicProgress: AcademicProgress | null;
   academicExtras?: AcademicExtras;
+  academicPlanDocument?: AcademicPlanDocument | null;
   assignments: Assignment[];
   workspaces: CourseWorkspace[];
   notices: Notice[];
@@ -485,8 +517,104 @@ export interface CampusState {
       responseLength: "adaptive" | "short" | "standard" | "detailed";
       temperature: number;
       budgetLevel: "high" | "xhigh" | "max" | "ultra";
+      permissionMode: "read-only" | "full-access";
     };
   };
+}
+
+/**
+ * Bounded, user-facing projections of the local campus state. These DTOs are
+ * deliberately separate from CampusState: raw transport fields and large
+ * historical collections must never be required by a renderer page.
+ */
+export interface UserDataDomainScope {
+  id: string;
+  label: string;
+  count: number;
+}
+
+export interface UserDataDomainSummary {
+  schema: "theia-user-data-view/v1";
+  domain: string;
+  label: string;
+  count: number;
+  scopes: UserDataDomainScope[];
+  completeness: "complete" | "partial" | "unknown" | string;
+  status: string;
+  statusLabel: string;
+  capturedAt: string | null;
+  stale: boolean;
+  primaryAction: "refresh" | "open";
+  retainedPrevious: boolean;
+  errorCode: string | null;
+  snapshotRevision?: string | null;
+}
+
+export interface UserDataRecordAttribute {
+  key: string;
+  label: string;
+  value: unknown;
+}
+
+export interface UserDataRecord {
+  id: string;
+  label: string;
+  scopeLabel: string;
+  status: string;
+  statusLabel: string;
+  completeness: string;
+  capturedAt: string | null;
+  sourcePlatform: string;
+  attributes?: UserDataRecordAttribute[];
+  domain?: string;
+  recordKind?: "record" | "attachment" | string;
+  recordType?: string;
+  recordTypeLabel?: string;
+  attachment?: {
+    type: string;
+    filename: string;
+    bytes: number | null;
+    sha256: string | null;
+    cached: boolean;
+  };
+}
+
+export interface UserDataRecordsPage {
+  schema: "theia-user-data-view/v1";
+  domain: string;
+  label: string;
+  scope: "current" | "all" | string;
+  total: number;
+  items: UserDataRecord[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  snapshotRevision?: string | null;
+}
+
+export interface UserDataOverview {
+  schema: "theia-user-data-view/v1";
+  view: "overview";
+  snapshotRevision: string | null;
+  generatedAt: string;
+  currentTerm: { id: string; label: string } | null;
+  attentionItems: UserDataRecord[];
+  sections: UserDataDomainSummary[];
+  extraDomains: UserDataDomainSummary[];
+  sync: {
+    lastRunAt: string | null;
+    lastSuccessAt: string | null;
+    lastError: string | null;
+  };
+}
+
+export interface UserDataRecordsOptions {
+  query?: string;
+  termId?: string | null;
+  status?: string | null;
+  scope?: "current" | "all";
+  limit?: number;
+  cursor?: string;
+  recordType?: string | null;
 }
 
 export interface AuthStatus {
@@ -536,20 +664,10 @@ export type SyncRetryDomain =
   | "school-schedule"
   | "academic-extras"
   | "academic-plan"
-  | "academic-warning"
   | "graduation-audit"
   | "grade-details"
   | "exam-extra"
-  | "free-classroom"
-  | "jwglxt-school-schedule"
-  | "weekly-schedule"
-  | "thesis"
-  | "profile-extra"
-  | "academic-workflows"
-  | "student-status"
-  | "student-workflows"
-  | "selection-workflows"
-  | "evaluation";
+  | "free-classroom";
 
 export interface ModelStatus {
   configured: boolean;
@@ -926,7 +1044,7 @@ export interface AdvisorOverview {
   academic: AdvisorAcademicAnalysis;
 }
 
-export type AdvisorIntent = "daily" | "risk" | "course" | "notice" | "mail" | "general";
+export type AdvisorIntent = "daily" | "risk" | "course" | "assignment" | "notice" | "mail" | "general";
 
 export interface AdvisorDisclosurePlan {
   schema: "theia-advisor-disclosure/v1";
@@ -945,26 +1063,12 @@ export interface AdvisorDisclosurePlan {
   contextDigest: string;
 }
 
-export interface AdvisorConsentChallenge {
-  schema: "theia-advisor-consent-challenge/v1";
-  requestId: string;
-  threadId: string;
-  serviceIdentity: string;
-  purpose: string;
-  intent: AdvisorIntent;
-  domains: string[];
-  entityDigests: string[];
-  contextDigest: string;
-  requiredScopes: string[];
-}
-
 export interface AdvisorPreparedRequest {
   schema: "theia-advisor-prepared-request/v1";
   requestId: string;
   threadId: string;
   expiresAt: string;
   disclosure: AdvisorDisclosurePlan;
-  consentChallenge: AdvisorConsentChallenge;
   agent: boolean;
 }
 
@@ -973,7 +1077,37 @@ export interface AdvisorStreamEvent {
   requestId: string;
   threadId: string;
   snapshotRevision: string;
-  delta: string;
+  delta?: string;
+  tool?: {
+    type: "start" | "result" | "error";
+    name: string;
+    step?: number;
+    args?: unknown;
+    summary?: {
+      itemCount?: number;
+      matchCount?: number;
+      claimCount?: number;
+      riskCount?: number;
+      requirementCount?: number;
+      domain?: string;
+      query?: string;
+      hasMessage?: boolean;
+      truncated?: boolean;
+    };
+    error?: string;
+  };
+  model?: {
+    type: "start" | "completed" | "failover";
+    modelId: string;
+    fromModelId?: string;
+    usage?: {
+      inputTokens?: number | null;
+      outputTokens?: number | null;
+      cachedInputTokens?: number | null;
+      cacheWriteInputTokens?: number | null;
+      cacheStatus?: "hit" | "miss" | "write" | "unknown" | null;
+    } | null;
+  };
 }
 
 export interface AdvisorAnswer {
@@ -983,8 +1117,24 @@ export interface AdvisorAnswer {
   intent: AdvisorIntent;
   snapshotRevision: string;
   rawText: string;
+  displayText?: string;
+  narrative?: {
+    schema: string;
+    catalogDigest: string;
+    blockCount: number;
+    recommendationCount: number;
+  };
   model: { serviceIdentity: string; modelId: string } | null;
-  usage: { inputTokens: number; outputTokens: number; estimated: boolean; inputBytes: number; outputBytes: number };
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cachedInputTokens: number | null;
+    cacheWriteInputTokens: number | null;
+    cacheStatus: "hit" | "miss" | "write" | "unknown";
+    estimated: boolean;
+    inputBytes: number;
+    outputBytes: number;
+  };
 }
 
 export type AdvisorThreadMessage =
@@ -1156,6 +1306,19 @@ export interface SchoolScheduleQuery {
   pageSize?: number | null;
 }
 
+export interface FreeClassroomQuery {
+  termId: string;
+  date?: string;
+  weeks: number[];
+  weekdays: number[];
+  periods: number[];
+  campus?: string;
+  building?: string;
+  classroomType?: string;
+  minSeats?: number;
+  maxSeats?: number;
+}
+
 export interface SchoolScheduleItem {
   id: string;
   termId: string;
@@ -1236,6 +1399,8 @@ export interface LocalDataCatalog {
       parserVersion: string;
       lastRefreshedAt: string | null;
       records: Record<string, SchoolScheduleResult>;
+      /** Present only in the bounded renderer snapshot. */
+      recordCount?: number;
     };
     academicCalendar: {
       source: string;
@@ -1258,6 +1423,10 @@ export interface LocalDataCatalog {
 
 export interface TheiaBridge {
   getSnapshot(): Promise<CampusState>;
+  getRendererSnapshot(): Promise<CampusState>;
+  getUserDataOverview(): Promise<UserDataOverview>;
+  getUserDataDomainSummary(domain: string): Promise<UserDataDomainSummary | null>;
+  getUserDataRecords(domain: string, options?: UserDataRecordsOptions): Promise<UserDataRecordsPage>;
   getAdvisorOverview(): Promise<AdvisorOverview>;
   getAdvisorAcademicWhatIf(scenario: {
     snapshotRevision: string;
@@ -1307,6 +1476,7 @@ export interface TheiaBridge {
   logout(): Promise<AuthStatus>;
   syncNow(): Promise<CampusState>;
   retrySyncDomain(domain: SyncRetryDomain): Promise<CampusState>;
+  queryFreeClassrooms(query: FreeClassroomQuery): Promise<CampusState>;
   getCourseSelection(): Promise<CourseSelectionSnapshot>;
   discoverCourseSelection(): Promise<CourseSelectionPortal>;
   getCourseSelectionCandidates(
@@ -1337,6 +1507,7 @@ export interface TheiaBridge {
   getAcademicCalendarAssets(): Promise<AcademicCalendarAssetsSnapshot>;
   refreshAcademicCalendarAssets(options?: { force?: boolean }): Promise<AcademicCalendarAssetsSnapshot>;
   openSource(url: string): Promise<boolean>;
+  openAcademicAttachment(domain: string, attachmentId: string): Promise<{ cached: boolean }>;
   openAssignmentSource(assignmentId: string): Promise<boolean>;
   openSchedulePdf(): Promise<{
     canceled: boolean;
@@ -1422,6 +1593,7 @@ export interface TheiaBridge {
     host: string;
     port: number;
     academicCalendarAssets?: Partial<Record<"calendar" | "teachingSchedule" | "weeklyCalendar", string>>;
+    academicPlanAssetBaseUrl?: string;
   }>;
   getFitnessScore(year?: string, options?: { refresh?: boolean }): Promise<FitnessScoreResult>;
   updateSettings(

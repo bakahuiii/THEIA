@@ -22,7 +22,6 @@ import buctLakeAutumnPreset from "../assets/appearance-presets/buct-lake-autumn.
 import buctLakeWinterPreset from "../assets/appearance-presets/buct-lake-winter.json";
 import {
   DEFAULT_GRADIENT_MAP_COLORS,
-  DEFAULT_GRADIENT_MAP_STOPS,
   deriveGradientPalette,
   normalizeGradientColor,
   normalizeGradientStops,
@@ -37,6 +36,8 @@ import {
 import { solarSeason } from "../lib/solar-season";
 
 const STORAGE_KEY = "theia-personalization-v1";
+const ANIMATED_DEFAULTS_MIGRATION_KEY = "theia-personalization-defaults-v1";
+const ANIMATED_DEFAULTS_MIGRATION_VALUE = "parallax-3d";
 const PERSONALIZATION_EVENT = "theia:personalization-change";
 
 export type ThemePreset =
@@ -160,37 +161,34 @@ const BUILT_IN_BACKGROUNDS: Record<
 };
 
 const defaults: Personalization = {
-  scene: "none",
-  preset: "classic",
-  background: "image",
-  backgroundBuiltin: "duotone",
-  backgroundUrl: duotoneBackgroundUrl,
-  backgroundName: "Θεία · 蓝白拓印",
-  backgroundBlur: 0,
-  backgroundTransparency: 42,
+  scene: "parallax-3d",
+  preset: "midnight",
+  background: "none",
+  backgroundBlur: 1,
+  backgroundTransparency: 26,
   backgroundImage: {
-    opacity: 72,
-    brightness: 100,
-    contrast: 100,
-    saturation: 100,
+    opacity: 68,
+    brightness: 84,
+    contrast: 144,
+    saturation: 96,
   },
   backgroundTexture: {
     enabled: true,
-    opacity: 2.5,
-    height: 160,
+    opacity: 1,
+    height: 165,
   },
   backgroundMotion: {
     enabled: true,
-    intensity: 12,
+    intensity: 6,
     scale: 106,
   },
   gradientMap: {
     enabled: true,
-    // Mapping belongs to the selected image by default. The workspace keeps
-    // its own accessible palette until the user explicitly opts in.
-    syncPalette: false,
-    ...DEFAULT_GRADIENT_MAP_COLORS,
-    ...DEFAULT_GRADIENT_MAP_STOPS,
+    syncPalette: true,
+    shadow: "#080d1b",
+    highlight: "#244a9a",
+    shadowPosition: 14,
+    highlightPosition: 85,
   },
   customVisualPresets: [],
 };
@@ -508,7 +506,31 @@ function readPreferences() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     const saved = raw ? JSON.parse(raw) : null;
-    const preferences = normalize(saved);
+    let preferences = normalize(saved);
+    const migrationComplete =
+      localStorage.getItem(ANIMATED_DEFAULTS_MIGRATION_KEY) ===
+      ANIMATED_DEFAULTS_MIGRATION_VALUE;
+    if (
+      !migrationComplete &&
+      saved &&
+      typeof saved === "object" &&
+      (saved as LegacyPersonalization).scene !== "parallax-3d"
+    ) {
+      // v0.5 introduces the animated scene as the default. Existing visual
+      // settings remain intact, but the old implicit "none" scene must not
+      // silently disable the new default after an upgrade.
+      preferences = normalize({
+        ...saved,
+        scene: "parallax-3d",
+      });
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
+    }
+    if (!migrationComplete) {
+      localStorage.setItem(
+        ANIMATED_DEFAULTS_MIGRATION_KEY,
+        ANIMATED_DEFAULTS_MIGRATION_VALUE,
+      );
+    }
     if (
       saved &&
       typeof saved === "object" &&
@@ -529,13 +551,22 @@ function applyPreferences(value: Personalization) {
   // Keep the label literal: 0% transparency is opaque and 100% removes the
   // surface tint. Users can now reach both endpoints instead of a hidden cap.
   const workspaceOpacity = Math.round(100 - transparency);
+  // Keep the user's transparency setting authoritative across the whole glass
+  // stack. Readability comes from contrast, blur, borders, and shadows—not by
+  // silently replacing the chosen visual treatment with opaque cards.
   const sidebarOpacity = Math.max(0, workspaceOpacity - 8);
   const topbarOpacity = Math.max(0, workspaceOpacity - 12);
+  const surfaceOpacity = workspaceOpacity;
+  const surfaceStrongOpacity = workspaceOpacity;
+  const controlOpacity = workspaceOpacity;
   const textureOpacity = value.backgroundTexture.enabled
     ? value.backgroundTexture.opacity / 100
     : 0;
   const useGradientMap = value.background === "image" && value.gradientMap.enabled;
-  const useGradientPalette = value.gradientMap.syncPalette;
+  // A saved duotone preference must not keep owning the chrome after its
+  // source image is removed. Palette ownership follows the actual mapping
+  // layer, so Classic/Midnight remain meaningful on a clean workspace.
+  const useGradientPalette = useGradientMap && value.gradientMap.syncPalette;
   const paletteSource =
     value.gradientMap.syncPalette &&
     value.backgroundPalette &&
@@ -585,15 +616,15 @@ function applyPreferences(value: Personalization) {
   );
   root.style.setProperty(
     "--theia-background-surface-opacity",
-    `${workspaceOpacity}%`,
+    `${surfaceOpacity}%`,
   );
   root.style.setProperty(
     "--theia-background-surface-strong-opacity",
-    `${workspaceOpacity}%`,
+    `${surfaceStrongOpacity}%`,
   );
   root.style.setProperty(
     "--theia-background-control-opacity",
-    `${workspaceOpacity}%`,
+    `${controlOpacity}%`,
   );
   root.style.setProperty(
     "--theia-background-image-opacity",

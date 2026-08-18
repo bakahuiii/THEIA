@@ -91,6 +91,76 @@ test('session client mirrors browser cookies into an isolated request session', 
   }])
 })
 
+test('session client reuses a Secure campus session for an official HTTP endpoint', async () => {
+  const copied = []
+  let observed
+  const cookieUrls = []
+  const browserCookie = {
+    name: 'JSESSIONID',
+    value: 'sensitive-session',
+    domain: 'course.buct.edu.cn',
+    path: '/meol',
+    secure: true,
+    httpOnly: true,
+  }
+  const client = new SessionClient(
+    {
+      cookies: {
+        get: async ({ url }) => {
+          cookieUrls.push(url)
+          return url.startsWith('https://') ? [browserCookie] : []
+        },
+      },
+    },
+    {
+      requestSession: {
+        cookies: { set: async (cookie) => { copied.push(cookie) } },
+        fetch: async (url, init) => {
+          observed = { url: String(url), headers: new Headers(init.headers), credentials: init.credentials }
+          return new Response('{"status":[-2]}', { status: 200 })
+        },
+      },
+    },
+  )
+
+  await client.request('http://course.buct.edu.cn/mobile/stuUnDoTaskList.do', {}, { source: 'legacy mobile endpoint' })
+  assert.equal(copied.length, 1)
+  assert.equal(observed.headers.get('Cookie'), 'JSESSIONID=sensitive-session')
+  assert.equal(observed.credentials, 'include')
+  assert.deepEqual(cookieUrls, [
+    'http://course.buct.edu.cn/mobile/stuUnDoTaskList.do',
+    'https://course.buct.edu.cn/mobile/stuUnDoTaskList.do',
+  ])
+})
+
+test('HTTP pages and forms use the direct campus session path instead of a rendered browser loader', async () => {
+  let pageCalls = 0
+  let formCalls = 0
+  const fetches = []
+  const client = new SessionClient(
+    { cookies: { get: async () => [] } },
+    {
+      pageLoader: async (url) => { pageCalls += 1; return { url, text: '' } },
+      formLoader: async (url) => { formCalls += 1; return { url, status: 200, text: '{}' } },
+      requestSession: {
+        fetch: async (url, init) => {
+          fetches.push({ url: String(url), method: init.method || 'GET' })
+          return new Response('{}', { status: 200 })
+        },
+      },
+    },
+  )
+
+  await client.page('http://course.buct.edu.cn/mobile/stuUnDoTaskList.do', { source: 'legacy mobile endpoint' })
+  await client.form('http://course.buct.edu.cn/mobile/homeworkView.do', {}, { source: 'legacy mobile endpoint' })
+  assert.equal(pageCalls, 0)
+  assert.equal(formCalls, 0)
+  assert.deepEqual(fetches, [
+    { url: 'http://course.buct.edu.cn/mobile/stuUnDoTaskList.do', method: 'GET' },
+    { url: 'http://course.buct.edu.cn/mobile/homeworkView.do', method: 'POST' },
+  ])
+})
+
 test('session client uses a supplied browser page loader for rendered HTML', async () => {
   const client = new SessionClient(
     { cookies: { get: async () => [] } },
@@ -245,6 +315,24 @@ test('session client stops oversized attachment responses before returning a buf
     client.binary('https://course.buct.edu.cn/meol/download/large.bin', { source: 'test attachment', maxBytes: 5 }),
     /超过 1 MB 限制/,
   )
+})
+
+test('session client can read HTTPS attachments through a rendered binary loader', async () => {
+  const calls = []
+  const client = new SessionClient(
+    { cookies: { get: async () => [] } },
+    {
+      binaryLoader: async (url, options) => {
+        calls.push({ url, signal: Boolean(options.signal) })
+        return { url, status: 200, buffer: Buffer.from('%PDF-rendered') }
+      },
+      requestSession: { fetch: async () => { throw new Error('direct fetch should not run') } },
+    },
+  )
+
+  const result = await client.binary('https://jwglxt.buct.edu.cn/jwglxt/plan.pdf')
+  assert.equal(result.buffer.toString(), '%PDF-rendered')
+  assert.deepEqual(calls, [{ url: 'https://jwglxt.buct.edu.cn/jwglxt/plan.pdf', signal: true }])
 })
 
 test('session client rejects non-campus attachment URLs before reading cookies or fetching', async () => {

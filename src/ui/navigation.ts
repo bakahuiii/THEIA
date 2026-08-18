@@ -49,7 +49,7 @@ export const viewTitles: Record<ViewId, { title: string; subtitle: string }> = {
   },
   advisor: {
     title: "学业顾问",
-    subtitle: "基于本地快照、固定规则与可追溯证据的决策工作台",
+    subtitle: "按问题读取本地校园数据，并保留可追溯证据",
   },
   schedule: { title: "本周课表", subtitle: "按照星期和节次查看当前学期课程" },
   map: { title: "校园地图", subtitle: "昌平校区 · 教学地点定位" },
@@ -73,6 +73,6 @@ export const viewTitles: Record<ViewId, { title: string; subtitle: string }> = {
     title: "通知与邮箱",
     subtitle: "校园邮箱、教务系统与北化在线THEOL动态集中查看",
   },
-  tools: { title: "学习工具", subtitle: "体测评分、学业预警、创新学分、第二课堂积分计算器" },
+  tools: { title: "学习工具", subtitle: "文档、空闲教室与校园工具" },
   settings: { title: "设置与接入", subtitle: "同步、导出和 THEIA 数据接口" },
 };

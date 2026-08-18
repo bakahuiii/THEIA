@@ -54,6 +54,32 @@ function copyableCookie(cookie) {
   return value
 }
 
+function isHttpUrl(rawUrl) {
+  try {
+    return new URL(rawUrl).protocol === 'http:'
+  } catch {
+    return false
+  }
+}
+
+function cookieIdentity(cookie) {
+  return [cookie?.name, cookie?.domain || '', cookie?.path || '/'].join('\u0000')
+}
+
+async function requestCookies(cookieSession, target) {
+  const cookies = await cookieSession.cookies.get({ url: target })
+  if (!isHttpUrl(target)) return cookies
+
+  // Electron correctly excludes Secure cookies for HTTP URLs. THEIA's campus
+  // request policy intentionally permits official legacy HTTP endpoints, so
+  // resolve the matching HTTPS jar as well and send the same host/path cookie
+  // set explicitly. This never broadens the strict *.buct.edu.cn URL policy.
+  const httpsTarget = new URL(target)
+  httpsTarget.protocol = 'https:'
+  const httpsCookies = await cookieSession.cookies.get({ url: httpsTarget.toString() })
+  return [...new Map([...cookies, ...httpsCookies].map((cookie) => [cookieIdentity(cookie), cookie])).values()]
+}
+
 async function limitedResponseBuffer(response, { maxBytes, source, url }) {
   const declared = Number(response.headers.get('content-length'))
   if (Number.isFinite(declared) && declared > maxBytes) {
@@ -95,12 +121,13 @@ async function limitedResponseBuffer(response, { maxBytes, source, url }) {
 }
 
 export class SessionClient {
-  constructor(session, { requestSession = session, timeoutMs = 25_000, pageLoader = null, formLoader = null, onDiagnostic = null } = {}) {
+  constructor(session, { requestSession = session, timeoutMs = 25_000, pageLoader = null, formLoader = null, binaryLoader = null, onDiagnostic = null } = {}) {
     this.cookieSession = session
     this.requestSession = requestSession
     this.timeoutMs = timeoutMs
     this.pageLoader = pageLoader
     this.formLoader = formLoader
+    this.binaryLoader = typeof binaryLoader === 'function' ? binaryLoader : null
     this.onDiagnostic = typeof onDiagnostic === 'function' ? onDiagnostic : null
   }
 
@@ -132,7 +159,7 @@ export class SessionClient {
     const headers = new Headers(init.headers || {})
     headers.set('Accept-Language', 'zh-CN,zh;q=0.9,en;q=0.4')
     headers.delete('Cookie')
-    const cookies = await this.cookieSession.cookies.get({ url: target })
+    const cookies = await requestCookies(this.cookieSession, target)
     await this.mirrorCookies(cookies)
     if (cookies.length) headers.set('Cookie', cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; '))
     const response = await this.requestSession.fetch(target, {
@@ -272,6 +299,33 @@ export class SessionClient {
   }
 
   async binary(url, { source = 'school attachment', maxBytes = MAX_ATTACHMENT_RESPONSE_BYTES } = {}) {
+    if (this.binaryLoader && !isHttpUrl(url)) {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), this.timeoutMs)
+      try {
+        const target = permittedSourceUrl(url)
+        const result = await this.binaryLoader(target, { source, signal: controller.signal })
+        const buffer = Buffer.isBuffer(result?.buffer) ? result.buffer : Buffer.from(result?.buffer || '')
+        const limit = Math.max(1, Math.min(MAX_ATTACHMENT_RESPONSE_BYTES, Number(maxBytes) || MAX_ATTACHMENT_RESPONSE_BYTES))
+        if (buffer.length > limit) {
+          throw new SourceRequestError(`${source} 响应超过 ${Math.ceil(limit / 1024 / 1024)} MB 限制`, {
+            source, url: target, bytes: buffer.length, maxBytes: limit,
+          })
+        }
+        const finalUrl = permittedSourceUrl(result?.url || target)
+        if (result?.status && (result.status < 200 || result.status >= 300)) {
+          throw new SourceRequestError(`${source} 请求失败 (${result.status})`, { source, status: result.status, url: finalUrl })
+        }
+        if (result?.text && htmlLooksLikeLogin(result.text, finalUrl)) throw new AuthRequiredError(source, finalUrl)
+        return { ...result, buffer, url: finalUrl }
+      } catch (error) {
+        if (error?.name === 'AbortError') throw new SourceRequestError(`${source} 请求超时`, { source, url, code: 'ETIMEDOUT' })
+        if (error instanceof AuthRequiredError || error instanceof SourceRequestError) throw error
+        throw new SourceRequestError(`${source} 下载失败: ${compactError(error)}`, { source, url, cause: error })
+      } finally {
+        clearTimeout(timer)
+      }
+    }
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), this.timeoutMs)
     try {
@@ -292,7 +346,9 @@ export class SessionClient {
   }
 
   async page(url, { source = 'school', allowLogin = false, signal = null } = {}) {
-    if (!this.pageLoader) return this.request(url, {}, { source, allowLogin, signal })
+    // A rendered BrowserWindow follows normal Secure-cookie rules. The direct
+    // client above is the controlled path for an official legacy HTTP page.
+    if (!this.pageLoader || isHttpUrl(url)) return this.request(url, {}, { source, allowLogin, signal })
     const startedAt = Date.now()
     this.diagnostic('source.page_started', { source, url: String(url) })
     try {
@@ -314,7 +370,7 @@ export class SessionClient {
   }
 
   async form(url, values, options = {}) {
-    if (this.formLoader) {
+    if (this.formLoader && !isHttpUrl(url)) {
       const source = options.source || 'school'
       const startedAt = Date.now()
       this.diagnostic('source.form_started', { source, url: String(url), referer: options.referer ? String(options.referer) : undefined })

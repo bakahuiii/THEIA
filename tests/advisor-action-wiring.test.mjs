@@ -85,4 +85,18 @@ test('advisor overview refresh accepts only the latest in-flight request', () =>
   assert.match(refresh, /const requestSequence = \+\+advisorOverviewRequestSequence\.current/)
   assert.match(refresh, /requestSequence !== advisorOverviewRequestSequence\.current/)
   assert.match(refresh, /requestSequence === advisorOverviewRequestSequence\.current/)
+  assert.match(refresh, /setAdvisorOverview\(null\)/)
+})
+
+test('renderer snapshots invalidate advisor actions and keep the hook free of an unused overview projection', () => {
+  const apply = sourceBetween(
+    hookSource,
+    'const applyRendererSnapshot = useCallback',
+    'const refreshAdvisorOverview = useCallback',
+  )
+
+  assert.match(apply, /advisorOverviewRequestSequence\.current \+= 1/)
+  assert.match(apply, /setAdvisorOverview\(null\)/)
+  assert.doesNotMatch(hookSource, /userDataOverview/)
+  assert.doesNotMatch(hookSource, /refreshUserDataOverview/)
 })

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { isStandardCourseCode, parseJwAcademicProgress, parseJwAcademicStatus, parseJwExams, parseJwGrades, parseJwNotices, parseJwQueryForm, parseJwSchedule, parseJwSelectedCourses, parseJwHomepage } from '../core/parsers/jwglxt.mjs'
+import { describeJwSchedulePayload, isStandardCourseCode, parseJwAcademicProgress, parseJwAcademicStatus, parseJwExams, parseJwGrades, parseJwNotices, parseJwQueryForm, parseJwSchedule, parseJwSelectedCourses, parseJwStudentIdentity, parseJwHomepage } from '../core/parsers/jwglxt.mjs'
 import { parseTheolAssignments, parseTheolCourse, parseTheolHome } from '../core/parsers/theol.mjs'
 import { JWGLXT_URLS } from '../core/adapters/jwglxt.mjs'
 import { parseAcademicTerm } from '../core/util.mjs'
@@ -40,6 +40,53 @@ test('JWGLXT homepage reads the active term from hidden fields', () => {
 test('academic term labels discard the Zhengfang display number before appending the semester name', () => {
   const term = parseAcademicTerm('2026', '3', '2026-2027 1')
   assert.deepEqual(term, { id: '2026-3', year: 2026, term: '3', label: '2026-2027 第一学期' })
+})
+
+test('JWGLXT schedule parser accepts BUCT direct API period fields', () => {
+  const result = parseJwSchedule(JSON.stringify({
+    kbList: [{ kcmc: '材料科学基础', kch_id: 'MAT14000G', xqj: '周三', jc: '0304', zcd: '1-16周' }],
+  }), { term, sourceUrl: 'https://jwglxt.buct.edu.cn/jwglxt/kbcx/xskbcx_cxXsKb.html' })
+  assert.equal(result.length, 1)
+  assert.equal(result[0].weekday, 3)
+  assert.equal(result[0].period, '3-4')
+})
+
+test('JWGLXT schedule parser accepts the direct API course envelope', () => {
+  const result = parseJwSchedule(JSON.stringify({ code: 1000, data: { courses: [{
+    course_id: 'MAT13904T', title: '高等数学A（I）', teacher: '杨卫星', weekday: 1,
+    sessions: '4-5节', weeks: '5-18周', place: '一教B阶-301',
+  }] } }), { term, sourceUrl: 'https://jwglxt.buct.edu.cn/jwglxt/kbcx/xskbcx_cxXsKb.html' })
+  assert.equal(result.length, 1)
+  assert.equal(result[0].weekday, 1)
+  assert.equal(result[0].period, '4-5节')
+  assert.equal(result[0].room, '一教B阶-301')
+  assert.equal(isStandardCourseCode(result[0].courseCode), true)
+})
+
+test('JWGLXT schedule payload exposes the authenticated student major identity', () => {
+  const result = parseJwStudentIdentity(JSON.stringify({
+    xsxx: { ZYH_ID: '0202', ZYMC: '高分子材料与工程', NJDM_ID: '2024', BJMC: '高材2407' },
+    kbList: [],
+  }))
+  assert.deepEqual(result, {
+    majorId: '0202',
+    majorName: '高分子材料与工程',
+    grade: '2024',
+    className: '高材2407',
+  })
+})
+
+test('JWGLXT schedule diagnostics expose shape but no row values', () => {
+  const diagnostic = describeJwSchedulePayload(JSON.stringify({ data: { courses: [{
+    course_id: 'MAT13904T', title: '高等数学A（I）', weekday: 1, sessions: '4-5节', place: '一教B阶-301',
+  }] } }))
+  assert.equal(diagnostic.recordCount, 1)
+  assert.equal(diagnostic.presence.weekday, true)
+  assert.equal(diagnostic.presence.sessions, true)
+  assert.equal(diagnostic.presence.place, true)
+  assert.deepEqual(Object.keys(diagnostic), ['recordCount', 'fieldNames', 'presence'])
+  assert.equal(diagnostic.fieldNames.includes('title'), true)
+  assert.equal(JSON.stringify(diagnostic).includes('高等数学'), false)
 })
 
 test('JWGLXT query form preserves default hidden fields and selected term', () => {

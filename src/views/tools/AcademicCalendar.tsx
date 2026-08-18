@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from "../../components/ui/dialog";
 import type { AcademicCalendarAssetsSnapshot, LocalDataCatalog } from "../../types";
+import { formatDateTime } from "../../ui/app-shared";
 
 type AssetKey = "calendar" | "teachingSchedule" | "weeklyCalendar";
 
@@ -26,16 +27,7 @@ const ASSETS: Array<{ key: AssetKey; title: string; detail: string; icon: typeof
 ];
 
 function formatTime(value?: string | null) {
-  if (!value) return "尚未获取";
-  const time = new Date(value);
-  if (Number.isNaN(time.getTime())) return "尚未获取";
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(time);
+  return value ? formatDateTime(value) : "尚未获取";
 }
 
 export function AcademicCalendar({

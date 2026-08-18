@@ -7,6 +7,7 @@ import buctLakeSpring from "../assets/appearance-presets/buct-lake-spring.json";
 import buctLakeSummer from "../assets/appearance-presets/buct-lake-summer.json";
 import buctLakeAutumn from "../assets/appearance-presets/buct-lake-autumn.json";
 import buctLakeWinter from "../assets/appearance-presets/buct-lake-winter.json";
+import bakahuiPrivateGoodsImage from "../assets/bakahui-private-goods.jpg";
 import type {
   AppearanceVisualPreset,
   Personalization,
@@ -17,6 +18,7 @@ export type VisualPreset = AppearanceVisualPreset & {
   id: string;
   label: string;
   detail: string;
+  previewImage?: string;
   basePreset?: ThemePreset;
 };
 
@@ -60,8 +62,9 @@ export const PARALLAX_3D_PRESET: VisualPreset | null = DEEP_CURRENT
   ? {
       ...DEEP_CURRENT,
       id: "parallax-3d",
-      label: "3D 墨景",
-      detail: "景深、墨水与拉普拉斯动态场景",
+      label: "bakahui的私货",
+      detail: "不可解",
+      previewImage: bakahuiPrivateGoodsImage,
       scene: "parallax-3d",
       background: "none",
       backgroundBuiltin: undefined,

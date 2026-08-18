@@ -55,6 +55,10 @@ import {
   type LaplaceStickerFrame,
 } from './laplaceMotion'
 import { SpectralPostProcess } from './spectralPostProcess'
+import {
+  PARALLAX_TUNING_EVENT,
+  publishParallaxTuning,
+} from './parallax-tuning'
 import './parallax-scene.css'
 
 type TuningSettings = {
@@ -299,10 +303,10 @@ const LAYER_RENDER_ORDER: Readonly<Record<string, number>> = {
 }
 
 const DEFAULT_TUNING: TuningSettings = {
-  orbitX: 0.22,
-  orbitY: 0.16,
-  depthScale: 1,
-  overscan: 0.065,
+  orbitX: 0.43,
+  orbitY: 0.34,
+  depthScale: 1.4,
+  overscan: 0,
   damping: 9,
   inkEnabled: true,
   inkStrength: 1,
@@ -314,24 +318,24 @@ const DEFAULT_TUNING: TuningSettings = {
   motionEnabled: true,
   motionStrength: 1,
   motionElasticity: 0.72,
-  motionChromatic: 1.1,
+  motionChromatic: 0.55,
   ambientIntensity: 1,
   ambientCamera: 1,
-  ambientLayers: 1,
+  ambientLayers: 1.02,
   sceneRhythm: 1,
   laplaceIntensity: 0.9,
-  laplaceSpeed: 1,
-  laplaceTailFrequency: 1,
-  ambientSpectralRestraint: 0.62,
+  laplaceSpeed: 0.61,
+  laplaceTailFrequency: 0.64,
+  ambientSpectralRestraint: 0.11,
   spectralEnabled: true,
   spectralIntensity: 0.82,
-  spectralAberration: 2.2,
-  spectralShafts: 0.72,
+  spectralAberration: 0.85,
+  spectralShafts: 0.24,
   spectralMist: 0.72,
-  spectralGrain: 0.34,
-  spectralGrainSize: 1,
+  spectralGrain: 0.43,
+  spectralGrainSize: 1.5,
   spectralGrainFlow: 0.4,
-  spectralGlitch: 0.25,
+  spectralGlitch: 0.09,
   figure1Z: 0,
   figure2Z: 0,
   figure3Z: 0,
@@ -429,6 +433,9 @@ function saveStoredTuning(
       storageKey,
       JSON.stringify({ ...tuning, version: TUNING_SCHEMA_VERSION }),
     )
+    if (storageKey.endsWith(':motion-lab')) {
+      publishParallaxTuning(tuning, 'scene', storageKey)
+    }
   } catch {
     // The editor remains usable when storage is disabled or full.
   }
@@ -608,6 +615,7 @@ export default function App() {
   const [tuning, setTuning] = useState<TuningSettings>(() =>
     loadStoredTuning(tuningStorageKey),
   )
+  const tuningRef = useRef(tuning)
   const [figureBaseDepths, setFigureBaseDepths] = useState<readonly number[]>(
     DEFAULT_FIGURE_DEPTHS,
   )
@@ -633,52 +641,38 @@ export default function App() {
     runtimeControlsRef.current?.setTour(true, figureIndex)
   }
 
+  useEffect(() => {
+    tuningRef.current = tuning
+  }, [tuning])
+
+  const commitTuning = (next: TuningSettings) => {
+    tuningRef.current = next
+    saveStoredTuning(next, tuningStorageKey)
+    runtimeControlsRef.current?.apply(next)
+    setTuning(next)
+  }
+
   const updateTuning = (key: NumericTuningKey, value: number) => {
     if ((FIGURE_KEYS as readonly NumericTuningKey[]).includes(key)) {
       setDepthUndo(null)
     }
-    setTuning((current) => {
-      const next = { ...current, [key]: value }
-      saveStoredTuning(next, tuningStorageKey)
-      runtimeControlsRef.current?.apply(next)
-      return next
-    })
+    commitTuning({ ...tuningRef.current, [key]: value })
   }
 
   const updateInkEnabled = (enabled: boolean) => {
-    setTuning((current) => {
-      const next = { ...current, inkEnabled: enabled }
-      saveStoredTuning(next, tuningStorageKey)
-      runtimeControlsRef.current?.apply(next)
-      return next
-    })
+    commitTuning({ ...tuningRef.current, inkEnabled: enabled })
   }
 
   const updateMotionEnabled = (enabled: boolean) => {
-    setTuning((current) => {
-      const next = { ...current, motionEnabled: enabled }
-      saveStoredTuning(next, tuningStorageKey)
-      runtimeControlsRef.current?.apply(next)
-      return next
-    })
+    commitTuning({ ...tuningRef.current, motionEnabled: enabled })
   }
 
   const updateSpectralEnabled = (enabled: boolean) => {
-    setTuning((current) => {
-      const next = { ...current, spectralEnabled: enabled }
-      saveStoredTuning(next, tuningStorageKey)
-      runtimeControlsRef.current?.apply(next)
-      return next
-    })
+    commitTuning({ ...tuningRef.current, spectralEnabled: enabled })
   }
 
   const applyTuningPatch = (patch: Partial<TuningSettings>) => {
-    setTuning((current) => {
-      const next = { ...current, ...patch }
-      saveStoredTuning(next, tuningStorageKey)
-      runtimeControlsRef.current?.apply(next)
-      return next
-    })
+    commitTuning({ ...tuningRef.current, ...patch })
   }
 
   const resetDepthLayer = (key: FigureTuningKey) => {
@@ -725,6 +719,7 @@ export default function App() {
       // Reset still applies to the live editor when storage is unavailable.
     }
     setDepthUndo(null)
+    tuningRef.current = next
     setTuning(next)
     runtimeControlsRef.current?.apply(next)
   }
@@ -759,6 +754,22 @@ export default function App() {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [presentationMode])
+
+  useEffect(() => {
+    const onExternalTuning = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        tuning?: Partial<TuningSettings>
+        source?: string
+      }>).detail
+      if (!detail?.tuning || detail.source === 'scene') return
+      const next = { ...loadStoredTuning(tuningStorageKey), ...detail.tuning }
+      tuningRef.current = next
+      setTuning(next)
+      runtimeControlsRef.current?.apply(next)
+    }
+    window.addEventListener(PARALLAX_TUNING_EVENT, onExternalTuning)
+    return () => window.removeEventListener(PARALLAX_TUNING_EVENT, onExternalTuning)
+  }, [tuningStorageKey])
 
   useEffect(() => {
     const host = hostRef.current
@@ -836,19 +847,31 @@ export default function App() {
     let tourManualUntil = 0
     let tourWasManual = false
 
-    const renderer = new THREE.WebGLRenderer({
-      canvas,
-      antialias: true,
-      alpha: false,
-      powerPreference: 'high-performance',
-    })
-    renderer.outputColorSpace = THREE.SRGBColorSpace
-    renderer.toneMapping = THREE.NoToneMapping
-    renderer.setClearColor(0xffffff, 1)
-    const gl = renderer.getContext()
-    const supportsAlphaToCoverage =
-      Boolean(gl.getContextAttributes()?.antialias) &&
-      Number(gl.getParameter(gl.SAMPLES)) > 0
+    let renderer: THREE.WebGLRenderer
+    let gl: WebGLRenderingContext
+    let supportsAlphaToCoverage = false
+    try {
+      renderer = new THREE.WebGLRenderer({
+        canvas,
+        antialias: true,
+        alpha: false,
+        powerPreference: 'high-performance',
+      })
+      renderer.outputColorSpace = THREE.SRGBColorSpace
+      renderer.toneMapping = THREE.NoToneMapping
+      renderer.setClearColor(0xffffff, 1)
+      gl = renderer.getContext()
+      supportsAlphaToCoverage =
+        Boolean(gl.getContextAttributes()?.antialias) &&
+        Number(gl.getParameter(gl.SAMPLES)) > 0
+    } catch (error) {
+      host.dataset.error = 'true'
+      setSceneStatus('error')
+      console.error('Unable to create the WebGL renderer:', error)
+      return () => {
+        delete host.dataset.error
+      }
+    }
 
     const scene = new THREE.Scene()
     const camera = new THREE.PerspectiveCamera(
@@ -873,7 +896,9 @@ export default function App() {
           (0.4 + Math.max(Math.abs(cameraX), Math.abs(cameraY))) +
         ambientMotionFrame.cameraZoom *
           THREE.MathUtils.clamp(
-            currentTuning.overscan / DEFAULT_TUNING.overscan,
+            DEFAULT_TUNING.overscan > 0
+              ? currentTuning.overscan / DEFAULT_TUNING.overscan
+              : 0,
             0,
             1,
           )

@@ -4,7 +4,17 @@ import { defaultDataRoot } from '../core/runtime-paths.mjs'
 
 export async function discoverTheiaApi({ dataRoot = defaultDataRoot() } = {}) {
   const runtime = JSON.parse(await readFile(resolve(dataRoot, 'api-runtime.json'), 'utf8'))
-  if (runtime?.host !== '127.0.0.1' || !Number.isInteger(runtime?.port)) throw new Error('THEIA runtime metadata is invalid')
+  if (runtime?.host !== '127.0.0.1' || !Number.isInteger(runtime?.port)
+    || runtime.port < 1 || runtime.port > 65_535
+    || !Number.isInteger(runtime?.pid) || runtime.pid < 1
+    || !Number.isFinite(Date.parse(String(runtime?.startedAt || '')))) {
+    throw new Error('THEIA runtime metadata is invalid')
+  }
+  try {
+    process.kill(runtime.pid, 0)
+  } catch {
+    throw new Error('THEIA desktop runtime is not running')
+  }
   return `http://127.0.0.1:${runtime.port}`
 }
 

@@ -1,6 +1,7 @@
 import { BarChart3 } from "lucide-react";
 import { useMemo, useState } from "react";
 // The GPA rule module is shared with the Electron data core.
+import { buildAcademicAnalysis } from "../../core/academic-model.mjs";
 import { computeEarnedCredits, computeGpa, computeGpaTrend, formatGpa, isGpaEligible } from "../../core/gpa.mjs";
 import {
   EmptyState,
@@ -12,7 +13,8 @@ import {
   TermSelector,
   type Term,
 } from "../ui/app-shared";
-import type { Grade } from "../types";
+import type { AcademicExtraDomain, AcademicProgress, Grade } from "../types";
+import { GradeDetailsPanel } from "./grades/GradeDetailsPanel";
 
 type GpaTrendPoint = {
   id: string;
@@ -170,16 +172,42 @@ function GpaTrendChart({ grades, terms }: { grades: Grade[]; terms: Term[] }) {
 
 export function GradesView({
   grades,
+  progress,
   gpa,
   terms,
+  gradeDetails,
+  gradeDetailsRefreshing,
+  onRefreshGradeDetails,
 }: {
   grades: Grade[];
+  progress?: AcademicProgress | null;
+  /** Legacy/profile fallback. School progress GPA always takes precedence. */
   gpa?: number | null;
   terms: Term[];
+  gradeDetails?: AcademicExtraDomain;
+  gradeDetailsRefreshing: boolean;
+  onRefreshGradeDetails: () => void;
 }) {
   const [termFilter, setTermFilter] = useState("");
-  const calculatedGpa = useMemo(() => computeGpa(grades).gpa, [grades]);
-  const displayedGpa = calculatedGpa ?? gpa ?? null;
+  const progressForAnalysis = useMemo(() => {
+    const officialGpa = progress?.gpa ?? gpa ?? null;
+    if (progress) {
+      return progress.gpa === officialGpa ? progress : { ...progress, gpa: officialGpa };
+    }
+    return officialGpa == null ? null : { gpa: officialGpa, categories: [] };
+  }, [gpa, progress]);
+  const academicAnalysis = useMemo(
+    () => buildAcademicAnalysis({ grades, progress: progressForAnalysis }),
+    [grades, progressForAnalysis],
+  );
+  const officialGpa = academicAnalysis.gpa.officialValue ?? null;
+  const computedGpa = academicAnalysis.gpa.computedValue ?? null;
+  const displayedGpa = officialGpa ?? computedGpa;
+  const gpaSource = officialGpa != null
+    ? "学校记录"
+    : computedGpa != null
+      ? "按成绩计算（学校记录暂缺）"
+      : "暂无可用 GPA";
   const { filtered, earnedCredits, termGpa } = useMemo(() => {
     const filtered = grades.filter((grade) =>
       matchTerm((grade as Grade & { termId?: string }).termId, termFilter),
@@ -206,10 +234,11 @@ export function GradesView({
           <strong className={`gpa-value ${gpaTone(displayedGpa)}`}>
             {displayedGpa != null ? `${formatGpa(displayedGpa)}/4.33` : "--"}
           </strong>
+          <small className="gpa-source-label">{gpaSource}</small>
         </div>
         {termGpa !== null && (
           <div>
-            <span>本学期 GPA</span>
+            <span>本学期 GPA（按成绩）</span>
             <strong className={`gpa-value ${gpaTone(termGpa)}`}>
               {formatGpa(termGpa)}/4.33
             </strong>
@@ -287,6 +316,11 @@ export function GradesView({
           }
         />
       )}
+      <GradeDetailsPanel
+        domain={gradeDetails}
+        refreshing={gradeDetailsRefreshing}
+        onRefresh={onRefreshGradeDetails}
+      />
     </div>
   );
 }

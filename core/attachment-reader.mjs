@@ -9,6 +9,7 @@
 
 import { readFile, stat } from 'node:fs/promises'
 import { extname } from 'node:path'
+import { pdfTextLoadOptions } from './pdf-text-loader.mjs'
 
 const MAX_CHARS = 32_000  // cap per attachment to avoid flooding the model context
 const MAX_INPUT_BYTES = 32 * 1024 * 1024
@@ -24,7 +25,7 @@ function truncate(text, max = MAX_CHARS) {
 /** PDF — uses pdf-parse v2 (PDFParse class). */
 async function extractPdf(buffer) {
   const { PDFParse } = await import('pdf-parse')
-  const parser = new PDFParse({ data: buffer })
+  const parser = new PDFParse({ data: buffer, ...pdfTextLoadOptions() })
   try {
     const result = await parser.getText()
     return truncate(result?.text ?? '')
@@ -116,7 +117,7 @@ export async function extractAttachmentText(filePath) {
     if (['.xlsx', '.xltx'].includes(ext)) {
       return { text: await extractXlsx(buffer), format: 'xlsx', error: null }
     }
-    if (['.txt', '.md', '.csv', '.json', '.xml', '.html', '.htm'].includes(ext)) {
+    if (['.txt', '.md', '.markdown', '.csv', '.json', '.xml', '.html', '.htm'].includes(ext)) {
       return { text: await extractText(buffer), format: ext.slice(1), error: null }
     }
     // .doc / .ppt / .xls (legacy binary Office) — not supported without native libs

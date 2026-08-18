@@ -58,7 +58,7 @@ THEIA 是本地优先应用。`CampusStore` 持有的 `CampusState` 是 renderer
 ```json
 {
   "schema": "theia-campus-data/v1",
-  "appVersion": "0.4.2",
+  "appVersion": "0.5.0",
   "createdAt": "2026-08-01T08:00:00.000Z",
   "updatedAt": "2026-08-12T02:30:00.000Z",
   "profile": null,
@@ -69,6 +69,8 @@ THEIA 是本地优先应用。`CampusStore` 持有的 `CampusState` 是 renderer
   "grades": [],
   "selectedCourses": [],
   "academicProgress": null,
+  "academicExtras": { "schema": "theia-jwglxt-extras/v1", "domains": {} },
+  "academicPlanDocument": null,
   "assignments": [],
   "workspaces": [],
   "notices": [],
@@ -94,6 +96,7 @@ THEIA 是本地优先应用。`CampusStore` 持有的 `CampusState` 是 renderer
 | `grades` | `Grade[]` | 成绩记录 | JWGLXT。 |
 | `selectedCourses` | `SelectedCourse[]` | 已选课程 | JWGLXT。 |
 | `academicProgress` | `AcademicProgress \| null` | 培养方案、学分及要求树 | JWGLXT 浏览器通道或教务 API 通道。 |
+| `academicExtras` | `AcademicExtras` | 按需读取的 JWGLXT 只读页面和 JSON/JqGrid 查询结果 | JWGLXT。 |
 | `assignments` | `Assignment[]` | 作业与在线测试摘要 | THEOL。 |
 | `workspaces` | `CourseWorkspace[]` | 受控本地作业工作包元数据 | 本地 CourseWorkService。 |
 | `notices` | `Notice[]` | 教务 / 北化在线THEOL通知摘要 | JWGLXT、THEOL。 |
@@ -144,6 +147,20 @@ THEIA 是本地优先应用。`CampusStore` 持有的 `CampusState` 是 renderer
 `Term` 的固定形状是 `{ id, year, term, label }`。`termId` 通常如 `2025-3`、`2025-12`、`2025-16`，但 AI 不应硬编码“3 一定是秋季、12 一定是春季”的学校业务解释；以 `label` 和官方校历为准。
 
 `Course.source` 目前使用 `jwglxt` 或 `theol`。同一课程号在不同来源 / 学期可有不同对象；关联时优先用显式 `courseId`、`code`、`termId`，名称匹配只能作为带不确定性说明的补充。
+
+### 3.1.1 JWGLXT 扩展域
+
+`academicExtras.domains` 当前只覆盖 5 个启用的只读个人教务域：培养计划 PDF（N153540）、毕业审核、成绩明细（N305007）、考试附加（N358163/N358187/N352510）和空闲教室（N2155）。学业预警和毕设与论文是显式忽略域，旧快照加载时也会被清除。按周课表、教务全校课表、档案与事务等重复页面同样不再抓取、索引或暴露；源码保留旧路由描述仅用于兼容清理。专业确认动作页 N109310/N109510 不进入这个只读数据模型，也不会调用确认、上传或删除动作。这些域默认不参与核心快速同步，只有显式请求扩展域时才读取页面并执行只读查询。
+
+每个域统一为 `{ label, routeCodes, records, messages, attachments, filters, completeness, queryStats, capturedAt, sourceUrl }`。`records` 只保存规范化字段，不保存原始 HTML、响应 body 或 JSON envelope；页面提示/未开放状态保存在有上限的 `messages` 中。培养计划是该合同的 PDF-only 特例：`records` 永远为空，`attachments` 最多一项且必须为当前专业的 PDF。其二进制文件与校历教学进程表、周历一起保存到 `academic-calendar/assets`，并通过同一受限本地 PDF 预览协议读取。未知字段保持字符串，学分/成绩/容量等已知数值字段才转为 number。`queryStats` 记录 `{ attempted, succeeded, failed, capped }`，用于说明详情请求是否因速度上限被截断。
+
+培养计划 PDF 的可检索文字层不写回 `academicExtras`。它以顶层 `academicPlanDocument` 保存，并单独落在 `academic/plan-document` 分片：`{ schema, parserVersion, sourceAttachmentId, sourceSha256, sourceBytes, sourceFilename, pageCount, pages[], title, durationYears, minimumGraduationCredits, textDigest, parsedAt }`。写入前必须同时核对当前 PDF 文件头、字节数和 SHA-256；任一不一致或文字层为空时拒绝该 JSON，不用半截内容覆盖已验证分片。它只由 `GET /v1/academic-plan-document` 在受限 loopback API 中提供，`/v1/feed` 不包含逐页全文。
+
+产品层把每个 `academicExtras.domains[domain]` 当作一张只读资料表：侧栏按“学业与培养 / 教室与课表”分组，表格列由规范化 `fields` 动态生成，用户可以在本地搜索、展开单条记录并查看来源状态。单域刷新只读取当前路由白名单，不触发核心课表/成绩同步。回环 API 同时提供 `GET /v1/academic-extras/{domain}`，返回 `theia-jwglxt-extra-table/v1`、列定义、记录和完整性信息，避免消费者必须下载全域对象。
+
+实验室脚本核验过的毕业审核非页面查询地址固定在适配器中：`N105508` 使用 `bygl/bysh_cxByshjgHcIndex.html` 并发送 `bynd` 与 `doType=query`。该查询不会把页面 URL 误当作结果接口，也不会触发同页的提交/确认动作。
+
+动态查询按 4 路并发、域级请求上限执行；N305007 的详情请求另有行数上限。培养计划仅查询一个经过当前专业验证的 PDF。查询失败或只得到部分路由时，域标记为 `partial`，同步合并会保留此前完整记录，不能用空的部分响应覆盖旧缓存。已移除的档案与事务路由不再进入当前采集层，个人资料中的敏感字段仍只留在本地规范化 state，Agent/MCP 的安全投影会过滤这些字段。
 
 ### 3.2 课表、考试、成绩与已选课程
 
@@ -270,6 +287,19 @@ THEIA 是本地优先应用。`CampusStore` 持有的 `CampusState` 是 renderer
 - `courses[]`：附属的 `AcademicRequirementCourse`，其中可含 `studyStatus`、`courseCode`、`title`、`credits`、`bestScore`、`point`、`score`、补考 / 重修分数及推荐学年学期。
 
 教务 API 有时只能提供 GPA、统计或扁平叶子，而没有官方渲染树。同步合并逻辑会保留本地已有的、层级更完整的官方树。因此一个 API 的空 / 较弱 `academicProgress` 不应覆盖该树，AI 也不应把 `categories` 的每一项视为独立且可累加的毕业条件。
+
+#### 3.3.1 规范学业分析 DTO
+
+`academicProgress` 保留教务原始语义，跨页面计算使用派生的 `theia-academic-analysis/v1`。它不替换旧快照字段，也不作为新的持久化分片；桌面页面、`GET /v1/academic-analysis`、顾问只读工具和 MCP 从同一份冻结快照即时生成它。
+
+规范规则如下：
+
+- 同一规范课程号的多条成绩是不同 `GradeAttempt`；重修只保留一个代表尝试用于 GPA 和一次学分结算，失败尝试仍保留并可解释；没有课程号时不按同名课程合并。
+- 学校 GPA 与本地算术 GPA 同时保留，`gpa.source` 明确采用哪一个；缺少学分、绩点或可解析成绩时为 `unknown`，不能用零补齐。
+- `and` 节点可以汇总必需子项；`or` 节点只保留 `alternatives`，没有用户或学校选择时不把分支相加。课程匹配优先课程号，唯一同名才可作为低置信度候选。
+- 学分结算标记 `normal`、`substitution`、`exemption`、`overage` 或 `unknown`。替代、免修、超额和来源不完整不会被折算成普通已修学分。
+
+对外 AI/MCP 投影会把底层尝试、要求和课程键替换为绑定当前快照的不透明标识；课程名称、课程号和学分仍可读，但不会泄漏底层记录 ID。
 
 ### 3.4 作业、工作包与通知
 
@@ -569,7 +599,7 @@ fitness、schoolSchedule 与 academicCalendar 不只保留 catalog 元数据，�
 
 | 数据 | 规范来源 | 失败时行为 |
 | --- | --- | --- |
-| profile、terms、schedule、exams、grades、selectedCourses、academicProgress | JWGLXT 浏览器通道；启用且配置后由教务 API 通道优先读取 | 保留旧有效集合；已启用 API 的本轮失败不静默切换通道，更弱 API 结果不能抹掉完整培养方案树。 |
+| profile、terms、schedule、exams、grades、selectedCourses、academicProgress | JWGLXT 浏览器通道；启用且配置后由教务 API 通道优先读取 | API 失败的来源域尝试一次浏览器回退并保留成功的 API 域；两条通道都失败时保留旧有效集合。更弱的 API 结果不能抹掉完整培养方案树。 |
 | courses、assignments、THEOL notices | THEOL，课程可与 JWGLXT 课程合并 | 保留其他来源课程与旧有效项。 |
 | emails | IMAP / webmail service | 正文按需，附件不写进 state。 |
 | fitness | TYGL，用户触发刷新后本地缓存 | 已缓存年度继续可读。 |

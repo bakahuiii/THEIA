@@ -42,8 +42,11 @@ test('all five settings secrets use the shared visibility control', () => {
 })
 
 test('secret input styling reserves the eye button and stays stable while revealed', () => {
+  assert.match(component, /className="secret-input-label"/)
   assert.match(styles, /\.credential-form \.secret-input\s*\{[^}]*padding-right:\s*40px;/s)
-  assert.match(styles, /\.secret-input-toggle\s*\{[^}]*position:\s*absolute;[^}]*inset-block:\s*0;[^}]*width:\s*40px;[^}]*height:\s*auto;/s)
+  assert.match(styles, /\.credential-form > label,[\s\S]*?grid-template-rows:\s*minmax\(16px, 1fr\) 36px;[^}]*height:\s*100%;/)
+  assert.match(styles, /\.secret-input-control\s*\{[^}]*align-self:\s*end;[^}]*height:\s*36px;/s)
+  assert.match(styles, /\.secret-input-toggle\s*\{[^}]*position:\s*absolute;[^}]*inset-block:\s*0;[^}]*width:\s*40px;[^}]*min-height:\s*36px;[^}]*height:\s*36px;/s)
   assert.match(styles, /\.secret-input-toggle:active:not\(:disabled\)\s*\{[^}]*transform:\s*none;/s)
   assert.match(styles, /\.settings-dialog-scroll \.credential-form \.secret-input::placeholder/)
 })

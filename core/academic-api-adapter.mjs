@@ -7,10 +7,16 @@ import {
   mergeAcademicProgressDetails,
 } from './academic-progress.mjs'
 import { sourceDomainOutcome } from './domain-provenance.mjs'
+import { JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES } from './jwglxt-extra.mjs'
+import { normalizeSyncPayload } from './schema.mjs'
 
-const JWGLXT_DOMAINS = Object.freeze([
+const JWGLXT_FAST_DOMAINS = Object.freeze([
   'profile', 'terms', 'courses', 'schedule', 'grades', 'exams',
   'selected-courses', 'academic-progress', 'notices',
+])
+const JWGLXT_DOMAINS = Object.freeze([
+  ...JWGLXT_FAST_DOMAINS,
+  ...JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES,
 ])
 
 const DOMAIN_FIELDS = Object.freeze({
@@ -23,12 +29,21 @@ const DOMAIN_FIELDS = Object.freeze({
   'selected-courses': 'selectedCourses',
   'academic-progress': 'academicProgress',
   notices: 'notices',
+  ...Object.fromEntries(JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES.map((domain) => [domain, 'academicExtras'])),
 })
 
 function requestedDomains(options, result = null) {
-  if (Array.isArray(options?.domains) && options.domains.length) return [...new Set(options.domains)]
-  const reported = Object.keys(result?.domainOutcomes || {})
-  return reported.length ? reported : [...JWGLXT_DOMAINS]
+  const requested = Array.isArray(options?.domains) && options.domains.length
+    ? [...new Set(options.domains)]
+    : Object.keys(result?.domainOutcomes || {})
+  // Browser fallback must preserve the caller's normal fast-path scope. A
+  // failed API login must not silently turn into a broad extra-domain crawl.
+  const domains = requested.length ? requested : [...JWGLXT_FAST_DOMAINS]
+  if (!domains.includes('academic-extras')) return domains
+  return [...new Set([
+    ...domains.filter((domain) => domain !== 'academic-extras'),
+    ...JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES,
+  ])]
 }
 
 function failedDomains(result, options) {
@@ -40,43 +55,115 @@ function failedDomains(result, options) {
 }
 
 function mergeBrowserFallback(apiResult, browserResult, domains, apiErrors = []) {
-  const merged = { ...(apiResult || {}) }
-  const outcomes = { ...(apiResult?.domainOutcomes || {}) }
+  const api = normalizeSyncPayload(apiResult) || {}
+  const browser = normalizeSyncPayload(browserResult) || {}
+  const merged = { ...api }
+  const outcomes = { ...(api.domainOutcomes || {}) }
   for (const domain of domains) {
     const field = DOMAIN_FIELDS[domain]
-    const outcome = browserResult?.domainOutcomes?.[domain]
+    const outcome = browser.domainOutcomes?.[domain]
     // Adapters include a requested field even when its read failed, but use
     // `undefined` for the payload in that case. Never let that placeholder
     // erase a useful API result while merging a partial browser fallback.
     const hasUsablePayload = field
-      && Object.hasOwn(browserResult || {}, field)
-      && browserResult[field] !== undefined
+      && Object.hasOwn(browser, field)
+      && browser[field] !== undefined
       && (!outcome || outcome.succeeded === true)
-    if (hasUsablePayload) merged[field] = browserResult[field]
+    if (hasUsablePayload) {
+      if (field === 'academicExtras' && browser.academicExtras?.domains?.[domain] !== undefined) {
+        merged.academicExtras = {
+          ...(merged.academicExtras || {}),
+          ...browser.academicExtras,
+          domains: {
+            ...(merged.academicExtras?.domains || {}),
+            [domain]: browser.academicExtras.domains[domain],
+          },
+        }
+      } else {
+        merged[field] = browser[field]
+      }
+    }
     if (outcome) outcomes[domain] = outcome
   }
   const browserFailures = domains.some((domain) => {
-    const outcome = browserResult?.domainOutcomes?.[domain]
+    const outcome = browser.domainOutcomes?.[domain]
     if (outcome) return outcome.succeeded !== true
     const field = DOMAIN_FIELDS[domain]
-    return !field || !Object.hasOwn(browserResult || {}, field) || browserResult?.source?.connected === false
+    return !field || !Object.hasOwn(browser, field) || browser.source?.connected === false
   })
   merged.domainOutcomes = outcomes
   merged.errors = browserFailures
-    ? [...new Set([...(apiErrors || []), ...(browserResult?.errors || [])])]
-    : [...(browserResult?.errors || [])]
+    ? [...new Set([...(apiErrors || []), ...(browser.errors || [])])]
+    : [...(browser.errors || [])]
   merged.source = {
-    ...(apiResult?.source || {}),
-    ...(browserResult?.source || {}),
-    connected: apiResult?.source?.connected === true || browserResult?.source?.connected === true,
-    checkedAt: browserResult?.source?.checkedAt || apiResult?.source?.checkedAt || new Date().toISOString(),
+    ...(api.source || {}),
+    ...(browser.source || {}),
+    connected: api.source?.connected === true || browser.source?.connected === true,
+    checkedAt: browser.source?.checkedAt || api.source?.checkedAt || new Date().toISOString(),
     errors: merged.errors,
   }
   return { merged, browserFailures }
 }
 
+function mergeApiRetryResult(apiResult, retryResult, domains) {
+  const api = normalizeSyncPayload(apiResult) || {}
+  const retry = normalizeSyncPayload(retryResult) || {}
+  const merged = { ...api }
+  const outcomes = { ...(api.domainOutcomes || {}) }
+  const retryFailures = []
+  for (const domain of domains) {
+    const field = DOMAIN_FIELDS[domain]
+    const retryOutcome = retry.domainOutcomes?.[domain]
+    const primaryOutcome = api.domainOutcomes?.[domain]
+    const retrySucceeded = retryOutcome?.succeeded === true
+    const retryHasPayload = field
+      && Object.hasOwn(retry, field)
+      && retry[field] !== undefined
+    if (retrySucceeded && retryHasPayload) {
+      if (field === 'academicExtras' && retry.academicExtras?.domains?.[domain] !== undefined) {
+        merged.academicExtras = {
+          ...(merged.academicExtras || {}),
+          ...retry.academicExtras,
+          domains: {
+            ...(merged.academicExtras?.domains || {}),
+            [domain]: retry.academicExtras.domains[domain],
+          },
+        }
+      } else {
+        merged[field] = retry[field]
+      }
+    }
+    if (retryOutcome) {
+      if (retrySucceeded || primaryOutcome?.succeeded !== true) outcomes[domain] = retryOutcome
+      if (!retrySucceeded) retryFailures.push(domain)
+    } else if (primaryOutcome?.succeeded !== true) {
+      retryFailures.push(domain)
+    }
+  }
+  merged.domainOutcomes = outcomes
+  // A successful retry supersedes the original session-error list for the
+  // domains it repaired. Keep both lists when a retry remains partial so the
+  // diagnostics still explain retained local data.
+  merged.errors = retryFailures.length
+    ? [...new Set([...(api.errors || []), ...(retry.errors || [])])]
+    : [...(retry.errors || [])]
+  merged.source = {
+    ...(api.source || {}),
+    ...(retry.source || {}),
+    connected: api.source?.connected === true || retry.source?.connected === true,
+    checkedAt: retry.source?.checkedAt || api.source?.checkedAt || new Date().toISOString(),
+    errors: merged.errors,
+  }
+  return merged
+}
+
 export class AcademicApiFirstAdapter {
-  constructor({ browserAdapter, credentialVault, isEnabled, onDiagnostic = () => {}, clientFactory = (credentials) => new AcademicApiClient(credentials), adapterFactory = (client) => new JwglxtAdapter(client, { academicProgressSource: 'api' }) }) {
+  constructor({ browserAdapter, credentialVault, isEnabled, onDiagnostic = () => {}, clientFactory = (credentials) => new AcademicApiClient(credentials), adapterFactory = (client) => new JwglxtAdapter(client, {
+    academicProgressSource: 'api',
+    // BUCT's direct API returns canonical timetable rows from this endpoint.
+    // Retain the browser endpoint as a compatibility fallback for older nodes.
+    scheduleEndpoints: ['kbcx/xskbcx_cxXsKb.html?gnmkdm=N2151', 'kbcx/xskbcx_cxXsgrkb.html'],
+  }) }) {
     this.browserAdapter = browserAdapter
     this.credentialVault = credentialVault
     this.isEnabled = isEnabled
@@ -100,6 +187,13 @@ export class AcademicApiFirstAdapter {
       mode: 'api',
       configured: true,
     }
+  }
+
+  // API credentials authenticate a separate cookie jar. Callers that need to
+  // open a real browser page must explicitly check the rendered browser
+  // session instead of treating the API configuration as page authentication.
+  async browserStatus() {
+    return this.browserAdapter.status()
   }
 
   async fallbackToBrowser(result, options, domains, apiErrors = []) {
@@ -144,25 +238,31 @@ export class AcademicApiFirstAdapter {
     try {
       this.onProgress?.({ status: 'syncing', label: '正在通过教务 API 读取数据' })
       const client = this.clientFactory(credentials)
+      client.setDiagnostic?.(this.onDiagnostic)
       await client.login()
-      let result = await this.adapterFactory(client).sync(options)
+      const createAdapter = () => {
+        const adapter = this.adapterFactory(client)
+        adapter.onDiagnostic = this.onDiagnostic
+        client.setDiagnostic?.(this.onDiagnostic)
+        return adapter
+      }
+      let result = await createAdapter().sync(options)
       let apiFailedDomains = failedDomains(result, options)
       // A direct API session can be displaced or rejected for one endpoint
       // while the login and the other domains still succeed. Re-authenticate
-      // once and retry the failed domain batch instead of surfacing a generic
-      // `grades_read_failed` result to the user.
+      // once and retry only the failed domains. The first successful payload
+      // must remain authoritative if the retry is weaker or fails again.
       if (apiFailedDomains.length && typeof client.login === 'function') {
         this.onDiagnostic('academic_api.retry_after_session_error', { domains: apiFailedDomains })
         try {
           await client.login()
-          const retry = await this.adapterFactory(client).sync(options)
-          const retryFailed = Object.values(retry.domainOutcomes || {}).some((outcome) => (
-            outcome?.attempted && outcome?.succeeded === false && ['failed', 'auth-required'].includes(outcome.status)
-          ))
-          if (!retryFailed || !(retry.errors || []).some((entry) => /\u4f1a\u8bdd\u5df2\u5931\u6548|session.*(?:expired|invalid)|auth(?:entication)?/iu.test(String(entry)))) {
-            result = retry
-            this.onDiagnostic('academic_api.session_retry_succeeded')
-          }
+          const retry = await createAdapter().sync({ ...options, domains: apiFailedDomains })
+          result = mergeApiRetryResult(result, retry, apiFailedDomains)
+          const remaining = failedDomains(result, options)
+          this.onDiagnostic(remaining.length ? 'academic_api.session_retry_partial' : 'academic_api.session_retry_succeeded', {
+            domains: apiFailedDomains,
+            remaining,
+          })
         } catch (retryError) {
           this.onDiagnostic('academic_api.session_retry_failed', { error: retryError instanceof Error ? retryError.message : String(retryError) })
         }

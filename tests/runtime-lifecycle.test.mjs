@@ -431,6 +431,33 @@ test('settings transaction rolls back the full batch when local API restart fail
   }
 })
 
+test('settings transaction persists advisor configuration updates without dropping sibling fields', async () => {
+  const state = emptyState()
+  const store = {
+    snapshot: () => state,
+    async update(mutator) {
+      const next = await mutator(state)
+      Object.assign(state, next)
+      return next
+    },
+  }
+
+  const snapshot = await updateSettingsTransaction({
+    store,
+    next: { advisorConfig: { budgetLevel: 'xhigh', temperature: 1.7 } },
+    publishSnapshot: () => undefined,
+  })
+
+  assert.deepEqual(snapshot.settings.advisorConfig, {
+    budgetLevel: 'xhigh',
+    permissionMode: 'read-only',
+    reasoningEffort: 'medium',
+    responseStyle: 'balanced',
+    responseLength: 'adaptive',
+    temperature: 1.7,
+  })
+})
+
 test('settings transaction persists the actual fallback API port', async () => {
   const root = await mkdtemp(resolve(tmpdir(), 'theia-settings-fallback-'))
   const store = new CampusStore(root)

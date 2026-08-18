@@ -19,6 +19,8 @@ GET /v1/data-catalog
 GET /v1/fitness?year=2025-2026_1
 GET /v1/school-schedule?termId=2025-3&keyword=MAT13904T
 GET /v1/academic-progress
+GET /v1/academic-analysis
+GET /v1/academic-extras/{domain}?q=...&limit=...
 GET /v1/{terms|courses|schedule|exams|grades|selected-courses|assignments|workspaces|notices|emails}
 GET /v1/{collection}.csv
 GET /v1/calendar.ics
@@ -26,7 +28,7 @@ GET /v1/calendar.ics
 
 `/v1/data-manifest` exposes storage layout metadata and fragment names only. It does not expose arbitrary file reads. Collection endpoints may accept `?since=<ISO timestamp>`.
 
-Use `/v1/feed` for a normalized full-data view, collection endpoints for selective reads, and `/v1/school-schedule` for local term-cache queries. All return normalized data; none should expose credentials, raw pages, session state or private binary attachments.
+Use `/v1/feed` for a normalized full-data view, `/v1/academic-analysis` for GPA/credit/degree-plan reasoning, `/v1/academic-extras/{domain}` for one JWGLXT extension table, collection endpoints for selective reads, and `/v1/school-schedule` for local term-cache queries. The extension table supports `q`, `limit` and `since`, and returns `columns`, `completeness` and `queryStats` alongside `items`. All return normalized data; none should expose credentials, raw pages, session state or private binary attachments. The academic analysis is derived per snapshot and is not a write-back format.
 
 ## CLI
 
@@ -46,7 +48,7 @@ The CLI reads the same sharded `CampusStore` as the desktop application. It must
 
 For an external AI task explicitly initiated by the user, prefer this package over a raw Feed or direct fragment reads. The package gives the model `AI_CONTEXT.md`, `DATA_DICTIONARY.md`, a source/availability explanation, and path/credential stripping. It is still a static, privacy-sensitive snapshot: validate `manifest.json` first; do not infer live school state or attempt URL/session/attachment access.
 
-This package is not the runtime input path for THEIA's in-process Advisor. The deterministic overview reads one `snapshotWithRevision()` directly from `CampusStore`; it does not make a loopback request or round-trip through an export. A future remote-model request must use a narrower, consent-scoped `ContextBuilder`, not silently reuse the full export package.
+This package is not the runtime input path for THEIA's in-process Advisor. The Agent reads one `snapshotWithRevision()` directly from `CampusStore`, creates a bounded lazy workspace, and does not make a loopback request or round-trip through an export. It never silently reuses the full export package.
 
 ## AI Consumer Rules
 

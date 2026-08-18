@@ -11,6 +11,7 @@ const PUBLIC_KEY = new URL('xtgl/login_getPublicKey.html', BASE).toString()
 const ACADEMIC_PROGRESS = new URL('xsxy/xsxyqk_cxXsxyqkIndex.html?gnmkdm=N105515&layout=default', BASE).toString()
 export const ACADEMIC_PROGRESS_DETAILS = new URL('xsxy/xsxyqk_cxJxzxjhxfyqKcxx.html?gnmkdm=N105515', BASE).toString()
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36'
+const MAX_BINARY_RESPONSE_BYTES = 32 * 1024 * 1024
 
 export class AcademicApiError extends Error {
   constructor(code, message) {
@@ -25,6 +26,91 @@ function decode(buffer, contentType) {
   return charset && !['utf-8', 'utf8'].includes(charset)
     ? iconv.decode(buffer, charset)
     : new TextDecoder().decode(buffer)
+}
+
+function diagnosticEndpoint(value) {
+  try {
+    const url = new URL(String(value || ''))
+    return `${url.pathname}${url.search}`.slice(0, 240)
+  } catch {
+    return 'invalid-url'
+  }
+}
+
+function finalTarget(target, responseUrl) {
+  return responseUrl || target
+}
+
+function describeRequest(init = {}) {
+  const body = init.body
+  if (typeof body !== 'string') return { bodyType: body == null ? 'empty' : typeof body }
+  const contentType = new Headers(init.headers || {}).get('content-type') || ''
+  if (!/application\/x-www-form-urlencoded/i.test(contentType)) return { bodyType: 'text', bytes: Buffer.byteLength(body) }
+  const params = new URLSearchParams(body)
+  const keys = [...new Set([...params.keys()])].sort()
+  return {
+    bodyType: 'form',
+    keys: keys.slice(0, 80),
+    fieldCount: keys.length,
+    terms: Object.fromEntries(['xnm', 'xqm', 'xkxnm', 'xkxqm', 'kzlx']
+      .filter((key) => params.has(key))
+      .map((key) => [key, params.get(key)])),
+  }
+}
+
+function describeResponse(text) {
+  const value = String(text || '').trim()
+  if (!value) return { kind: 'empty' }
+  if (!(value.startsWith('{') || value.startsWith('['))) {
+    return { kind: /<html\b|<body\b/i.test(value) ? 'html' : 'text', bytes: Buffer.byteLength(value) }
+  }
+  try {
+    let parsed = JSON.parse(value)
+    for (let depth = 0; typeof parsed === 'string' && depth < 3; depth += 1) parsed = JSON.parse(parsed)
+    const keys = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? Object.keys(parsed).sort().slice(0, 80) : []
+    const arrayKeys = []
+    const walk = (node, path = '', depth = 0, seen = new Set()) => {
+      if (!node || typeof node !== 'object' || depth > 3 || seen.has(node)) return
+      seen.add(node)
+      if (Array.isArray(node)) return
+      for (const [key, child] of Object.entries(node)) {
+        const childPath = path ? `${path}.${key}` : key
+        if (Array.isArray(child)) arrayKeys.push(childPath)
+        else walk(child, childPath, depth + 1, seen)
+      }
+    }
+    walk(parsed)
+    return { kind: Array.isArray(parsed) ? 'json-array' : 'json-object', keys, arrayKeys: arrayKeys.slice(0, 40) }
+  } catch {
+    return { kind: 'invalid-json', bytes: Buffer.byteLength(value) }
+  }
+}
+
+async function readBoundedBinary(response, maximum) {
+  const reader = response?.body?.getReader?.()
+  if (!reader) {
+    const buffer = Buffer.from(await response.arrayBuffer())
+    if (buffer.length > maximum) throw new AcademicApiError(999, '教务附件超过 32 MB 限制')
+    return buffer
+  }
+  const chunks = []
+  let bytes = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      const chunk = Buffer.from(value)
+      bytes += chunk.length
+      if (bytes > maximum) {
+        await reader.cancel().catch(() => {})
+        throw new AcademicApiError(999, '教务附件超过 32 MB 限制')
+      }
+      chunks.push(chunk)
+    }
+  } finally {
+    reader.releaseLock?.()
+  }
+  return Buffer.concat(chunks, bytes)
 }
 
 function cookieNameValue(value) {
@@ -166,12 +252,21 @@ export async function readAcademicProgressDetails(client, {
 }
 
 export class AcademicApiClient {
-  constructor({ username, password, fetchImpl = fetch, timeoutMs = 20_000 }) {
+  constructor({ username, password, fetchImpl = fetch, timeoutMs = 20_000, onDiagnostic = () => {} }) {
     this.username = String(username || '').trim()
     this.password = String(password || '')
     this.fetch = fetchImpl
     this.timeoutMs = timeoutMs
     this.cookies = new Map()
+    this.onDiagnostic = typeof onDiagnostic === 'function' ? onDiagnostic : () => {}
+  }
+
+  setDiagnostic(onDiagnostic) {
+    this.onDiagnostic = typeof onDiagnostic === 'function' ? onDiagnostic : () => {}
+  }
+
+  diagnostic(event, fields = {}) {
+    try { this.onDiagnostic?.(event, fields) } catch { /* diagnostics must never affect requests */ }
   }
 
   cookieHeader() { return [...this.cookies].map(([name, value]) => `${name}=${value}`).join('; ') }
@@ -184,8 +279,9 @@ export class AcademicApiClient {
     })
   }
 
-  async request(url, init = {}, redirects = 0) {
+  async request(url, init = {}, redirects = 0, { binary = false } = {}) {
     if (redirects > 5) throw new AcademicApiError(999, '教务 API 重定向过多')
+    const startedAt = Date.now()
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), this.timeoutMs)
     try {
@@ -217,16 +313,33 @@ export class AcademicApiClient {
           nextHeaders.delete('Content-Length')
           nextInit.headers = nextHeaders
         }
-        return this.request(nextUrl, nextInit, redirects + 1)
+        return this.request(nextUrl, nextInit, redirects + 1, { binary })
       }
-      const buffer = Buffer.from(await response.arrayBuffer())
-      const text = decode(buffer, response.headers.get('content-type'))
+      const declaredLength = Number(response.headers.get('content-length'))
+      if (binary && Number.isFinite(declaredLength) && declaredLength > MAX_BINARY_RESPONSE_BYTES) {
+        throw new AcademicApiError(999, '教务附件超过 32 MB 限制')
+      }
+      const buffer = binary
+        ? await readBoundedBinary(response, MAX_BINARY_RESPONSE_BYTES)
+        : Buffer.from(await response.arrayBuffer())
+      const contentType = response.headers.get('content-type') || ''
+      const textual = !binary || /^(?:text\/|application\/(?:json|javascript|xml)|[\w.+-]+\/json)/iu.test(contentType) || buffer.subarray(0, 1).toString('ascii') === '<'
+      const text = textual ? decode(buffer, contentType) : ''
+      this.diagnostic('academic_api.request_finished', {
+        method: String(init.method || 'GET').toUpperCase(),
+        url: diagnosticEndpoint(finalTarget(target, response.url)),
+        status: response.status,
+        bytes: buffer.length,
+        elapsedMs: Date.now() - startedAt,
+        request: describeRequest(init),
+        response: textual ? describeResponse(text) : { kind: 'binary', contentType, bytes: buffer.length },
+      })
       if (!response.ok) throw new AcademicApiError(response.status === 503 ? 2333 : 999, `教务 API 请求失败 (${response.status})`)
       let finalUrl
       try { finalUrl = permittedAcademicApiUrl(response.url || target) } catch {
         throw new AcademicApiError(999, '教务 API 返回了非校园网地址')
       }
-      return { text, url: finalUrl }
+      return { text, url: finalUrl, headers: response.headers, ...(binary ? { buffer } : {}) }
     } catch (error) {
       if (error instanceof AcademicApiError) throw error
       if (error?.name === 'AbortError') throw new AcademicApiError(1003, '教务 API 请求超时')
@@ -254,6 +367,14 @@ export class AcademicApiClient {
   async page(url, { source = '教务 API' } = {}) {
     const result = await this.request(url)
     if (htmlLooksLikeLogin(result.text, result.url)) throw new AcademicApiError(1006, `${source} 会话已失效`)
+    return result
+  }
+
+  async binary(url, { source = '教务 API' } = {}) {
+    const result = await this.request(url, {}, 0, { binary: true })
+    if (result.text && htmlLooksLikeLogin(result.text, result.url)) {
+      throw new AcademicApiError(1006, `${source} 会话已失效`)
+    }
     return result
   }
 

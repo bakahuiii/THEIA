@@ -81,7 +81,7 @@ export function SecretInput({
         .filter(Boolean)
         .join(" ")}
     >
-      <label htmlFor={inputId}>{label}</label>
+      <label className="secret-input-label" htmlFor={inputId}>{label}</label>
       <div className="secret-input-control">
         <input
           {...inputProps}

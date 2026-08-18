@@ -1,16 +1,26 @@
 import { randomUUID } from 'node:crypto'
-import { mergeSyncResult } from './schema.mjs'
+import { mergeSyncResult, normalizeSyncPayload } from './schema.mjs'
 import { AuthRequiredError } from './source-client.mjs'
 import { compactError, sanitizeDiagnosticValue } from './util.mjs'
+import {
+  mergeById,
+  mergeAcademicExtraDomain,
+  mergeObjectValue,
+  mergeScheduleCollection,
+  mergeSingleSourceCollection,
+  mergeTermCollection,
+} from './sync-merge.mjs'
 import {
   SYNC_SOURCE_DOMAINS,
   aggregateDomainProvenance,
   domainHasData,
+  domainRecordCount,
   mergeDomainSourceOutcomes,
   normalizeDomainProvenanceMap,
   resultFieldForDomain,
   sourceDomainOutcome,
 } from './domain-provenance.mjs'
+import { JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES } from './jwglxt-extra.mjs'
 
 function failureCode(error) {
   if (error instanceof AuthRequiredError) return 'auth_required'
@@ -40,6 +50,11 @@ function sourceRetainsTermData(state, domain, source, successfulTermIds) {
   })
 }
 
+function receivedRecordCount(domain, field, result) {
+  if (!field || !result || !Object.hasOwn(result, field)) return null
+  return domainRecordCount({ [field]: result[field] }, domain)
+}
+
 function fallbackSourceOutcomes(source, result, current, { runId, attemptedAt, completedAt, error = null, domains: requestedDomains = null } = {}) {
   const explicit = result?.domainOutcomes && typeof result.domainOutcomes === 'object' ? result.domainOutcomes : {}
   const domains = requestedDomains || SYNC_SOURCE_DOMAINS[source] || []
@@ -48,6 +63,8 @@ function fallbackSourceOutcomes(source, result, current, { runId, attemptedAt, c
       const didAttempt = explicit[domain].attempted !== false && explicit[domain].status !== 'not-attempted'
       const didSucceed = didAttempt && explicit[domain].succeeded === true
       const field = resultFieldForDomain(domain)
+      const previousRecordCount = domainRecordCount(current, domain)
+      const latestRecordCount = receivedRecordCount(domain, field, result)
       const unconfirmedEmpty = didSucceed
         && field
         && Array.isArray(result?.[field])
@@ -68,6 +85,8 @@ function fallbackSourceOutcomes(source, result, current, { runId, attemptedAt, c
         completedAt: didAttempt ? explicit[domain].completedAt || completedAt : null,
         sourceSucceededAt: explicit[domain].sourceSucceededAt || (explicit[domain].succeeded ? completedAt : null),
         retainedPrevious: explicit[domain].retainedPrevious === true || retainedPrevious,
+        previousRecordCount: explicit[domain].previousRecordCount ?? previousRecordCount,
+        receivedRecordCount: explicit[domain].receivedRecordCount ?? latestRecordCount,
       })]
     }
     const field = resultFieldForDomain(domain)
@@ -91,6 +110,8 @@ function fallbackSourceOutcomes(source, result, current, { runId, attemptedAt, c
       completeness: succeeded && !hasErrors ? 'complete' : succeeded ? 'partial' : 'unknown',
       parserVersion: result?.parserVersion || null,
       errorCode: sourceFailed ? failureCode(error || new Error('source unavailable')) : succeeded && hasErrors ? 'partial_source_errors' : null,
+      previousRecordCount: domainRecordCount(current, domain),
+      receivedRecordCount: receivedRecordCount(domain, field, result),
     })]
   }))
 }
@@ -106,34 +127,8 @@ function pendingSourceOutcomes(source, runId, requestedDomains = null) {
   })]))
 }
 
-function mergeById(...collections) {
-  const map = new Map()
-  for (const item of collections.flat()) {
-    if (!item?.id) continue
-    map.set(item.id, { ...(map.get(item.id) || {}), ...item })
-  }
-  return [...map.values()]
-}
-
 function sourceOutcome(outcomes, source, domain) {
   return outcomes?.[source]?.[domain] || null
-}
-
-function mergePartialCollection(current, fresh) {
-  return mergeById(current, fresh)
-}
-
-function mergeSingleSourceCollection(current, fresh, outcome) {
-  if (fresh === undefined) return current
-  if (outcome && !outcome.succeeded) return current
-  if (!Array.isArray(fresh)) return current
-  if (fresh.length === 0 && current.length > 0 && outcome && !outcome.emptyConfirmed) {
-    return current
-  }
-  if (outcome?.succeeded && outcome.completeness !== 'complete') {
-    return mergePartialCollection(current, fresh)
-  }
-  return fresh
 }
 
 function uniqueTheolTaskKey(rawUrl) {
@@ -184,31 +179,6 @@ function mergeAssignmentScan(current, fresh, outcome, successfulCourseIds = []) 
   return mergeSingleSourceCollection(retained, fresh, outcome)
 }
 
-function mergeTermCollection(current, fresh, outcome) {
-  if (fresh === undefined) return current
-  if (outcome && !outcome.succeeded) return current
-  if (!Array.isArray(fresh)) return current
-  if (!outcome || outcome.completeness === 'complete') return fresh
-
-  const successfulTermIds = new Set(outcome.successfulTermIds || [])
-  if (!successfulTermIds.size) return mergePartialCollection(current, fresh)
-  const retained = current.filter((item) => !successfulTermIds.has(item?.termId))
-  return mergeById(retained, fresh)
-}
-
-function mergeObjectValue(current, fresh, outcome) {
-  if (fresh === undefined) return current
-  if (outcome && !outcome.succeeded) return current
-  if (fresh === null) {
-    return outcome?.completeness === 'complete' && outcome.contentEmptyConfirmed ? null : current
-  }
-  if (!fresh || typeof fresh !== 'object' || Array.isArray(fresh)) return current
-  if (outcome?.completeness !== 'complete' && current && typeof current === 'object') {
-    return { ...current, ...fresh }
-  }
-  return fresh
-}
-
 function outcomeFailureSummary(source, outcomes) {
   const failures = Object.entries(outcomes || {})
     .filter(([, outcome]) => outcome?.attempted
@@ -253,6 +223,12 @@ function normalizeSourceDomains(source, requested) {
   }
   const allowed = SYNC_SOURCE_DOMAINS[source] || []
   const domains = [...new Set(requested)]
+  if (source === 'jwglxt' && domains.includes('academic-extras')) {
+    domains.splice(domains.indexOf('academic-extras'), 1)
+    for (const domain of JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES) {
+      if (!domains.includes(domain)) domains.push(domain)
+    }
+  }
   const invalid = domains.find((domain) => !allowed.includes(domain))
   if (invalid) throw new TypeError(`unsupported ${source} sync domain: ${invalid}`)
   return domains
@@ -268,11 +244,20 @@ function normalizeSyncRequest(options = {}) {
     source,
     normalizeSourceDomains(source, requestedDomains),
   ]))
-  return { sources, domainsBySource }
+  const freeClassroom = !Array.isArray(options) && options?.freeClassroom && typeof options.freeClassroom === 'object'
+    ? options.freeClassroom
+    : null
+  return { sources, domainsBySource, freeClassroom }
 }
 
-function domainSelectionCovers(active, requested) {
-  if (active === null) return true
+function domainSelectionCovers(active, requested, source) {
+  // A default JWGLXT run intentionally excludes low-frequency extension
+  // pages. Do not let a user-triggered extension read attach to that run and
+  // then report a false cache miss after the unrelated fast path completes.
+  if (active === null) {
+    if (source === 'jwglxt' && requested?.some((domain) => JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES.includes(domain))) return false
+    return true
+  }
   if (requested === null) return false
   return requested.every((domain) => active.includes(domain))
 }
@@ -355,6 +340,7 @@ export class SyncService {
     this.assignmentPauseCount = 0
     this.assignmentDisabled = false
     this.timer = null
+    this.autoSyncInFlight = null
   }
 
   async status() {
@@ -374,18 +360,22 @@ export class SyncService {
   }
 
   async syncNow(options = {}) {
-    const { sources, domainsBySource } = normalizeSyncRequest(options)
+    const { sources, domainsBySource, freeClassroom } = normalizeSyncRequest(options)
+    const foreground = options?.foreground === true
     if (this.syncDisabled) throw new SyncDisabledError()
     if (this.syncBatchFinishing) {
       await this.syncBatchFinishing
       return this.syncNow({
         sources,
+        foreground,
         ...(sources.length === 1 && domainsBySource[sources[0]] !== null
           ? { domains: domainsBySource[sources[0]] }
           : {}),
+        ...(freeClassroom ? { freeClassroom } : {}),
       })
     }
     const generation = this.syncGeneration
+    const adapterOptionsBySource = freeClassroom ? { jwglxt: { freeClassroom } } : {}
     const idleSources = []
     const pending = []
     for (const source of sources) {
@@ -395,11 +385,12 @@ export class SyncService {
       } else if (
         active.generation === generation
         && active.pendingSources.has(source)
-        && domainSelectionCovers(active.domainsBySource[source], domainsBySource[source])
+        && !freeClassroom
+        && domainSelectionCovers(active.domainsBySource[source], domainsBySource[source], source)
       ) {
         pending.push(active.promise)
       } else {
-        pending.push(this.queueSyncSource(source, generation, domainsBySource[source]))
+        pending.push(this.queueSyncSource(source, generation, domainsBySource[source], foreground, adapterOptionsBySource[source] || {}))
       }
     }
     if (idleSources.length) {
@@ -407,13 +398,14 @@ export class SyncService {
         idleSources,
         generation,
         Object.fromEntries(idleSources.map((source) => [source, domainsBySource[source]])),
+        { foreground, adapterOptionsBySource },
       ))
     }
     const snapshots = await Promise.all(pending)
     return snapshots.length === 1 ? snapshots[0] : this.store.snapshot()
   }
 
-  startSync(sources, generation, domainsBySource = {}) {
+  startSync(sources, generation, domainsBySource = {}, { foreground = false, adapterOptionsBySource = {} } = {}) {
     if (this.syncDisabled) return Promise.reject(new SyncDisabledError())
     if (generation !== this.syncGeneration) return Promise.reject(new SyncCancelledError())
     if (sources.some((source) => this.activeBySource.has(source))) {
@@ -422,7 +414,7 @@ export class SyncService {
     const resumeAssignmentScan = this.assignmentScanPending
       || Boolean(this.assignmentRequestedRunId)
       || Boolean(this.assignmentActive)
-    const domainScoped = sources.some((source) => domainsBySource[source] !== null && domainsBySource[source] !== undefined)
+    const domainScoped = !foreground && sources.some((source) => domainsBySource[source] !== null && domainsBySource[source] !== undefined)
     const batch = this.beginSyncBatch(generation, { domainScoped })
     this.cancelAssignmentScan()
     this.assignmentScanPending = resumeAssignmentScan
@@ -432,6 +424,7 @@ export class SyncService {
       sourceVersions: new Map(),
       pendingSources: new Set(sources),
       domainsBySource: Object.fromEntries(sources.map((source) => [source, domainsBySource[source] ?? null])),
+      adapterOptionsBySource: Object.fromEntries(sources.map((source) => [source, adapterOptionsBySource[source] || {}])),
       promise: null,
     }
     this.activeRuns.add(record)
@@ -448,6 +441,7 @@ export class SyncService {
       runId: batch.runId,
       batchStarted: batch.started,
       domainsBySource: record.domainsBySource,
+      adapterOptionsBySource: record.adapterOptionsBySource,
       scopedRun: domainScoped,
       onSourceSettled: (source) => {
         record.pendingSources.delete(source)
@@ -627,10 +621,12 @@ export class SyncService {
     }
   }
 
-  queueSyncSource(source, generation, domains = null) {
+  queueSyncSource(source, generation, domains = null, foreground = false, adapterOptions = {}) {
     const existing = this.queuedSyncBySource.get(source)
     if (existing?.generation === generation) {
       existing.domains = mergeDomainSelections(existing.domains, domains)
+      existing.foreground ||= foreground
+      existing.adapterOptions = { ...(existing.adapterOptions || {}), ...adapterOptions }
       return existing.promise
     }
     if (existing) {
@@ -647,6 +643,8 @@ export class SyncService {
       source,
       generation,
       domains,
+      foreground,
+      adapterOptions,
       promise,
       resolve: resolveRequest,
       reject: rejectRequest,
@@ -673,6 +671,7 @@ export class SyncService {
       ready.map((request) => request.source),
       generation,
       Object.fromEntries(ready.map((request) => [request.source, request.domains])),
+      { foreground: ready.some((request) => request.foreground), adapterOptionsBySource: Object.fromEntries(ready.map((request) => [request.source, request.adapterOptions || {}])) },
     )
     for (const request of ready) run.then(request.resolve, request.reject)
   }
@@ -762,6 +761,7 @@ export class SyncService {
   async run({
     sources: requestedSources,
     domainsBySource = {},
+    adapterOptionsBySource = {},
     scopedRun = false,
     generation = this.syncGeneration,
     runId = randomUUID(),
@@ -829,7 +829,7 @@ export class SyncService {
             sourceItems('theol', 'courses', 'courses'),
             current.courses.filter((item) => item.source !== 'jwglxt' && item.source !== 'theol'),
           ),
-          schedule: mergeTermCollection(current.schedule, commitResults.jwglxt?.schedule, sourceOutcome(commitOutcomes, 'jwglxt', 'schedule')),
+          schedule: mergeScheduleCollection(current.schedule, commitResults.jwglxt?.schedule, sourceOutcome(commitOutcomes, 'jwglxt', 'schedule')),
           grades: mergeSingleSourceCollection(current.grades, commitResults.jwglxt?.grades, sourceOutcome(commitOutcomes, 'jwglxt', 'grades')),
           selectedCourses: mergeTermCollection(current.selectedCourses, commitResults.jwglxt?.selectedCourses, sourceOutcome(commitOutcomes, 'jwglxt', 'selected-courses')),
           academicProgress: (() => {
@@ -848,6 +848,23 @@ export class SyncService {
               courseCounts: fresh.courseCounts ?? current.academicProgress.courseCounts,
               capturedAt: fresh.capturedAt ?? current.academicProgress.capturedAt,
               sourceUrl: fresh.sourceUrl ?? current.academicProgress.sourceUrl,
+            }
+          })(),
+          academicExtras: (() => {
+            const fresh = commitResults.jwglxt?.academicExtras
+            if (!fresh || typeof fresh !== 'object') return current.academicExtras
+            const outcomeMap = commitOutcomes.jwglxt || {}
+            const domains = { ...(current.academicExtras?.domains || {}) }
+            for (const [domain, value] of Object.entries(fresh.domains || {})) {
+              const outcome = outcomeMap[domain]
+              if (!outcome || outcome.succeeded) {
+                domains[domain] = mergeAcademicExtraDomain(domains[domain], value, outcome, domain)
+              }
+            }
+            return {
+              ...(current.academicExtras || {}),
+              ...fresh,
+              domains,
             }
           })(),
           exams: mergeTermCollection(current.exams, commitResults.jwglxt?.exams, sourceOutcome(commitOutcomes, 'jwglxt', 'exams')),
@@ -893,11 +910,16 @@ export class SyncService {
         const execute = () => {
           if (!this.isSyncGenerationCurrent(generation)) throw new SyncCancelledError()
           const domains = domainsBySource[name] ?? null
-          return adapter.sync(domains === null ? {} : { domains })
+          const adapterOptions = adapterOptionsBySource[name] || {}
+          return adapter.sync({
+            ...adapterOptions,
+            ...(domains === null ? {} : { domains }),
+          })
         }
-        results[name] = name === 'theol'
+        const rawResult = name === 'theol'
           ? await this.runTheolExclusive(execute)
           : await execute()
+        results[name] = normalizeSyncPayload(rawResult)
         if (!this.isSyncGenerationCurrent(generation)) throw new SyncCancelledError()
         sources[name] = sanitizeDiagnosticValue(results[name].source)
         for (const error of results[name].errors || []) appendError(error, name)
@@ -1141,6 +1163,7 @@ export class SyncService {
         completeness: assignmentOutcome.completeness,
         successfulCourseCount: Array.isArray(result?.successfulCourseIds) ? result.successfulCourseIds.length : null,
         failedCourseCount: Array.isArray(result?.failedCourseIds) ? result.failedCourseIds.length : null,
+        mobileFallback: result?.source?.mobileFallback || null,
         error: error ? compactError(error) : result.errors?.length ? result.errors.join('; ') : null,
       })
       return {
@@ -1168,14 +1191,32 @@ export class SyncService {
   configureAutoSync(enabled, intervalMinutes) {
     if (this.timer) clearInterval(this.timer)
     this.timer = null
+    this.autoSyncInFlight = null
     if (!enabled) return
     const interval = Math.max(5, Math.min(24 * 60, Number(intervalMinutes) || 30)) * 60_000
-    this.timer = setInterval(() => { void this.syncNow().catch(() => {}) }, interval)
+    const run = () => {
+      if (this.autoSyncInFlight) return
+      const pending = Promise.allSettled([
+        this.syncNow({ sources: ['jwglxt'], domains: ['schedule', 'exams', 'notices'] }),
+        this.syncNow({ sources: ['theol'], domains: ['courses', 'notices'] }),
+      ])
+        .then((results) => {
+          for (const result of results) {
+            if (result.status === 'rejected') this.onBackgroundError(result.reason)
+          }
+        })
+        .finally(() => {
+          if (this.autoSyncInFlight === pending) this.autoSyncInFlight = null
+        })
+      this.autoSyncInFlight = pending
+    }
+    this.timer = setInterval(run, interval)
   }
 
   stop() {
     if (this.timer) clearInterval(this.timer)
     this.timer = null
+    this.autoSyncInFlight = null
     this.disable()
   }
 }

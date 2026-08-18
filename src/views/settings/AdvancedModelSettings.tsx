@@ -21,8 +21,9 @@ const DEFAULT_ADVISOR_CONFIG: CampusState["settings"]["advisorConfig"] = {
   reasoningEffort: "medium",
   responseStyle: "balanced",
   responseLength: "adaptive",
-  temperature: 0.2,
+  temperature: 1,
   budgetLevel: "high",
+  permissionMode: "read-only",
 };
 
 export function AdvancedModelSettings({
@@ -229,7 +230,11 @@ export function AdvancedModelSettings({
           fieldClassName="model-service-wide"
           label={
             <span>
-              {status.apiKeySaved ? "新的 API Key，留空不修改" : "API Key"}
+              {status.requiresApiKeyReentry
+                ? "重新输入 API Key"
+                : status.apiKeySaved
+                  ? "新的 API Key，留空不修改"
+                  : "API Key"}
             </span>
           }
           visibilityLabel="API Key"
@@ -241,10 +246,19 @@ export function AdvancedModelSettings({
             setApiKey(event.target.value);
           }}
           placeholder={
-            status.apiKeySaved ? "已由当前 Windows 账户加密保存" : "sk-..."
+            status.requiresApiKeyReentry
+              ? "请输入当前服务的 API Key"
+              : status.apiKeySaved
+                ? "已由当前 Windows 账户加密保存"
+                : "sk-..."
           }
           disabled={saving}
         />
+        {status.requiresApiKeyReentry && (
+          <p className="model-discovery-status error" role="alert">
+            当前 Windows 账户无法解密已保存的 API Key。请重新输入并保存 API Key 后再发起模型请求。
+          </p>
+        )}
         <label className="model-service-wide">
           <span>模型 ID</span>
           {models.length > 0 && (
@@ -352,10 +366,29 @@ export function AdvancedModelSettings({
                 <option value="high">High - 15步/8k输出/5分钟</option>
                 <option value="xhigh">XHigh - 30步/16k输出/10分钟</option>
                 <option value="max">Max - 50步/32k输出/30分钟</option>
-                <option value="ultra">Ultra - 无限制（实验性）</option>
+                <option value="ultra">Ultra · 多智能体（实验性，有上限）</option>
               </select>
               <span className="text-[10px] leading-4 text-[var(--muted-foreground)]">
-                控制 Agent 探索深度与回答长度上限；Ultra 模式允许完全自由探索。
+                控制 Agent 探索深度与回答长度上限；Ultra 模式会调用多个子智能体，但仍受步数、调用次数和时间上限保护。
+              </span>
+            </label>
+            <label className="grid min-w-0 gap-1.5">
+              <span className="text-xs font-semibold text-[var(--ink)]">Agent 权限</span>
+              <select
+                value={advisorConfig.permissionMode}
+                onChange={(event) => setAdvisorConfig((current) => ({
+                  ...current,
+                  permissionMode: event.target.value as typeof current.permissionMode,
+                }))}
+                disabled={saving || detecting}
+              >
+                <option value="read-only">只读（受控 Agent）</option>
+                <option value="full-access">完全访问</option>
+              </select>
+              <span className="text-[10px] leading-4 text-[var(--muted-foreground)]">
+                {advisorConfig.permissionMode === "full-access"
+                  ? "允许 Agent 自主读写本地文件、执行命令、请求网页和打开链接；相关后果由本机用户负责。"
+                  : "保留当前受控校园操作，不授予通用文件系统、Shell 或任意网页访问。"}
               </span>
             </label>
             <label className="grid min-w-0 gap-1.5">
@@ -396,27 +429,13 @@ export function AdvancedModelSettings({
               <input
                 type="range"
                 min="0"
-                max="1"
+                max="2"
                 step="0.1"
                 value={advisorConfig.temperature}
                 onChange={(event) => setAdvisorConfig((current) => ({ ...current, temperature: Number(event.target.value) }))}
                 disabled={saving || detecting}
               />
               <span className="text-[10px] text-[var(--muted-foreground)]">创造性控制表达的发散程度；复杂问题是否深想由推理强度控制。</span>
-            </label>
-            <label className="model-service-wide">
-              <span>Agent 预算档位</span>
-              <select
-                value={advisorConfig.budgetLevel}
-                onChange={(event) => setAdvisorConfig((current) => ({ ...current, budgetLevel: event.target.value as typeof advisorConfig.budgetLevel }))}
-                disabled={saving || detecting}
-              >
-                <option value="high">High · 15 步 / 8k 输出 / 5 分钟</option>
-                <option value="xhigh">XHigh · 30 步 / 16k 输出 / 10 分钟</option>
-                <option value="max">Max · 50 步 / 32k 输出 / 30 分钟</option>
-                <option value="ultra">Ultra · 100 步 / 64k 输出 / 60 分钟</option>
-              </select>
-              <span className="text-[10px] text-[var(--muted-foreground)]">控制 Agent 探索深度和输出长度上限。Ultra 档位支持最深度的多轮验证。</span>
             </label>
           </div>
         </div>

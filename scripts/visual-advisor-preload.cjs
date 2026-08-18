@@ -6,12 +6,12 @@ const noopSubscription = () => () => undefined
 
 const api = {
   getSnapshot: () => invoke('get-snapshot'),
+  getRendererSnapshot: () => invoke('get-renderer-snapshot'),
   getAdvisorOverview: () => invoke('get-advisor-overview'),
   getAdvisorAcademicWhatIf: (request) => invoke('get-advisor-academic-what-if', request),
   getAdvisorCourseDecisions: (request) => invoke('get-advisor-course-decisions', request),
   listAdvisorThreads: () => invoke('list-advisor-threads'),
   createAdvisorThread: () => invoke('create-advisor-thread'),
-  prepareAdvisorRequest: (request) => invoke('prepare-advisor-request', request),
   sendAdvisorRequest: (request) => invoke('send-advisor-request', request),
   cancelAdvisorRequest: (request) => invoke('cancel-advisor-request', request),
   deleteAdvisorThread: (threadId) => invoke('delete-advisor-thread', threadId),

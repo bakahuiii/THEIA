@@ -9,6 +9,7 @@ import { CampusStore } from '../core/store.mjs'
 const SETTINGS_KEYS = [
   'academicApiEnabled',
   'academicAuthMode',
+  'advisorConfig',
   'apiPort',
   'autoSync',
   'mail',
@@ -22,6 +23,8 @@ const SETTINGS_KEYS = [
 ]
 
 const STATE_KEYS = [
+  'academicExtras',
+  'academicPlanDocument',
   'academicProgress',
   'appVersion',
   'assignments',
@@ -70,6 +73,13 @@ test('normalizeState retains only explicitly allowed settings', () => {
         fallbackModel: 'advisor-model',
         apiKey: secret,
       },
+      advisorConfig: {
+        budgetLevel: 'xhigh',
+        reasoningEffort: 'high',
+        responseStyle: 'detailed',
+        responseLength: 'detailed',
+        temperature: 0.4,
+      },
       modelApiKey: secret,
       mailPassword: secret,
       authorization: `Bearer ${secret}`,
@@ -98,6 +108,14 @@ test('normalizeState retains only explicitly allowed settings', () => {
       advisorDeepModel: 'advisor-model',
       courseworkModel: null,
       fallbackModel: 'advisor-model',
+    },
+    advisorConfig: {
+      budgetLevel: 'xhigh',
+      permissionMode: 'read-only',
+      reasoningEffort: 'high',
+      responseStyle: 'detailed',
+      responseLength: 'detailed',
+      temperature: 0.4,
     },
   })
   assert.equal(JSON.stringify(state).includes(secret), false)
@@ -135,6 +153,7 @@ test('normalizeState rejects malformed allowed values instead of retaining neste
   assert.deepEqual(state.settings.mail, { enabled: false, pollIntervalMinutes: 5 })
   assert.equal(state.settings.modelBaseUrl, '')
   assert.equal(state.settings.modelName, '')
+  assert.equal(state.settings.advisorConfig.budgetLevel, 'high')
   assert.deepEqual(state.settings.modelModels, ['valid-model'])
   assert.equal(typeof state.createdAt, 'string')
   assert.equal(typeof state.updatedAt, 'string')
@@ -180,6 +199,7 @@ test('legacy store migration persists only allowed settings in the settings frag
     const manifest = JSON.parse(await readFile(resolve(root, 'data', 'manifest.json'), 'utf8'))
     const reference = manifest.fragments['state/settings']
     const fragment = JSON.parse(await readFile(resolve(root, 'data', reference.path), 'utf8'))
+    assert.ok(manifest.fragments['academic/plan-document'])
     const metaReference = manifest.fragments['state/meta']
     const metaFragment = JSON.parse(await readFile(resolve(root, 'data', metaReference.path), 'utf8'))
     const persistedFragments = await Promise.all(Object.values(manifest.fragments).map(async (item) => (

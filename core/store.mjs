@@ -106,6 +106,8 @@ function stateFragments(state) {
     ['academic/grades', state.grades],
     ['academic/selected-courses', state.selectedCourses],
     ['academic/progress', state.academicProgress],
+    ['academic/extras', state.academicExtras],
+    ['academic/plan-document', state.academicPlanDocument],
     ['coursework/assignments', state.assignments],
     ['coursework/workspaces', state.workspaces],
     ['communication/notices', state.notices],
@@ -121,7 +123,26 @@ function stateFragments(state) {
   return fragments
 }
 
-const REQUIRED_FRAGMENT_KEYS = Object.freeze([...stateFragments(emptyState()).keys()])
+function isPositionedScheduleRecord(item) {
+  const weekday = Number(item?.weekday)
+  return Number.isInteger(weekday)
+    && weekday >= 1
+    && weekday <= 7
+    && Boolean(String(item?.period || '').trim())
+}
+
+function requiresLegacyScheduleRepair(state) {
+  const schedule = Array.isArray(state?.schedule) ? state.schedule : []
+  return schedule.length > 0 && !schedule.some(isPositionedScheduleRecord)
+}
+
+// New fragments are optional when opening an older sharded store. Treating a
+// newly introduced fragment as required would reject an otherwise healthy
+// manifest before normalizeState can supply its empty default, preventing
+// existing users from starting after an upgrade.
+const OPTIONAL_FRAGMENT_KEYS = Object.freeze(new Set(['academic/extras', 'academic/plan-document']))
+const REQUIRED_FRAGMENT_KEYS = Object.freeze([...stateFragments(emptyState()).keys()]
+  .filter((key) => !OPTIONAL_FRAGMENT_KEYS.has(key)))
 
 function mergeFragments(values) {
   const state = emptyState()
@@ -137,6 +158,8 @@ function mergeFragments(values) {
   state.grades = value('academic/grades', [])
   state.selectedCourses = value('academic/selected-courses', [])
   state.academicProgress = value('academic/progress', null)
+  state.academicExtras = value('academic/extras', null)
+  state.academicPlanDocument = value('academic/plan-document', null)
   state.assignments = value('coursework/assignments', [])
   state.workspaces = value('coursework/workspaces', [])
   state.notices = value('communication/notices', [])
@@ -196,7 +219,24 @@ export class CampusStore {
   async loadFromDisk() {
     await mkdir(this.root, { recursive: true })
     const sharded = await this.loadSharded()
-    if (sharded && !this.recovery) return this.finishLoad(sharded)
+    if (sharded && !this.recovery) {
+      const repaired = await this.restoreLegacyScheduleIfNeeded(sharded)
+      if (!repaired) return this.finishLoad(sharded)
+      return this.withWriteLock(async () => {
+        const latest = await this.loadSharded()
+        if (!latest) return this.finishLoad(sharded)
+        const currentRepair = await this.restoreLegacyScheduleIfNeeded(latest)
+        if (!currentRepair) return this.finishLoad(latest)
+        const recovery = {
+          source: 'legacy-positioned-schedule',
+          invalidScheduleRecords: latest.schedule.length,
+          restoredScheduleRecords: currentRepair.schedule.length,
+        }
+        await this.persistSharded(currentRepair, { recovery })
+        this.recovery = recovery
+        return this.finishLoad(currentRepair)
+      })
+    }
 
     if (sharded) {
       return this.withWriteLock(async () => {
@@ -343,15 +383,37 @@ export class CampusStore {
     return fragment.value
   }
 
+  async restoreLegacyScheduleIfNeeded(state) {
+    if (!requiresLegacyScheduleRepair(state)) return null
+    for (const path of [this.file, this.backup]) {
+      if (!existsSync(path)) continue
+      try {
+        const legacy = normalizeState(await readJson(path))
+        if (!legacy.schedule.some(isPositionedScheduleRecord)) continue
+        const repaired = normalizeState({ ...state, schedule: legacy.schedule })
+        repaired.updatedAt = new Date().toISOString()
+        return repaired
+      } catch {
+        // Legacy files are optional migration aids. Keep the active sharded
+        // snapshot untouched if neither file can prove a positioned schedule.
+      }
+    }
+    return null
+  }
+
   snapshot() {
     return structuredClone(this.state)
   }
 
-  snapshotWithRevision() {
+  snapshotWithRevision({ clone = true } = {}) {
     if (!this.loaded || !this.activeManifest || !this.committedView) {
       throw new Error('CampusStore must be loaded before reading a versioned snapshot')
     }
-    return structuredClone(this.committedView)
+    // Advisor/MCP consumers are read-only and can use the committed reference
+    // directly. Keep cloning as the default for legacy callers that may mutate
+    // the returned object; the hot path opts out explicitly after validating
+    // the revision at the request boundary.
+    return clone === false ? this.committedView : structuredClone(this.committedView)
   }
 
   refreshCommittedView() {

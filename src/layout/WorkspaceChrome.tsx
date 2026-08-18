@@ -91,7 +91,21 @@ export function WorkspaceChrome({
   onNavigate,
   children,
 }: WorkspaceChromeProps) {
-  const connectedLabel = auth.jwglxt.connected ? "教务系统" : "北化在线THEOL";
+  const sourceEntries = [
+    { label: "教务系统", connected: auth.jwglxt.connected },
+    { label: "北化在线THEOL", connected: auth.theol.connected },
+  ];
+  const connectedSources = sourceEntries
+    .filter((source) => source.connected)
+    .map((source) => source.label);
+  const missingSources = sourceEntries
+    .filter((source) => !source.connected)
+    .map((source) => source.label);
+  const connectedLabel = connectedSources.join("、");
+  const missingLabel = missingSources.join("、");
+  const authVerificationPending = Boolean(
+    auth.jwglxt.authPending || auth.theol.authPending,
+  );
   const paletteRef = useRef<HTMLElement>(null);
   useEffect(() => {
     if (!paletteOpen || !paletteRef.current) return;
@@ -117,6 +131,13 @@ export function WorkspaceChrome({
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [paletteOpen]);
+  const backgroundAuthPending = credentialsSaved
+    && !allSourcesConnected
+    && !syncFailure
+    && !auth.jwglxt.authRequired
+    && !auth.theol.authRequired
+    && !auth.jwglxt.error
+    && !auth.theol.error;
   return (
     <main className="workspace">
       {syncing && (
@@ -144,6 +165,58 @@ export function WorkspaceChrome({
             <p>{title.subtitle}</p>
           </div>
         </div>
+        {syncing && (
+          <section className="sync-live-banner topbar-sync-banner" role="status" aria-live="polite">
+            <RefreshCw size={17} className="spinning" />
+            <div>
+              <strong>正在更新校园数据</strong>
+              <span>{syncProgress || "正在连接教务系统…"}</span>
+              <small>
+                当前页面暂显示上次同步结果；新课表、成绩和考试数据完成后会自动替换。
+              </small>
+            </div>
+          </section>
+        )}
+        {!syncing && authVerificationPending && (
+          <section className="login-banner topbar-login-banner auth-pending-banner" role="status" aria-live="polite">
+            <RefreshCw size={17} className="spinning" />
+            <div>
+              <strong>正在确认统一身份认证会话</strong>
+              <span>CAS 登录已完成，正在分别确认教务系统和北化在线THEOL。</span>
+            </div>
+          </section>
+        )}
+        {!syncing && !authVerificationPending && !backgroundAuthPending && (!hasSession || !allSourcesConnected) && (
+          <section className="login-banner topbar-login-banner" role="status">
+            <AlertCircle size={17} />
+            <div>
+              <strong>
+                {hasSession
+                  ? connectedSources.length
+                  ? "校园数据源未完全连接"
+                    : "校园数据源未连接"
+                  : "连接校园数据"}
+              </strong>
+              <span>
+                {syncFailure
+                  ? "后台恢复未完成；可以继续查看本机已有数据，或重新连接校园数据源。"
+                  : !hasSession
+                  ? "一次统一身份认证即可连接教务系统和北化在线THEOL；两个来源会分别验证。"
+                  : connectedSources.length
+                    ? `${connectedLabel}已连接；${missingLabel || "其余来源"}暂未连接，已连接的数据仍可使用。`
+                    : "当前没有可用的校园数据源；可以重新连接，或继续查看本机已有数据。"}
+              </span>
+            </div>
+            <button onClick={onRequestLogin}>
+              <LogIn size={15} />{" "}
+              {hasSession
+                ? "继续登录"
+                : credentialsSaved
+                  ? "重新连接"
+                  : "设置账号"}
+            </button>
+          </section>
+        )}
         <div className="top-actions">
           {view === "courses" && (
             <label className="search-box">
@@ -194,43 +267,6 @@ export function WorkspaceChrome({
           </div>
         </div>
       </header>
-      {syncing && (
-        <section className="sync-live-banner" role="status" aria-live="polite">
-          <RefreshCw size={18} className="spinning" />
-          <div>
-            <strong>正在更新校园数据</strong>
-            <span>{syncProgress || "正在连接教务系统…"}</span>
-            <small>
-              当前页面暂显示上次同步结果；新课表、成绩和考试数据完成后会自动替换。
-            </small>
-          </div>
-        </section>
-      )}
-      {!allSourcesConnected && (
-        <section className="login-banner">
-          <AlertCircle size={19} />
-          <div>
-            <strong>
-              {hasSession ? "部分数据源未连接" : "需要统一身份认证"}
-            </strong>
-            <span>
-              {hasSession
-                ? `${connectedLabel}已连接，可以立即同步；继续登录可接入另一数据源。`
-                : credentialsSaved
-                  ? "正在使用已保存账号恢复北化在线THEOL与教务系统会话。"
-                  : "保存统一身份认证账号后，THEIA 会连接北化在线THEOL和支持统一认证的校园页面。"}
-            </span>
-          </div>
-          <button onClick={onRequestLogin}>
-            <LogIn size={16} />{" "}
-            {hasSession
-              ? "继续登录"
-              : credentialsSaved
-                ? "重新连接"
-                : "设置账号"}
-          </button>
-        </section>
-      )}
       {message && (
         <section className="message-bar" data-kind={messageKind}>
           <AlertCircle size={17} />

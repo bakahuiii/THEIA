@@ -1,4 +1,5 @@
-import { isDesktop } from "./bridge";
+import { bridge, isDesktop } from "./bridge";
+import { useState } from "react";
 import theiaMark from "./assets/theia-mark.png";
 import { useTheiaApp } from "./hooks/useTheiaApp";
 import { useAppearance } from "./hooks/useAppearance";
@@ -16,7 +17,7 @@ import { AcademicProgressView } from "./views/AcademicProgressView";
 import { CoursesView } from "./views/CoursesView";
 import { CourseSelectionView } from "./views/CourseSelectionView";
 import { AssignmentsView } from "./views/AssignmentsView";
-import { SettingsView } from "./views/SettingsView";
+import { SettingsView, type SettingsSection } from "./views/SettingsView";
 import { ToolsView } from "./views/ToolsView";
 import { CommunicationsView } from "./views/CommunicationsView";
 import { AdvisorView } from "./views/AdvisorView";
@@ -28,6 +29,7 @@ import { TooltipProvider } from "./components/ui/tooltip";
 
 export default function App() {
   const app = useTheiaApp();
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("appearance");
   useAppearance(); // apply stored dark/light mode on mount
   const personalization = usePersonalization();
   const gradientMapActive =
@@ -93,7 +95,10 @@ export default function App() {
         onNavigate={goTo}
         onClose={() => app.setSidebarOpen(false)}
         onToggleCollapsed={() => app.setSidebarCollapsed(!app.sidebarCollapsed)}
-        onOpenSettings={() => app.setSettingsOpen(true)}
+        onOpenSettings={() => {
+          setSettingsSection("appearance");
+          app.setSettingsOpen(true);
+        }}
       />
       <WorkspaceChrome
         state={state}
@@ -115,7 +120,10 @@ export default function App() {
         paletteQuery={app.paletteQuery}
         paletteItems={app.paletteItems}
         onOpenSidebar={() => app.setSidebarOpen(true)}
-        onOpenAppearanceSettings={() => app.setSettingsOpen(true)}
+        onOpenAppearanceSettings={() => {
+          setSettingsSection("appearance");
+          app.setSettingsOpen(true);
+        }}
         onQueryChange={app.setQuery}
         onSync={() => void app.sync()}
         onRequestLogin={() => void app.requestLogin()}
@@ -142,6 +150,7 @@ export default function App() {
           <AdvisorView
             overview={app.advisorOverview}
             actions={app.visibleAdvisorActions}
+            modelStatus={app.modelStatus}
             loading={app.advisorLoading}
             error={app.advisorError}
             pendingActionId={app.advisorActionPendingId}
@@ -149,8 +158,10 @@ export default function App() {
             onAction={(item) => void app.executeAdvisorAction(item)}
             onSnooze={app.snoozeAdvisorItem}
             onDismiss={app.dismissAdvisorItem}
-            notices={state.notices}
-            emails={state.emails}
+            onOpenSettings={() => {
+              setSettingsSection("model");
+              app.setSettingsOpen(true);
+            }}
           />
         )}
         {app.view === "schedule" && (
@@ -169,8 +180,12 @@ export default function App() {
         {app.view === "grades" && (
           <GradesView
             grades={state.grades}
-            gpa={state.academicProgress?.gpa ?? state.profile?.gpa}
+            progress={state.academicProgress}
+            gpa={state.profile?.gpa}
             terms={app.visibleTerms}
+            gradeDetails={state.academicExtras?.domains?.["grade-details"]}
+            gradeDetailsRefreshing={app.academicDomainRefreshing === "grade-details"}
+            onRefreshGradeDetails={() => void app.refreshAcademicDomain("grade-details")}
           />
         )}
         {app.view === "progress" && (
@@ -250,9 +265,16 @@ export default function App() {
         )}
         {app.view === "tools" && (
           <ToolsView
+            state={state}
             dataCatalog={state.dataCatalog}
             apiBase={app.apiBase}
+            terms={app.visibleTerms}
             calendarAssetUrls={app.calendarAssetUrls}
+            academicPlanAssetBaseUrl={app.academicPlanAssetBaseUrl}
+            refreshingDomain={app.academicDomainRefreshing}
+            onRefreshDomain={(domain) => void app.refreshAcademicDomain(domain)}
+            onOpenSource={(url) => void bridge.openSource(url)}
+            onOpenAttachment={(domain, attachmentId) => bridge.openAcademicAttachment(domain, attachmentId)}
           />
         )}
         </ErrorBoundary>
@@ -260,6 +282,7 @@ export default function App() {
       <SettingsView
         open={app.settingsOpen}
         onOpenChange={app.setSettingsOpen}
+        initialSection={settingsSection}
         state={state}
         apiBase={app.apiBase}
         auth={app.auth}

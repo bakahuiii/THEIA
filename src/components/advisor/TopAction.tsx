@@ -12,6 +12,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { AdvisorUrgentItem } from "../../types";
+import { formatDateTime } from "../../ui/app-shared";
 
 type FixedAction = { label: string; icon: LucideIcon };
 
@@ -44,15 +45,7 @@ const SEVERITY: Record<AdvisorUrgentItem["severity"], { label: string; classes: 
 };
 
 function formatDueAt(value: string | null) {
-  if (!value) return "时间未知";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "时间未知";
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  return value ? formatDateTime(value) : "时间未知";
 }
 
 function safeErrorMessage(error: string) {

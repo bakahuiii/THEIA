@@ -4,18 +4,26 @@ import {
   Calculator,
   CheckCircle2,
   CircleHelp,
+  Database,
   FileSearch,
   GraduationCap,
   RefreshCw,
-  ShieldCheck,
   Sigma,
 } from "lucide-react";
 import { bridge } from "../bridge";
 import { DataQualityBar } from "../components/advisor/DataQualityBar";
+import { DataQualityDiagnostics } from "../components/advisor/DataQualityDiagnostics";
 import { EvidenceDrawer } from "../components/advisor/EvidenceDrawer";
 import { AdvisorWorkbench } from "../components/advisor/AdvisorWorkbench";
 import { RiskList } from "../components/advisor/RiskList";
 import { TopAction } from "../components/advisor/TopAction";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog";
 import {
   advisorConfidenceLabel,
   advisorDomainLabel,
@@ -27,16 +35,17 @@ import type {
   AdvisorAcademicFailure,
   AdvisorAcademicRequirementNode,
   AdvisorAcademicScenarioResult,
+  AdvisorDomainQuality,
   AdvisorEvidence,
   AdvisorOverview,
   AdvisorUrgentItem,
-  EmailMessage,
-  Notice,
+  ModelStatus,
 } from "../types";
 
 type AdvisorViewProps = {
   overview: AdvisorOverview | null;
   actions: AdvisorUrgentItem[];
+  modelStatus: ModelStatus;
   loading: boolean;
   error: string | null;
   pendingActionId: string | null;
@@ -44,8 +53,7 @@ type AdvisorViewProps = {
   onAction: (item: AdvisorUrgentItem) => void;
   onSnooze: (item: AdvisorUrgentItem) => void;
   onDismiss: (item: AdvisorUrgentItem) => void;
-  notices: Notice[];
-  emails: EmailMessage[];
+  onOpenSettings: () => void;
 };
 
 type EvidenceSelection = {
@@ -265,6 +273,7 @@ function UpgradeStatus({
 export function AdvisorView({
   overview,
   actions,
+  modelStatus,
   loading,
   error,
   pendingActionId,
@@ -272,10 +281,12 @@ export function AdvisorView({
   onAction,
   onSnooze,
   onDismiss,
-  notices,
-  emails,
+  onOpenSettings,
 }: AdvisorViewProps) {
+  const [insightsOpen, setInsightsOpen] = useState(false);
   const [evidenceSelection, setEvidenceSelection] = useState<EvidenceSelection | null>(null);
+  const [diagnosticSelection, setDiagnosticSelection] = useState<AdvisorDomainQuality | null>(null);
+  const [restoreInsightsAfterSheet, setRestoreInsightsAfterSheet] = useState(false);
   const [additionalCredits, setAdditionalCredits] = useState("4");
   const [alternativeSelections, setAlternativeSelections] = useState<Record<string, string>>({});
   const [scenarioState, setScenarioState] = useState<ScenarioUiState>({
@@ -304,10 +315,10 @@ export function AdvisorView({
     : agendaEmptyConfirmed
       ? "confirmed"
       : "unconfirmed";
-
   useEffect(() => {
     scenarioRequestSequence.current += 1;
     setEvidenceSelection(null);
+    setDiagnosticSelection(null);
     setAlternativeSelections({});
     setScenarioState({
       revision: overviewRevision,
@@ -319,7 +330,23 @@ export function AdvisorView({
 
   const showEvidence = (title: string, references: string[]) => {
     setEvidenceSelection({ title, entries: evidenceFor(overview, references) });
+    if (insightsOpen) {
+      setInsightsOpen(false);
+      setRestoreInsightsAfterSheet(true);
+    }
   };
+
+  const openDataDiagnostics = (quality: AdvisorDomainQuality) => {
+    setDiagnosticSelection(quality);
+    setInsightsOpen(false);
+    setRestoreInsightsAfterSheet(true);
+  };
+
+  const restoreInsights = () => {
+    if (restoreInsightsAfterSheet) setInsightsOpen(true);
+    setRestoreInsightsAfterSheet(false);
+  };
+
   const runWhatIf = async () => {
     const requestRevision = overviewRevision;
     if (!requestRevision) {
@@ -369,38 +396,30 @@ export function AdvisorView({
   const scenarioResult = scenario?.analysis.scenario;
 
   return (
-    <div className="advisor-view grid min-w-0 gap-5">
-      <section className="advisor-header flex min-w-0 flex-wrap items-center justify-between gap-3">
-        <span className="min-w-0">
-          <span className="flex items-center gap-2 text-sm font-semibold text-[var(--ink)]">
-            <ShieldCheck className="size-4 text-[var(--teal)]" aria-hidden="true" />
-            本地确定性顾问
-          </span>
-          <span className="mt-1 block break-words text-xs text-[var(--muted-foreground)] [overflow-wrap:anywhere]">
-            本地判断始终来自冻结快照；模型问答只在你确认本次披露计划后发送，且不执行教务操作。
-          </span>
-        </span>
-        <button
-          type="button"
-          className="inline-flex min-h-9 items-center gap-2 rounded-md border border-[var(--line-strong)] px-3 text-xs font-semibold text-[var(--ink)] hover:bg-[var(--paper)] disabled:cursor-wait disabled:opacity-60"
-          onClick={onRetry}
-          disabled={loading}
-        >
-          <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
-          重新计算
-        </button>
-      </section>
+    <div className="advisor-view">
+      <AdvisorWorkbench
+        modelStatus={modelStatus}
+        onOpenInsights={() => setInsightsOpen(true)}
+        onOpenSettings={onOpenSettings}
+      />
 
+      <Dialog open={insightsOpen} onOpenChange={setInsightsOpen}>
+        <DialogContent className="advisor-insights-dialog max-h-[min(52rem,88vh)] max-w-[min(88rem,calc(100vw-2rem))] overflow-hidden p-0" overlayClassName="advisor-insights-overlay">
+          <DialogHeader className="advisor-insights-heading">
+            <span className="advisor-insights-heading-mark" aria-hidden="true"><Database className="size-5" /></span>
+            <span className="min-w-0">
+              <DialogTitle>学业仪表盘</DialogTitle>
+              <DialogDescription>本地快照、培养方案和情景演算集中在此处。</DialogDescription>
+            </span>
+          </DialogHeader>
+          <div className="advisor-insights-scroll min-w-0 overflow-y-auto px-5 pb-6 sm:px-6">
       <div className="advisor-quality">
       <DataQualityBar
         dataQuality={overview?.dataQuality || null}
         loading={loading && !overview}
         error={error}
         onRetry={onRetry}
-        onSelectDomain={(domain) => {
-          const entries = overview?.evidence.filter((entry) => entry.domain === domain.domain) || [];
-          setEvidenceSelection({ title: `${advisorDomainLabel(domain.domain)}数据证据`, entries });
-        }}
+        onSelectDomain={openDataDiagnostics}
       />
       </div>
 
@@ -523,9 +542,15 @@ export function AdvisorView({
               <EmptyAcademicValue>学校记录和本地成绩均不足以计算 GPA。</EmptyAcademicValue>
             )}
             {gpa?.discrepancy.state === "present" && (
-              <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-[11px] text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
-                两个学校来源相差 {gpa.discrepancy.difference}。THEIA 不推断哪个来源最终有效。
-              </p>
+              <button
+                type="button"
+                className="mt-3 block w-full rounded-md border border-amber-200 bg-amber-50 p-2.5 text-left text-[11px] text-amber-900 transition-colors hover:border-amber-400 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-950/65"
+                onClick={() => showEvidence("学校 GPA 来源差异", gpa.discrepancy.evidenceRefs)}
+                title="查看两个学校 GPA 来源的证据"
+              >
+                <span className="block">两个学校来源相差 {gpa.discrepancy.difference}。THEIA 不推断哪个来源最终有效。</span>
+                <span className="mt-1 block text-[10px] font-semibold">查看来源证据与数据质量</span>
+              </button>
             )}
             {gpa?.localBoundary && (
               <p className="mt-3 break-words text-[10px] leading-4 text-[var(--muted-foreground)] [overflow-wrap:anywhere]">
@@ -652,19 +677,37 @@ export function AdvisorView({
           </div>
         )}
       </section>
+          </div>
+        </DialogContent>
+      </Dialog>
 
-      <div className="advisor-model-slot">
-        <AdvisorWorkbench
-          notices={notices}
-          emails={emails}
-          evidence={overview?.evidence || []}
-          onEvidence={(title, entries) => setEvidenceSelection({ title, entries })}
-        />
-      </div>
+      <DataQualityDiagnostics
+        quality={diagnosticSelection}
+        open={Boolean(diagnosticSelection)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDiagnosticSelection(null);
+            restoreInsights();
+          }
+        }}
+        evidence={diagnosticSelection ? overview?.evidence.filter((entry) => entry.domain === diagnosticSelection.domain) || [] : []}
+        onShowEvidence={() => {
+          if (!diagnosticSelection) return;
+          const entries = overview?.evidence.filter((entry) => entry.domain === diagnosticSelection.domain) || [];
+          setDiagnosticSelection(null);
+          setEvidenceSelection({ title: `${advisorDomainLabel(diagnosticSelection.domain)}数据证据`, entries });
+        }}
+        onRetry={onRetry}
+      />
 
       <EvidenceDrawer
         open={Boolean(evidenceSelection)}
-        onOpenChange={(open) => { if (!open) setEvidenceSelection(null); }}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEvidenceSelection(null);
+            restoreInsights();
+          }
+        }}
         evidence={evidenceSelection?.entries || []}
         title={evidenceSelection?.title || "证据详情"}
       />

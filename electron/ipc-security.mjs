@@ -1,19 +1,18 @@
 export const MAX_IPC_ARGUMENT_BYTES = 1024 * 1024
+import { JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES } from '../core/jwglxt-extra.mjs'
+
 export const RETRIABLE_SYNC_DOMAIN_IDS = Object.freeze([
   'profile', 'terms', 'schedule', 'exams', 'grades', 'selected-courses',
   'academic-progress', 'jwglxt-courses', 'jwglxt-notices', 'theol-courses',
   'assignments', 'theol-notices', 'mailbox', 'academic-calendar', 'fitness',
   'school-schedule',
+  'academic-extras',
+  ...JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES,
 ])
 const MAX_IPC_DEPTH = 12
 const MAX_IPC_ARRAY_ITEMS = 5_000
 const MAX_IPC_OBJECT_KEYS = 512
 const MAX_IPC_STRING_LENGTH = 200_000
-const ADVISOR_READABLE_DOMAINS = Object.freeze([
-  'assignments', 'exams', 'grades', 'academic-progress', 'courses', 'schedule',
-  'selected-courses', 'course-selection', 'profile', 'notices', 'mailbox', 'fitness',
-])
-
 function fail(channel, message) {
   throw new Error(`IPC ${channel}: ${message}`)
 }
@@ -137,46 +136,24 @@ function advisorActionRequest(channel, args) {
   stringValue(channel, args[0].actionId, 'actionId', 256)
 }
 
-function advisorIdList(channel, value, label, maximum) {
-  if (value === undefined) return
-  if (!Array.isArray(value) || value.length > maximum) fail(channel, `${label} has too many items`)
-  for (const item of value) stringValue(channel, item, `${label} item`, 512)
-}
-
 function advisorPrepareRequest(channel, args) {
   argCount(channel, args, 1)
   objectValue(channel, args[0], 'advisor prepare request')
-  allowedFields(channel, args[0], [
-    'threadId', 'question', 'intent', 'selectedNoticeIds', 'selectedMailIds', 'includeMailBodyIds',
-    'agent', 'readableDomains',
-  ])
+  allowedFields(channel, args[0], ['threadId', 'question'])
   stringValue(channel, args[0].threadId, 'threadId', 128)
   stringValue(channel, args[0].question, 'question', 4_000)
-  if (!['daily', 'risk', 'course', 'notice', 'mail', 'general'].includes(args[0].intent)) {
-    fail(channel, 'advisor intent is invalid')
-  }
-  advisorIdList(channel, args[0].selectedNoticeIds, 'selectedNoticeIds', 8)
-  advisorIdList(channel, args[0].selectedMailIds, 'selectedMailIds', 4)
-  advisorIdList(channel, args[0].includeMailBodyIds, 'includeMailBodyIds', 2)
-  if (args[0].agent !== undefined && typeof args[0].agent !== 'boolean') fail(channel, 'agent must be boolean')
-  if (args[0].readableDomains !== undefined) {
-    if (!Array.isArray(args[0].readableDomains) || args[0].readableDomains.length > ADVISOR_READABLE_DOMAINS.length) {
-      fail(channel, 'readableDomains has too many items')
-    }
-    for (const domain of args[0].readableDomains) {
-      stringValue(channel, domain, 'readableDomains item', 64)
-      if (!ADVISOR_READABLE_DOMAINS.includes(domain)) fail(channel, 'readableDomains item is invalid')
-    }
-  }
 }
 
 function advisorSendRequest(channel, args) {
   argCount(channel, args, 1)
   objectValue(channel, args[0], 'advisor send request')
-  allowedFields(channel, args[0], ['requestId', 'approved', 'stream'])
-  stringValue(channel, args[0].requestId, 'requestId', 128)
-  if (typeof args[0].approved !== 'boolean') fail(channel, 'approved must be boolean')
-  if (args[0].stream !== undefined && typeof args[0].stream !== 'boolean') fail(channel, 'stream must be boolean')
+  allowedFields(channel, args[0], ['requestId', 'threadId', 'question'])
+  stringValue(channel, args[0].requestId, 'requestId', 128, { optional: true })
+  stringValue(channel, args[0].threadId, 'threadId', 128, { optional: true })
+  stringValue(channel, args[0].question, 'question', 4_000, { optional: true })
+  if (!args[0].requestId && !(args[0].threadId && args[0].question)) {
+    fail(channel, 'requestId or threadId and question are required')
+  }
 }
 
 function advisorCancelRequest(channel, args) {
@@ -305,7 +282,7 @@ function modelConfig(channel, args, { saving = false } = {}) {
   argCount(channel, args, 1)
   objectValue(channel, args[0], 'model configuration')
   const fields = saving
-    ? ['baseUrl', 'model', 'apiKey', 'probeId', 'allowManualModel', 'modelRouting', 'provider']
+    ? ['baseUrl', 'model', 'apiKey', 'probeId', 'allowManualModel', 'modelRouting', 'advisorConfig', 'provider']
     : ['baseUrl', 'apiKey', 'provider']
   allowedFields(channel, args[0], fields)
   stringValue(channel, args[0].baseUrl, 'baseUrl', 1_000)
@@ -328,6 +305,21 @@ function modelConfig(channel, args, { saving = false } = {}) {
         if (value !== null) stringValue(channel, value, `modelRouting.${key}`, 300, { optional: true })
       }
     }
+    if (args[0].advisorConfig !== undefined) {
+      objectValue(channel, args[0].advisorConfig, 'advisorConfig')
+      allowedFields(channel, args[0].advisorConfig, ['budgetLevel', 'permissionMode', 'reasoningEffort', 'responseStyle', 'responseLength', 'temperature'])
+      if (args[0].advisorConfig.budgetLevel !== undefined
+        && !['high', 'xhigh', 'max', 'ultra'].includes(args[0].advisorConfig.budgetLevel)) fail(channel, 'advisorConfig.budgetLevel is invalid')
+      if (args[0].advisorConfig.permissionMode !== undefined
+        && !['read-only', 'full-access'].includes(args[0].advisorConfig.permissionMode)) fail(channel, 'advisorConfig.permissionMode is invalid')
+      if (args[0].advisorConfig.reasoningEffort !== undefined
+        && !['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(args[0].advisorConfig.reasoningEffort)) fail(channel, 'advisorConfig.reasoningEffort is invalid')
+      if (args[0].advisorConfig.responseStyle !== undefined
+        && !['direct', 'balanced', 'detailed'].includes(args[0].advisorConfig.responseStyle)) fail(channel, 'advisorConfig.responseStyle is invalid')
+      if (args[0].advisorConfig.responseLength !== undefined
+        && !['adaptive', 'short', 'standard', 'detailed'].includes(args[0].advisorConfig.responseLength)) fail(channel, 'advisorConfig.responseLength is invalid')
+      if (args[0].advisorConfig.temperature !== undefined) numberValue(channel, args[0].advisorConfig.temperature, 'advisorConfig.temperature')
+    }
   }
 }
 
@@ -336,7 +328,7 @@ function updateSettings(channel, args) {
   objectValue(channel, args[0], 'settings')
   allowedFields(channel, args[0], [
     'apiPort', 'syncIntervalMinutes', 'autoSync', 'openOriginalInApp',
-    'academicAuthMode', 'academicApiEnabled', 'mail',
+    'academicAuthMode', 'academicApiEnabled', 'mail', 'advisorConfig',
   ])
   for (const key of ['apiPort', 'syncIntervalMinutes']) {
     if (args[0][key] !== undefined) numberValue(channel, args[0][key], key)
@@ -353,10 +345,27 @@ function updateSettings(channel, args) {
     if (args[0].mail.enabled !== undefined && typeof args[0].mail.enabled !== 'boolean') fail(channel, 'mail.enabled must be boolean')
     if (args[0].mail.pollIntervalMinutes !== undefined) numberValue(channel, args[0].mail.pollIntervalMinutes, 'mail.pollIntervalMinutes')
   }
+  if (args[0].advisorConfig !== undefined) {
+    objectValue(channel, args[0].advisorConfig, 'advisorConfig')
+    allowedFields(channel, args[0].advisorConfig, ['budgetLevel', 'permissionMode', 'reasoningEffort', 'responseStyle', 'responseLength', 'temperature'])
+    if (args[0].advisorConfig.budgetLevel !== undefined
+      && !['high', 'xhigh', 'max', 'ultra'].includes(args[0].advisorConfig.budgetLevel)) fail(channel, 'advisorConfig.budgetLevel is invalid')
+    if (args[0].advisorConfig.permissionMode !== undefined
+      && !['read-only', 'full-access'].includes(args[0].advisorConfig.permissionMode)) fail(channel, 'advisorConfig.permissionMode is invalid')
+    if (args[0].advisorConfig.reasoningEffort !== undefined
+      && !['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(args[0].advisorConfig.reasoningEffort)) fail(channel, 'advisorConfig.reasoningEffort is invalid')
+    if (args[0].advisorConfig.responseStyle !== undefined
+      && !['direct', 'balanced', 'detailed'].includes(args[0].advisorConfig.responseStyle)) fail(channel, 'advisorConfig.responseStyle is invalid')
+    if (args[0].advisorConfig.responseLength !== undefined
+      && !['adaptive', 'short', 'standard', 'detailed'].includes(args[0].advisorConfig.responseLength)) fail(channel, 'advisorConfig.responseLength is invalid')
+    if (args[0].advisorConfig.temperature !== undefined) numberValue(channel, args[0].advisorConfig.temperature, 'advisorConfig.temperature')
+  }
 }
 
 const NO_ARGUMENT_CHANNELS = [
   'theia:get-snapshot', 'theia:get-activity-log', 'theia:get-auth-status',
+  'theia:get-renderer-snapshot',
+  'theia:get-user-data-overview',
   'theia:get-credential-status', 'theia:get-academic-api-credential-status',
   'theia:get-mail-credential-status', 'theia:clear-credentials',
   'theia:clear-academic-api-credentials', 'theia:clear-mail-credentials',
@@ -372,6 +381,7 @@ const NO_ARGUMENT_CHANNELS = [
   'theia:stop-course-selection', 'theia:cancel-model-requests',
   'theia:advisor:get-overview', 'theia:open-data-directory',
   'theia:advisor:list-threads', 'theia:advisor:create-thread',
+  'theia:get-course-work-queue',
 ]
 
 export const THEIA_IPC_SCHEMAS = new Map(NO_ARGUMENT_CHANNELS.map((channel) => [channel, noArgs]))
@@ -383,12 +393,58 @@ THEIA_IPC_SCHEMAS.set('theia:advisor:send', advisorSendRequest)
 THEIA_IPC_SCHEMAS.set('theia:advisor:cancel', advisorCancelRequest)
 THEIA_IPC_SCHEMAS.set('theia:advisor:delete-thread', idArg)
 
+THEIA_IPC_SCHEMAS.set('theia:get-user-data-domain-summary', idArg)
+THEIA_IPC_SCHEMAS.set('theia:get-user-data-records', (channel, args) => {
+  argCount(channel, args, 1, 2)
+  stringValue(channel, args[0], 'data domain', 100)
+  objectValue(channel, args[1], 'data records options', { optional: true })
+  if (!args[1]) return
+  allowedFields(channel, args[1], ['query', 'termId', 'status', 'scope', 'limit', 'cursor', 'recordType'])
+  stringValue(channel, args[1].query, 'data query', 2_000, { optional: true })
+  stringValue(channel, args[1].termId, 'term id', 160, { optional: true })
+  stringValue(channel, args[1].status, 'data status', 80, { optional: true })
+  stringValue(channel, args[1].scope, 'data scope', 16, { optional: true })
+  if (args[1].scope !== undefined && !['current', 'all'].includes(args[1].scope)) fail(channel, 'data scope is invalid')
+  stringValue(channel, args[1].cursor, 'data cursor', 80, { optional: true })
+  stringValue(channel, args[1].recordType, 'record type', 160, { optional: true })
+  if (args[1].limit !== undefined) {
+    numberValue(channel, args[1].limit, 'data limit')
+    if (!Number.isInteger(args[1].limit) || args[1].limit < 1 || args[1].limit > 100) fail(channel, 'data limit is outside the supported range')
+  }
+})
+
 for (const channel of [
   'theia:remove-course-selection-target', 'theia:prepare-course-work',
   'theia:open-course-work', 'theia:open-assignment-source', 'theia:open-submission', 'theia:apply-test-answers',
   'theia:process-course-work-with-model', 'theia:render-answer-pdf',
   'theia:open-answer-pdf',
 ]) THEIA_IPC_SCHEMAS.set(channel, idArg)
+THEIA_IPC_SCHEMAS.set('theia:cancel-course-work-job', idArg)
+THEIA_IPC_SCHEMAS.set('theia:set-course-work-queue-enabled', (channel, args) => {
+  argCount(channel, args, 1)
+  if (typeof args[0] !== 'boolean') fail(channel, 'queue enabled must be a boolean')
+})
+THEIA_IPC_SCHEMAS.set('theia:enqueue-course-work', (channel, args) => {
+  argCount(channel, args, 1)
+  objectValue(channel, args[0], 'course-work queue request')
+  allowedFields(channel, args[0], ['assignmentId', 'operation', 'options', 'dedupeKey', 'maxAttempts'])
+  stringValue(channel, args[0].assignmentId, 'assignment id', 512)
+  if (args[0].operation !== undefined) {
+    stringValue(channel, args[0].operation, 'queue operation', 48)
+    if (!['prepare', 'model', 'notes', 'paper'].includes(args[0].operation)) fail(channel, 'queue operation is invalid')
+  }
+  objectValue(channel, args[0].options, 'queue options', { optional: true })
+  if (args[0].options) {
+    allowedFields(channel, args[0].options, ['title', 'wordCount'])
+    stringValue(channel, args[0].options.title, 'queue title', 160, { optional: true })
+    if (args[0].options.wordCount !== undefined) numberValue(channel, args[0].options.wordCount, 'queue word count')
+  }
+  stringValue(channel, args[0].dedupeKey, 'dedupe key', 220, { optional: true })
+  if (args[0].maxAttempts !== undefined) {
+    numberValue(channel, args[0].maxAttempts, 'max attempts')
+    if (args[0].maxAttempts < 1 || args[0].maxAttempts > 3) fail(channel, 'max attempts is outside the supported range')
+  }
+})
 
 THEIA_IPC_SCHEMAS.set('theia:save-credentials', (channel, args) => credentials(channel, args))
 THEIA_IPC_SCHEMAS.set('theia:save-academic-api-credentials', (channel, args) => credentials(channel, args))
@@ -430,6 +486,13 @@ THEIA_IPC_SCHEMAS.set('theia:open-source', (channel, args) => {
   argCount(channel, args, 1)
   stringValue(channel, args[0], 'URL', 2_048)
 })
+THEIA_IPC_SCHEMAS.set('theia:open-academic-attachment', (channel, args) => {
+  argCount(channel, args, 2)
+  stringValue(channel, args[0], 'academic domain', 80)
+  stringValue(channel, args[1], 'attachment id', 100)
+  if (!JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES.includes(args[0])) fail(channel, 'academic domain is invalid')
+  if (!/^[A-Za-z0-9_-]{1,80}$/u.test(args[1])) fail(channel, 'attachment id is invalid')
+})
 THEIA_IPC_SCHEMAS.set('theia:get-fitness-score', (channel, args) => {
   argCount(channel, args, 0, 2)
   stringValue(channel, args[0], 'year', 100, { optional: true })
@@ -439,6 +502,29 @@ THEIA_IPC_SCHEMAS.set('theia:sync-domain', (channel, args) => {
   argCount(channel, args, 1)
   stringValue(channel, args[0], 'sync domain', 64)
   if (!RETRIABLE_SYNC_DOMAIN_IDS.includes(args[0])) fail(channel, 'sync domain is invalid')
+})
+THEIA_IPC_SCHEMAS.set('theia:query-free-classrooms', (channel, args) => {
+  argCount(channel, args, 1)
+  objectValue(channel, args[0], 'free classroom query')
+  allowedFields(channel, args[0], ['termId', 'date', 'weeks', 'weekdays', 'periods', 'campus', 'building', 'classroomType', 'minSeats', 'maxSeats'])
+  stringValue(channel, args[0].termId, 'termId', 64)
+  stringValue(channel, args[0].date, 'date', 10, { optional: true })
+  if (args[0].date !== undefined && args[0].date !== null && args[0].date !== '' && !/^\d{4}-\d{2}-\d{2}$/u.test(args[0].date)) fail(channel, 'date must use YYYY-MM-DD')
+  for (const [key, maximum] of [['weeks', 64], ['weekdays', 7], ['periods', 32]]) {
+    const values = args[0][key]
+    if (!Array.isArray(values) || !values.length || values.length > maximum) fail(channel, `${key} must be a non-empty array`)
+    for (const value of values) {
+      if (!Number.isInteger(value) || value < 1 || value > maximum) fail(channel, `${key} contains an invalid value`)
+    }
+  }
+  for (const [key, maximum] of [['campus', 80], ['building', 80], ['classroomType', 80]]) stringValue(channel, args[0][key], key, maximum, { optional: true })
+  for (const key of ['minSeats', 'maxSeats']) {
+    if (args[0][key] !== undefined && args[0][key] !== null) {
+      numberValue(channel, args[0][key], key)
+      if (!Number.isInteger(args[0][key]) || args[0][key] < 0 || args[0][key] > 500) fail(channel, `${key} is outside the supported range`)
+    }
+  }
+  if (args[0].minSeats !== undefined && args[0].maxSeats !== undefined && args[0].minSeats > args[0].maxSeats) fail(channel, 'minSeats cannot exceed maxSeats')
 })
 THEIA_IPC_SCHEMAS.set('theia:zoom:set-percent', (channel, args) => {
   argCount(channel, args, 1)

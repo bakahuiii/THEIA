@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
+import { pdfTextLoadOptions } from './pdf-text-loader.mjs'
 
 export const ANALYSIS_SCHEMA = 'theia-academic-calendar-analysis/v1'
 export const PARSER_VERSION = '2026-08-12.3'
@@ -19,7 +20,7 @@ function iso(value) {
 
 export async function extractPdfText(pdfPath) {
   const { PDFParse } = await import('pdf-parse')
-  const parser = new PDFParse({ data: await readFile(pdfPath) })
+  const parser = new PDFParse({ data: await readFile(pdfPath), ...pdfTextLoadOptions() })
   try {
     const result = await parser.getText()
     return String(result?.text || '')

@@ -1,4 +1,5 @@
 const MODEL_ID_PATTERN = /^[^\u0000-\u001f\u007f]{1,300}$/
+const PROMPT_CACHE_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 
 export const ADVISOR_PROVIDER_CAPABILITIES_SCHEMA = 'theia-advisor-provider-capabilities/v1'
 
@@ -6,23 +7,118 @@ function text(value) {
   return String(value ?? '').normalize('NFC').trim()
 }
 
+function finiteTokenCount(value) {
+  const number = Number(value)
+  return Number.isSafeInteger(number) && number >= 0 ? number : null
+}
+
+function firstTokenCount(...values) {
+  for (const value of values) {
+    const count = finiteTokenCount(value)
+    if (count !== null) return count
+  }
+  return null
+}
+
+function booleanValue(value) {
+  return typeof value === 'boolean' ? value : null
+}
+
+/**
+ * Normalize usage from Responses, Chat Completions, Anthropic-compatible
+ * relays, and common relay aliases without retaining the raw provider body.
+ */
+export function normalizeProviderUsage(value) {
+  const usage = value?.usage && typeof value.usage === 'object'
+    ? value.usage
+    : value?.response?.usage && typeof value.response.usage === 'object'
+      ? value.response.usage
+      : value && typeof value === 'object' ? value : {}
+  const inputDetails = usage.input_tokens_details && typeof usage.input_tokens_details === 'object'
+    ? usage.input_tokens_details
+    : {}
+  const promptDetails = usage.prompt_tokens_details && typeof usage.prompt_tokens_details === 'object'
+    ? usage.prompt_tokens_details
+    : {}
+  const cachedInputTokens = firstTokenCount(
+    inputDetails.cached_tokens,
+    promptDetails.cached_tokens,
+    usage.cached_tokens,
+    usage.cachedTokens,
+    usage.cached_input_tokens,
+    usage.cachedInputTokens,
+    usage.cache_read_input_tokens,
+    usage.cacheReadInputTokens,
+    usage.prompt_cache_hit_tokens,
+    usage.promptCacheHitTokens,
+  )
+  const cacheWriteInputTokens = firstTokenCount(
+    inputDetails.cache_write_tokens,
+    inputDetails.cacheWriteTokens,
+    inputDetails.cache_creation_input_tokens,
+    usage.cache_creation_input_tokens,
+    usage.cacheCreationInputTokens,
+    usage.cache_write_input_tokens,
+    usage.cacheWriteInputTokens,
+    usage.cache_write_tokens,
+    usage.cacheWriteTokens,
+    usage.prompt_cache_write_tokens,
+    usage.promptCacheWriteTokens,
+  )
+  const explicitHit = booleanValue(usage.cache_hit)
+    ?? booleanValue(usage.cacheHit)
+    ?? booleanValue(usage.prompt_cache_hit)
+    ?? booleanValue(usage.promptCacheHit)
+  const explicitStatus = text(
+    usage.cache_status
+      ?? usage.cacheStatus
+      ?? usage.prompt_cache_status
+      ?? usage.promptCacheStatus,
+  ).toLowerCase()
+  const cacheStatus = explicitHit !== null
+    ? (explicitHit ? 'hit' : 'miss')
+    : ['hit', 'miss', 'write', 'written'].includes(explicitStatus)
+      ? explicitStatus === 'written' ? 'write' : explicitStatus
+      : cachedInputTokens !== null
+        ? cachedInputTokens > 0 ? 'hit' : 'miss'
+        : cacheWriteInputTokens !== null
+          ? 'write'
+          : null
+  const normalized = {
+    inputTokens: firstTokenCount(usage.input_tokens, usage.inputTokens, usage.prompt_tokens, usage.promptTokenCount),
+    outputTokens: firstTokenCount(usage.output_tokens, usage.outputTokens, usage.completion_tokens, usage.completionTokens, usage.candidatesTokenCount),
+    cachedInputTokens,
+    cacheWriteInputTokens,
+    cacheStatus,
+  }
+  return Object.values(normalized).some((entry) => entry !== null && entry !== undefined)
+    ? normalized
+    : null
+}
+
 export function normalizeProviderModelId(value) {
   const normalized = text(value)
   return MODEL_ID_PATTERN.test(normalized) ? normalized : null
 }
 
-export function modelForAdvisorIntent(settings, intent) {
+export function modelForAdvisorIntent(settings) {
+  const routing = settings?.modelRouting && typeof settings.modelRouting === 'object'
+    ? settings.modelRouting
+    : {}
+  return normalizeProviderModelId(settings?.modelName)
+    || normalizeProviderModelId(routing.advisorDeepModel)
+    || normalizeProviderModelId(routing.advisorFastModel)
+    || normalizeProviderModelId(routing.courseworkModel)
+    || normalizeProviderModelId(routing.fallbackModel)
+    || null
+}
+
+export function fallbackModelForAdvisor(settings, primaryModel) {
   const routing = settings?.modelRouting && typeof settings.modelRouting === 'object'
     ? settings.modelRouting
     : {}
   const fallback = normalizeProviderModelId(routing.fallbackModel)
-    || normalizeProviderModelId(settings?.modelName)
-  const fast = normalizeProviderModelId(routing.advisorFastModel) || fallback
-  const deep = normalizeProviderModelId(routing.advisorDeepModel) || fast || fallback
-  const coursework = normalizeProviderModelId(routing.courseworkModel) || fallback
-  if (intent === 'assignment') return coursework
-  if (['risk', 'mail', 'general'].includes(intent)) return deep
-  return fast
+  return fallback && fallback !== normalizeProviderModelId(primaryModel) ? fallback : null
 }
 
 export function providerCapabilities(settings) {
@@ -31,9 +127,9 @@ export function providerCapabilities(settings) {
     .filter(Boolean))].sort()
   return Object.freeze({
     schema: ADVISOR_PROVIDER_CAPABILITIES_SCHEMA,
-    streaming: false,
+    streaming: true,
     jsonSchema: false,
-    usage: false,
+    usage: settings?.modelProvider === 'openai-compatible',
     tools: false,
     models,
   })
@@ -43,7 +139,7 @@ export function assertProviderGenerateRequest(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new TypeError('Provider request must be an object')
   }
-  const allowed = new Set(['model', 'messages', 'responseSchema', 'temperature', 'maxTokens'])
+  const allowed = new Set(['model', 'messages', 'responseSchema', 'temperature', 'maxTokens', 'reasoningEffort', 'promptCacheKey', 'timeoutMs'])
   for (const key of Object.keys(value)) {
     if (!allowed.has(key)) throw new TypeError(`Provider request contains unknown field ${key}`)
   }
@@ -64,6 +160,15 @@ export function assertProviderGenerateRequest(value) {
   }
   if (value.temperature !== undefined && (!Number.isFinite(value.temperature) || value.temperature < 0 || value.temperature > 2)) {
     throw new TypeError('Provider temperature is outside the supported range')
+  }
+  if (value.reasoningEffort !== undefined && !['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(value.reasoningEffort)) {
+    throw new TypeError('Provider reasoning effort is invalid')
+  }
+  if (value.timeoutMs !== undefined && (!Number.isSafeInteger(value.timeoutMs) || value.timeoutMs < 1 || value.timeoutMs > 60 * 60 * 1000)) {
+    throw new TypeError('Provider timeoutMs is invalid')
+  }
+  if (value.promptCacheKey !== undefined && (typeof value.promptCacheKey !== 'string' || !PROMPT_CACHE_KEY_PATTERN.test(value.promptCacheKey))) {
+    throw new TypeError('Provider promptCacheKey is invalid')
   }
   return value
 }

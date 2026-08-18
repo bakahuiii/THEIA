@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Menu, dialog, ipcMain as electronIpcMain, Notification, protocol, safeStorage, session, shell } from 'electron'
-import { appendFile, copyFile, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { randomUUID } from 'node:crypto'
+import { appendFile, copyFile, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { spawn } from 'node:child_process'
+import { createHash, randomUUID } from 'node:crypto'
 import { basename, dirname, extname, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { writeAiExport } from '../core/ai-export.mjs'
@@ -28,7 +29,7 @@ import {
 } from '../core/catalog-provenance.mjs'
 import { defaultDataRoot, legacyDataRoot, migrateLegacyDataFiles, rebaseLegacyWorkspacePaths } from '../core/runtime-paths.mjs'
 import { parseJwHomepage } from '../core/parsers/jwglxt.mjs'
-import { JWGLXT_EXTRA_DOMAIN_NAMES } from '../core/jwglxt-extra.mjs'
+import { JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES } from '../core/jwglxt-extra.mjs'
 import { parseTheolHome } from '../core/parsers/theol.mjs'
 import { CredentialVault } from './credential-vault.mjs'
 import { AcademicApiVault } from './academic-api-vault.mjs'
@@ -55,11 +56,12 @@ import { normalizeModelProvider } from '../core/model-provider-policy.mjs'
 import { compactError, htmlLooksLikeLogin, sanitizeDiagnosticValue } from '../core/util.mjs'
 import { createTrustedIpc } from './ipc-security.mjs'
 import { mainRendererCsp } from './renderer-security.mjs'
-import { CALENDAR_ASSET_PROTOCOL, calendarAssetUrl, parseCalendarAssetUrl } from './calendar-asset-protocol.mjs'
+import { CALENDAR_ASSET_PROTOCOL, academicPlanAssetBaseUrl, calendarAssetUrl, parseCalendarAssetUrl } from './calendar-asset-protocol.mjs'
 import { advisorAcademicWhatIfFromStore, advisorCourseDecisionsFromStore, advisorOverviewFromStore } from './advisor-overview-service.mjs'
 import { ADVISOR_ACTION_ERROR, advisorActionFailure, assertAdvisorSnapshotRevision, resolveAdvisorActionFromStore } from './advisor-action-service.mjs'
 import { AdvisorRuntime } from './advisor-runtime.mjs'
 import { AdvisorStore } from './advisor-store.mjs'
+import { executeAdvisorNetworkRequest } from './advisor-network.mjs'
 import { loadTrustedUpgradeRule } from './advisor-upgrade-rule.mjs'
 import {
   registerAdvisorReadIpc,
@@ -69,11 +71,14 @@ import {
   registerMailboxIpc,
   registerModelRuntimeIpc,
   registerWindowIpc,
+  registerUserDataIpc,
 } from './ipc-registration.mjs'
 import { createPriorityJobQueue } from './priority-job-queue.mjs'
 import { BACKGROUND_PROTOCOL, createAppearanceService } from './appearance-service.mjs'
 import { createAuthActorManager } from './auth-actor-manager.mjs'
 import { CourseWorkQueue } from '../core/course-work-queue.mjs'
+import { JwglxtAttachmentStore } from '../core/jwglxt-attachment-store.mjs'
+import { academicPlanDocumentMatches, buildAcademicPlanDocument } from '../core/academic-plan-document.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const PARTITION = 'persist:theia'
@@ -81,7 +86,12 @@ const MAIL_PARTITION = 'persist:theia-mail'
 const APP_ICON = resolve(import.meta.dirname, 'theia-icon.ico')
 const smokeFile = process.env.THEIA_SMOKE_FILE ? resolve(process.env.THEIA_SMOKE_FILE) : null
 const inspectionOutput = process.env.THEIA_INSPECT_OUTPUT ? resolve(process.env.THEIA_INSPECT_OUTPUT) : null
-const pageCaptureOutput = process.env.THEIA_CAPTURE_OUTPUT ? resolve(process.env.THEIA_CAPTURE_OUTPUT) : null
+const liveCaptureOutput = process.env.THEIA_LIVE_CAPTURE_OUTPUT ? resolve(process.env.THEIA_LIVE_CAPTURE_OUTPUT) : null
+const pageCaptureOutput = process.env.THEIA_CAPTURE_OUTPUT
+  ? resolve(process.env.THEIA_CAPTURE_OUTPUT)
+  : liveCaptureOutput
+    ? resolve(liveCaptureOutput, 'browser-responses')
+    : null
 const theolMobileDiagnosticOutput = process.env.THEIA_EXPORT_THEOL_MOBILE_OUTPUT
   ? resolve(process.env.THEIA_EXPORT_THEOL_MOBILE_OUTPUT)
   : null
@@ -126,9 +136,17 @@ app.on('browser-window-created', (_event, window) => suppressNativeMenu(window))
 
 async function handleCalendarAsset(request) {
   const asset = parseCalendarAssetUrl(request.url)
-  if (!asset || !academicCalendarAssetsService) return new Response('Not found', { status: 404 })
+  if (!asset) return new Response('Not found', { status: 404 })
   try {
-    const path = academicCalendarAssetsService.pathFor(asset.key)
+    let path = null
+    if (asset.key === 'academicPlan') {
+      const attachment = store?.snapshot()?.academicExtras?.domains?.['academic-plan']?.attachments
+        ?.find((item) => item?.id === asset.attachmentId && String(item?.type || '').toLowerCase() === 'pdf')
+      const cached = attachment ? await academicAttachmentStore?.find(attachment.id, 'pdf') : null
+      path = cached?.path || null
+    } else if (academicCalendarAssetsService) {
+      path = academicCalendarAssetsService.pathFor(asset.key)
+    }
     const contents = path ? await readFile(path) : null
     if (!contents) return new Response('Not found', { status: 404 })
     return new Response(contents, {
@@ -174,6 +192,7 @@ let courseSelectionService
 let courseSelectionJournal
 let courseSelectionApiClient
 let academicCalendarAssetsService
+let academicAttachmentStore
 let academicCalendarProbeTimer
 // A calendar refresh may run while the renderer is starting. Keep the
 // in-flight promise visible so consumers can wait for the first authoritative
@@ -182,6 +201,245 @@ let academicCalendarRefreshInFlight = null
 let smokeCompleted = false
 let requestedExitCode = 0
 const modelProbeTickets = new ModelProbeTickets()
+
+const AGENT_FILE_READ_LIMIT = 192 * 1024
+const AGENT_FILE_WRITE_LIMIT = 16 * 1024 * 1024
+const AGENT_DIRECTORY_ENTRY_LIMIT = 4_000
+const AGENT_COMMAND_OUTPUT_LIMIT = 128 * 1024
+const AGENT_WEB_RESPONSE_LIMIT = 192 * 1024
+
+function agentPath(value) {
+  const raw = String(value ?? '').trim()
+  if (!raw || raw.length > 8_192) throw new TypeError('Agent path is invalid')
+  return resolve(raw)
+}
+
+function agentEncoding(value) {
+  if (value === undefined || value === 'utf8' || value === 'utf-8') return 'utf8'
+  if (value === 'base64') return 'base64'
+  throw new TypeError('Agent file encoding must be utf8 or base64')
+}
+
+function agentInteger(value, fallback, minimum, maximum) {
+  if (value === undefined) return fallback
+  const number = Math.trunc(Number(value))
+  if (!Number.isFinite(number)) throw new TypeError('Agent numeric option is invalid')
+  return Math.max(minimum, Math.min(maximum, number))
+}
+
+function agentWebUrl(value) {
+  const raw = String(value ?? '').trim()
+  if (!raw || raw.length > 8_192) throw new TypeError('Agent web URL is invalid')
+  const url = new URL(raw)
+  if (!['http:', 'https:'].includes(url.protocol)) throw new TypeError('Agent web tools require an HTTP(S) URL')
+  return url
+}
+
+function appendAgentOutput(chunks, value, state) {
+  if (!value || state.truncated) return
+  const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value)
+  const remaining = AGENT_COMMAND_OUTPUT_LIMIT - state.bytes
+  if (remaining <= 0) {
+    state.truncated = true
+    return
+  }
+  if (chunk.length > remaining) {
+    chunks.push(chunk.subarray(0, remaining))
+    state.bytes += remaining
+    state.truncated = true
+    return
+  }
+  chunks.push(chunk)
+  state.bytes += chunk.length
+}
+
+async function readAgentWebBody(response, responseType) {
+  const chunks = []
+  let size = 0
+  let truncated = false
+  const reader = response.body?.getReader?.()
+  if (reader) {
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        const chunk = Buffer.from(value)
+        const remaining = AGENT_WEB_RESPONSE_LIMIT - size
+        if (remaining <= 0) {
+          truncated = true
+          await reader.cancel()
+          break
+        }
+        if (chunk.length > remaining) {
+          chunks.push(chunk.subarray(0, remaining))
+          size += remaining
+          truncated = true
+          await reader.cancel()
+          break
+        }
+        chunks.push(chunk)
+        size += chunk.length
+      }
+    } finally {
+      reader.releaseLock()
+    }
+  }
+  const body = Buffer.concat(chunks)
+  return {
+    body: responseType === 'base64' ? body.toString('base64') : body.toString('utf8'),
+    encoding: responseType === 'base64' ? 'base64' : 'utf8',
+    bytes: size,
+    truncated,
+  }
+}
+
+async function readAgentFile({ path, encoding, offset, length } = {}) {
+  const target = agentPath(path)
+  const selectedEncoding = agentEncoding(encoding)
+  const details = await stat(target)
+  if (!details.isFile()) throw new TypeError('Agent read_file target is not a file')
+  const start = agentInteger(offset, 0, 0, Math.max(0, details.size))
+  const requested = agentInteger(length, AGENT_FILE_READ_LIMIT, 1, AGENT_FILE_READ_LIMIT)
+  const bytes = Math.max(0, Math.min(requested, details.size - start))
+  const handle = await open(target, 'r')
+  try {
+    const buffer = Buffer.alloc(bytes)
+    const { bytesRead } = await handle.read(buffer, 0, bytes, start)
+    const content = buffer.subarray(0, bytesRead).toString(selectedEncoding)
+    return {
+      path: target,
+      encoding: selectedEncoding,
+      content,
+      bytesRead,
+      size: details.size,
+      truncated: start + bytesRead < details.size,
+    }
+  } finally {
+    await handle.close()
+  }
+}
+
+async function writeAgentFile({ path, content, encoding, createDirectories } = {}) {
+  const target = agentPath(path)
+  const selectedEncoding = agentEncoding(encoding)
+  if (typeof content !== 'string') throw new TypeError('Agent write_file content must be text')
+  const data = Buffer.from(content, selectedEncoding)
+  if (data.length > AGENT_FILE_WRITE_LIMIT) throw new TypeError('Agent write_file content is too large')
+  if (createDirectories === true) await mkdir(dirname(target), { recursive: true })
+  await writeFile(target, data)
+  return { path: target, bytesWritten: data.length, encoding: selectedEncoding }
+}
+
+async function listAgentDirectory({ path, recursive, maxEntries } = {}) {
+  const target = agentPath(path)
+  const limit = agentInteger(maxEntries, 500, 1, AGENT_DIRECTORY_ENTRY_LIMIT)
+  const entries = []
+  const pending = [{ path: target, relative: '' }]
+  while (pending.length && entries.length < limit) {
+    const current = pending.shift()
+    const children = await readdir(current.path, { withFileTypes: true })
+    for (const child of children) {
+      if (entries.length >= limit) break
+      const relative = current.relative ? `${current.relative}\\${child.name}` : child.name
+      const fullPath = resolve(current.path, child.name)
+      const type = child.isDirectory() ? 'directory' : child.isFile() ? 'file' : child.isSymbolicLink() ? 'symlink' : 'other'
+      entries.push({ path: fullPath, relativePath: relative, type })
+      if (recursive === true && child.isDirectory()) pending.push({ path: fullPath, relative })
+    }
+  }
+  return { path: target, entries, truncated: pending.length > 0 || entries.length >= limit }
+}
+
+async function createAgentDirectory({ path, recursive } = {}) {
+  const target = agentPath(path)
+  await mkdir(target, { recursive: recursive !== false })
+  return { path: target, created: true }
+}
+
+async function deleteAgentPath({ path, recursive } = {}) {
+  const target = agentPath(path)
+  await rm(target, { recursive: recursive === true, force: true })
+  return { path: target, deleted: true, recursive: recursive === true }
+}
+
+function runAgentCommand({ command, cwd, timeoutMs, signal } = {}) {
+  const script = String(command ?? '').trim()
+  if (!script || script.length > 32_000) return Promise.reject(new TypeError('Agent command is invalid'))
+  const workdir = cwd === undefined ? process.cwd() : agentPath(cwd)
+  const timeout = agentInteger(timeoutMs, 300_000, 1_000, 3_600_000)
+  const executable = process.platform === 'win32' ? 'powershell.exe' : '/bin/sh'
+  const args = process.platform === 'win32'
+    ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script]
+    : ['-lc', script]
+  return new Promise((resolveCommand, rejectCommand) => {
+    let completed = false
+    let timedOut = false
+    const stdout = []
+    const stderr = []
+    const stdoutState = { bytes: 0, truncated: false }
+    const stderrState = { bytes: 0, truncated: false }
+    const child = spawn(executable, args, { cwd: workdir, windowsHide: true })
+    const finish = (callback) => {
+      if (completed) return
+      completed = true
+      clearTimeout(timer)
+      signal?.removeEventListener?.('abort', onAbort)
+      callback()
+    }
+    const onAbort = () => {
+      try { child.kill() } catch { /* The child may already be gone. */ }
+      finish(() => rejectCommand(signal?.reason || new Error('Agent command was cancelled')))
+    }
+    const timer = setTimeout(() => {
+      timedOut = true
+      try { child.kill() } catch { /* The child may already be gone. */ }
+    }, timeout)
+    child.stdout?.on('data', (value) => appendAgentOutput(stdout, value, stdoutState))
+    child.stderr?.on('data', (value) => appendAgentOutput(stderr, value, stderrState))
+    child.once('error', (error) => finish(() => rejectCommand(error)))
+    child.once('close', (exitCode, closeSignal) => finish(() => resolveCommand({
+      command: script,
+      cwd: workdir,
+      exitCode,
+      signal: closeSignal || null,
+      timedOut,
+      stdout: Buffer.concat(stdout).toString('utf8'),
+      stderr: Buffer.concat(stderr).toString('utf8'),
+      outputTruncated: stdoutState.truncated || stderrState.truncated,
+    })))
+    if (signal?.aborted) onAbort()
+    else signal?.addEventListener?.('abort', onAbort, { once: true })
+  })
+}
+
+async function executeAgentWebRequest({ url, method, headers, body, responseType, signal } = {}) {
+  const target = agentWebUrl(url)
+  const normalizedMethod = String(method || 'GET').trim().toUpperCase()
+  const requestHeaders = headers && typeof headers === 'object' && !Array.isArray(headers) ? headers : undefined
+  const requestBody = body === undefined || body === null ? undefined : String(body)
+  const response = await fetch(target, {
+    method: normalizedMethod,
+    headers: requestHeaders,
+    ...(requestBody === undefined ? {} : { body: requestBody }),
+    redirect: 'follow',
+    signal,
+  })
+  const payload = await readAgentWebBody(response, responseType === 'base64' ? 'base64' : 'utf8')
+  return {
+    url: response.url || target.toString(),
+    status: response.status,
+    statusText: response.statusText,
+    ok: response.ok,
+    headers: Object.fromEntries(response.headers.entries()),
+    ...payload,
+  }
+}
+
+async function openAgentWebpage({ url } = {}) {
+  const target = agentWebUrl(url)
+  await shell.openExternal(target.toString())
+  return { opened: true, url: target.toString() }
+}
 
 const SYNC_DOMAIN_TARGETS = Object.freeze({
   profile: { source: 'jwglxt', domain: 'profile' },
@@ -196,8 +454,166 @@ const SYNC_DOMAIN_TARGETS = Object.freeze({
   'theol-courses': { source: 'theol', domain: 'courses' },
   'theol-notices': { source: 'theol', domain: 'notices' },
   'academic-extras': { source: 'jwglxt', domain: 'academic-extras' },
-  ...Object.fromEntries(JWGLXT_EXTRA_DOMAIN_NAMES.map((domain) => [domain, { source: 'jwglxt', domain }])),
+  ...Object.fromEntries(JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES.map((domain) => [domain, { source: 'jwglxt', domain }])),
 })
+
+const SILENT_AUTH_SYNC_DOMAINS = Object.freeze({
+  // A saved browser session is still a valid data source. Reusing its cookie
+  // must not turn startup into a no-op: refresh the same primary domains as a
+  // foreground run so existing local records are revalidated and replaced.
+  jwglxt: Object.freeze([
+    'profile', 'terms', 'courses', 'schedule', 'grades', 'exams',
+    'selected-courses', 'academic-progress', 'notices',
+  ]),
+  theol: Object.freeze(['courses', 'notices']),
+})
+
+// A foreground refresh owns the data users use immediately. Slow, low-change
+// pages are hydrated separately after the window is usable and never block
+// this request.
+const FOREGROUND_JWGLXT_SYNC_DOMAINS = Object.freeze([
+  'profile', 'terms', 'courses', 'schedule', 'grades', 'exams',
+  'selected-courses', 'academic-progress', 'notices',
+])
+// The plan preview is one bounded, nearly immutable artifact. Grade details
+// expand into many year/term requests and remain an explicit user action; once
+// read, they are retained in CampusStore just like every other domain.
+const STATIC_ACADEMIC_PREFETCH_DOMAINS = Object.freeze(['academic-plan'])
+const ACADEMIC_STATIC_PREFETCH_DELAY_MS = 3_000
+let academicStaticPrefetchTimer = null
+let academicStaticPrefetchInFlight = null
+
+function syncForegroundCampusData() {
+  const startedAt = Date.now()
+  const run = (async () => {
+    await writeDiagnostic('sync.foreground_started', {
+      domains: FOREGROUND_JWGLXT_SYNC_DOMAINS,
+      sources: ['jwglxt', 'theol'],
+    })
+    await Promise.all([
+      syncService.syncNow({ sources: ['jwglxt'], domains: FOREGROUND_JWGLXT_SYNC_DOMAINS, foreground: true }),
+      syncService.syncNow({ sources: ['theol'], domains: ['courses', 'notices'], foreground: true }),
+    ])
+    const snapshot = store.snapshot()
+    // onChange normally sends the terminal snapshot. Sending once more here
+    // makes the IPC request itself authoritative even if a renderer missed the
+    // final progress notification during startup.
+    sendSnapshot()
+    await writeDiagnostic('sync.foreground_finished', {
+      elapsedMs: Date.now() - startedAt,
+      runId: snapshot.sync?.runId || null,
+      lastCompletedAt: snapshot.sync?.lastCompletedAt || null,
+      lastError: snapshot.sync?.lastError || null,
+    })
+    return snapshot
+  })()
+  return run.catch(async (error) => {
+    await writeDiagnostic('sync.foreground_failed', {
+      elapsedMs: Date.now() - startedAt,
+      error: diagnosticError(error),
+    })
+    throw error
+  })
+}
+
+async function syncAdvisorCampusData({ domains } = {}) {
+  const requested = Array.isArray(domains) && domains.length ? [...new Set(domains)] : null
+  if (!requested) {
+    const snapshot = await syncForegroundCampusData()
+    return {
+      scope: 'foreground',
+      refreshedDomains: [...FOREGROUND_JWGLXT_SYNC_DOMAINS, 'theol-courses', 'theol-notices'],
+      updatedAt: snapshot.updatedAt || null,
+      revision: store.snapshotWithRevision({ clone: false }).revision,
+    }
+  }
+  const grouped = new Map()
+  for (const domain of requested) {
+    const target = SYNC_DOMAIN_TARGETS[domain]
+    if (!target) throw new Error(`Agent cannot synchronize unsupported domain: ${domain}`)
+    const entry = grouped.get(target.source) || []
+    entry.push(target.domain)
+    grouped.set(target.source, entry)
+  }
+  await Promise.all([...grouped.entries()].map(([source, sourceDomains]) => (
+    syncService.syncNow({ sources: [source], domains: [...new Set(sourceDomains)], foreground: true })
+  )))
+  const snapshot = store.snapshot()
+  sendSnapshot()
+  return {
+    scope: 'selected',
+    refreshedDomains: requested,
+    updatedAt: snapshot.updatedAt || null,
+    revision: store.snapshotWithRevision({ clone: false }).revision,
+  }
+}
+
+async function waitForSyncIdle(timeoutMs = 60_000) {
+  const deadline = Date.now() + timeoutMs
+  while (syncService?.hasActiveSync?.() && Date.now() < deadline) {
+    const active = syncService.active
+    if (active) {
+      await Promise.race([
+        Promise.resolve(active).catch(() => undefined),
+        new Promise((resolveWait) => setTimeout(resolveWait, 500)),
+      ])
+    } else {
+      await new Promise((resolveWait) => setTimeout(resolveWait, 250))
+    }
+  }
+  return !syncService?.hasActiveSync?.()
+}
+
+async function prefetchAcademicStaticData({ reason = 'authenticated' } = {}) {
+  if (!syncService || !academicAttachmentStore || explicitlyLoggedOut) return
+  let apiReady = false
+  if (store.snapshot().settings.academicApiEnabled && academicApiVault?.status) {
+    apiReady = Boolean((await academicApiVault.status().catch(() => ({ saved: false }))).saved)
+  }
+  if (!verifiedSessions.jwglxt && !apiReady) return
+  const initial = store.snapshot()
+  const domains = initial.academicExtras?.domains || {}
+  const plan = domains['academic-plan']
+  // A captured plan without a verified local PDF is still incomplete. This
+  // covers old snapshots that stored only the rendered page metadata and
+  // prevents the UI from claiming the plan is locally available when the
+  // attachment was never written or was later removed.
+  const planAttachmentMissing = !Array.isArray(plan?.attachments)
+    || !plan.attachments.some((attachment) => attachment?.id && attachment?.cached === true)
+  const missing = []
+  if (!plan?.capturedAt || planAttachmentMissing) missing.push('academic-plan')
+  if (!missing.length) {
+    void writeDiagnostic('sync.static_prefetch_skipped', { reason, cause: 'cache_healthy' })
+    return
+  }
+  for (const domain of STATIC_ACADEMIC_PREFETCH_DOMAINS) {
+    if (!missing.includes(domain) || explicitlyLoggedOut || (!verifiedSessions.jwglxt && !apiReady)) continue
+    // Do not compete with an active foreground run. Wait for its commit so a
+    // concurrent THEOL login does not permanently prevent static hydration.
+    if (!(await waitForSyncIdle())) {
+      void writeDiagnostic('sync.static_prefetch_deferred', { domain, reason: 'foreground_sync_active' })
+      return
+    }
+    try {
+      void writeDiagnostic('sync.static_prefetch_started', { domain, reason })
+      await syncService.syncNow({ sources: ['jwglxt'], domains: [domain] })
+      void writeDiagnostic('sync.static_prefetch_finished', { domain, reason })
+    } catch (error) {
+      void writeDiagnostic('sync.static_prefetch_failed', { domain, reason, error: diagnosticError(error) })
+      return
+    }
+  }
+}
+
+function scheduleAcademicStaticPrefetch({ reason = 'authenticated' } = {}) {
+  if (academicStaticPrefetchTimer || academicStaticPrefetchInFlight || explicitlyLoggedOut) return
+  academicStaticPrefetchTimer = setTimeout(() => {
+    academicStaticPrefetchTimer = null
+    academicStaticPrefetchInFlight = prefetchAcademicStaticData({ reason })
+      .catch((error) => writeDiagnostic('sync.static_prefetch_failed', { reason, error: diagnosticError(error) }))
+      .finally(() => { academicStaticPrefetchInFlight = null })
+  }, ACADEMIC_STATIC_PREFETCH_DELAY_MS)
+}
 
 const ipcMain = createTrustedIpc({
   ipcMain: electronIpcMain,
@@ -214,8 +630,239 @@ const syncPageQueue = createPriorityJobQueue()
 let fitnessPageWindow
 const fitnessPageQueue = createPriorityJobQueue()
 let pageCaptureIndex = 0
+const pageCaptureLog = []
 const preloadErrors = []
 const verifiedSessions = { jwglxt: null, theol: null, tygl: null }
+const academicAttachmentRepairs = new Map()
+
+async function repairAcademicAttachment(attachment, { domain, expectedEpoch }) {
+  if (!academicSessionClient || !academicAttachmentStore) throw new Error('教务附件服务尚未就绪')
+  assertAuthEpoch(expectedEpoch)
+  const sourceUrl = String(attachment?.sourceUrl || '').trim()
+  if (!sourceUrl) throw new Error('官方培养计划缺少来源地址')
+  const browserVerified = Boolean(await verifiedStatus('jwglxt'))
+  let result = null
+  let lastError = null
+  const tryClient = async (client) => {
+    if (!client || result) return
+    try {
+      result = await client.binary(sourceUrl, {
+        source: '教务系统官方培养计划 PDF',
+        maxBytes: MAX_ATTACHMENT_RESPONSE_BYTES,
+      })
+    } catch (error) {
+      lastError = error
+    }
+    assertAuthEpoch(expectedEpoch)
+  }
+  // A verified browser session is the fastest path and avoids waiting for an
+  // unrelated API login before showing an already-local user's document.
+  if (browserVerified) await tryClient(academicSessionClient)
+  if (!result && store.snapshot().settings.academicApiEnabled) {
+    const credentials = academicApiVault?.readCredentials
+      ? await academicApiVault.readCredentials().catch(() => null)
+      : null
+    if (credentials) {
+      try {
+        const apiClient = new AcademicApiClient(credentials)
+        await apiClient.login()
+        await tryClient(apiClient)
+      } catch (error) {
+        lastError = error
+        void writeDiagnostic('jwglxt.attachment_api_login_failed', { error: diagnosticError(error) })
+      }
+    }
+  }
+  if (!result && !browserVerified) await tryClient(academicSessionClient)
+  // A missing/expired browser session is the only case where authentication
+  // is a useful retry. Keep it on the same foreground action: saved
+  // credentials remain hidden, while a missing credential deliberately opens
+  // the manual fallback window instead of sending the user to a login URL.
+  if (!result && (lastError instanceof AuthRequiredError || Number(lastError?.code) === 1006)) {
+    const browserAdapter = syncService?.jwglxt
+    let browserStatus = { connected: false }
+    try {
+      if (typeof browserAdapter?.browserStatus === 'function') browserStatus = await browserAdapter.browserStatus()
+      else if (typeof browserAdapter?.browserAdapter?.status === 'function') browserStatus = await browserAdapter.browserAdapter.status()
+      else if (typeof browserAdapter?.status === 'function') browserStatus = await browserAdapter.status()
+    } catch {
+      browserStatus = { connected: false }
+    }
+    if (browserStatus?.connected) {
+      await rememberVerifiedSession('jwglxt', browserStatus.url || sourceUrl, expectedEpoch)
+    } else {
+      const credentials = await credentialVault.status().catch(() => ({ saved: false }))
+      const actors = await openLoginWindow({
+        background: Boolean(credentials?.saved),
+        sources: ['jwglxt'],
+        expectedEpoch,
+        requireBrowser: true,
+        skipSync: true,
+      })
+      const actor = actors?.find?.((candidate) => candidate?.source === 'jwglxt')
+      if (actor?.lifecycle) await actor.lifecycle
+      assertAuthEpoch(expectedEpoch)
+      if (!actor?.authenticated) throw lastError
+    }
+    try {
+      result = await academicSessionClient.binary(sourceUrl, {
+        source: '教务系统官方培养计划 PDF',
+        maxBytes: MAX_ATTACHMENT_RESPONSE_BYTES,
+      })
+    } catch (error) {
+      lastError = error
+    }
+  }
+  if (!result) throw lastError || new Error('教务附件下载失败')
+  assertAuthEpoch(expectedEpoch)
+  const buffer = Buffer.isBuffer(result?.buffer) ? result.buffer : Buffer.from(result?.buffer || '')
+  if (buffer.subarray(0, 5).toString('ascii') !== '%PDF-') {
+    throw new Error('教务系统返回的不是有效 PDF，未写入本地')
+  }
+  const saved = await academicAttachmentStore.save({ id: attachment.id, extension: 'pdf', buffer, exclusive: true })
+  assertAuthEpoch(expectedEpoch)
+  await store.update((state) => {
+    const currentDomain = state.academicExtras?.domains?.[domain]
+    if (!currentDomain) return state
+    const attachments = (currentDomain.attachments || []).map((item) => item?.id === attachment.id
+      ? {
+        ...item,
+        sourceUrl: result?.url || item.sourceUrl,
+        type: 'pdf',
+        cached: true,
+        bytes: saved.bytes,
+        sha256: saved.sha256 || null,
+        filename: saved.filename || null,
+      }
+      : item)
+    return {
+      ...state,
+      academicExtras: {
+        ...state.academicExtras,
+        domains: {
+          ...state.academicExtras.domains,
+          [domain]: { ...currentDomain, attachments },
+        },
+      },
+    }
+  })
+  if (domain === 'academic-plan') await refreshAcademicPlanDocument()
+  sendSnapshot()
+  void writeDiagnostic('jwglxt.attachment_repaired', {
+    domain,
+    attachmentId: attachment.id,
+    bytes: saved.bytes,
+  })
+  return saved
+}
+
+async function refreshAcademicPlanDocument() {
+  if (!store || !academicAttachmentStore) return null
+  const state = store.snapshot()
+  const attachment = state.academicExtras?.domains?.['academic-plan']?.attachments
+    ?.find((item) => item?.id && String(item?.type || '').toLowerCase() === 'pdf')
+  const clear = async () => {
+    if (!store.snapshot().academicPlanDocument) return null
+    await store.update((current) => ({ ...current, academicPlanDocument: null }))
+    return null
+  }
+  if (!attachment) return clear()
+  const cached = await academicAttachmentStore.find(attachment.id, 'pdf')
+  if (!cached) return clear()
+  try {
+    const document = await buildAcademicPlanDocument({ attachment, path: cached.path })
+    if (academicPlanDocumentMatches(state.academicPlanDocument, {
+      attachmentId: document.sourceAttachmentId,
+      sha256: document.sourceSha256,
+      bytes: document.sourceBytes,
+    })) return state.academicPlanDocument
+    await store.update((current) => {
+      const currentAttachment = current.academicExtras?.domains?.['academic-plan']?.attachments
+        ?.find((item) => item?.id === attachment.id && String(item?.type || '').toLowerCase() === 'pdf')
+      if (!currentAttachment) return current
+      return { ...current, academicPlanDocument: document }
+    })
+    void writeDiagnostic('jwglxt.academic_plan_document_refreshed', {
+      attachmentId: document.sourceAttachmentId,
+      bytes: document.sourceBytes,
+      pages: document.pageCount,
+      sha256: document.sourceSha256,
+    })
+    return document
+  } catch (error) {
+    await clear()
+    void writeDiagnostic('jwglxt.academic_plan_document_failed', { error: diagnosticError(error) })
+    return null
+  }
+}
+
+async function normalizeAcademicPlanAttachmentCache() {
+  if (!store || !academicAttachmentStore) return
+  const domain = store.snapshot().academicExtras?.domains?.['academic-plan']
+  const attachment = domain?.attachments?.find((item) => item?.id && String(item?.type || '').toLowerCase() === 'pdf')
+  if (!attachment) {
+    await academicAttachmentStore.prunePdfFiles()
+    await refreshAcademicPlanDocument()
+    return
+  }
+  const existing = await academicAttachmentStore.find(attachment.id, 'pdf')
+  if (!existing && attachment.cached !== true) {
+    await academicAttachmentStore.prunePdfFiles()
+    await refreshAcademicPlanDocument()
+    return
+  }
+  await academicAttachmentStore.keepOnly({ id: attachment.id, extension: 'pdf' })
+  const cached = await academicAttachmentStore.find(attachment.id, 'pdf')
+  if (cached) {
+    if (attachment.cached === true && attachment.bytes === cached.bytes && attachment.filename === cached.filename) {
+      await refreshAcademicPlanDocument()
+      return
+    }
+    await store.update((state) => {
+      const current = state.academicExtras?.domains?.['academic-plan']
+      if (!current) return state
+      return {
+        ...state,
+        academicExtras: {
+          ...state.academicExtras,
+          domains: {
+            ...state.academicExtras.domains,
+            'academic-plan': {
+              ...current,
+              attachments: (current.attachments || []).map((item) => item?.id === attachment.id
+                ? { ...item, cached: true, bytes: cached.bytes, filename: cached.filename }
+                : item),
+            },
+          },
+        },
+      }
+    })
+    await refreshAcademicPlanDocument()
+    return
+  }
+  if (attachment.cached !== true) return
+  await store.update((state) => {
+    const current = state.academicExtras?.domains?.['academic-plan']
+    if (!current) return state
+    return {
+      ...state,
+      academicExtras: {
+        ...state.academicExtras,
+        domains: {
+          ...state.academicExtras.domains,
+          'academic-plan': {
+            ...current,
+            completeness: 'partial',
+            attachments: (current.attachments || []).map((item) => item?.id === attachment.id
+              ? { ...item, cached: false, bytes: null, sha256: null, filename: null }
+              : item),
+          },
+        },
+      },
+    }
+  })
+  await refreshAcademicPlanDocument()
+}
 
 function refreshAcademicCalendarAssets({ force = false, trigger = 'scheduled' } = {}) {
   if (academicCalendarRefreshInFlight) return academicCalendarRefreshInFlight
@@ -272,9 +919,19 @@ const authRecovery = Object.fromEntries(AUTH_SOURCES.map((source) => [source, {
   failures: 0,
 }]))
 const statusChecks = { jwglxt: null, theol: null }
+const forceSourceStatusChecks = new Set()
+// CAS establishes a shared identity, but each campus application still needs
+// its own authenticated page check. Keep that short verification window
+// explicit so the renderer does not turn the hand-off between the two services
+// into a misleading yellow "not logged in" state.
+let unifiedAuthVerification = null
+const UNIFIED_AUTH_VERIFY_WAIT_MS = 30_000
+const UNIFIED_AUTH_VERIFY_RETRY_DELAY_MS = 350
 const AUTH_RECOVERY_COOLDOWN_MS = 60_000
 const AUTH_RECOVERY_MAX_ATTEMPTS = 3
-const AUTH_BACKGROUND_TIMEOUT_MS = 180_000
+// A saved-password background login should be invisible when healthy, but a
+// broken/changed CAS page must hand control back to the user promptly.
+const AUTH_BACKGROUND_TIMEOUT_MS = 20_000
 // CAS invalidates or overwrites the shared browser session when two campus
 // entry points authenticate at once. The actor manager serializes lifecycles
 // globally while keeping source-specific browser behavior in this process.
@@ -380,9 +1037,28 @@ function diagnosticError(error) {
   return compactError(error).slice(0, 500)
 }
 
+function userFacingInstant(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return new Date().toISOString()
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(date).reduce((result, part) => {
+    result[part.type] = part.value
+    return result
+  }, {})
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}+08:00`
+}
+
 function writeDiagnostic(event, fields = {}) {
   const safeFields = sanitizeDiagnosticValue(fields)
-  const record = JSON.stringify({ at: new Date().toISOString(), event, ...safeFields }) + '\n'
+  const record = JSON.stringify({ at: userFacingInstant(), event, ...safeFields }) + '\n'
   const file = resolve(app.getPath('userData'), 'auth-diagnostics.ndjson')
   diagnosticWrite = diagnosticWrite
     .catch(() => {})
@@ -648,7 +1324,10 @@ async function verifiedStatus(source) {
 function sourceStatus(source) {
   if (statusChecks[source]) return statusChecks[source]
   const cached = store?.snapshot()?.sync?.sources?.[source]
-  if (source === 'theol' && (syncService.assignmentActive || syncService.assignmentTimer) && cached?.connected) {
+  if (!forceSourceStatusChecks.has(source)
+    && source === 'theol'
+    && (syncService.assignmentActive || syncService.assignmentTimer)
+    && cached?.connected) {
     return Promise.resolve(cached)
   }
   const adapter = syncService[source]
@@ -671,6 +1350,12 @@ function sourceStatus(source) {
   return check
 }
 
+function freshSourceStatus(source) {
+  forceSourceStatusChecks.add(source)
+  const check = sourceStatus(source)
+  return check.finally(() => forceSourceStatusChecks.delete(source))
+}
+
 function cachedStatus(source) {
   const cached = store?.snapshot()?.sync?.sources?.[source]
   if (!cached || typeof cached.connected !== 'boolean') {
@@ -691,6 +1376,109 @@ function loggedOutStatus() {
     jwglxt: { connected: false, checkedAt },
     theol: { connected: false, checkedAt },
   }
+}
+
+function campusAuthActorsPending() {
+  return [...authPendingSources].some((source) => source === 'jwglxt' || source === 'theol')
+}
+
+function unifiedAuthVerificationPending(epoch = authEpoch) {
+  return Boolean(unifiedAuthVerification
+    && unifiedAuthVerification.epoch === epoch
+    && !unifiedAuthVerification.settled)
+}
+
+function pendingAuthStatus(verified = null) {
+  return {
+    ...(verified || {}),
+    connected: Boolean(verified?.connected),
+    checkedAt: verified?.checkedAt || new Date().toISOString(),
+    authPending: true,
+  }
+}
+
+function waitForAuthVerificationDelay(delayMs) {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, delayMs))
+}
+
+/**
+ * Validate both campus applications after a CAS hand-off. The adapters still
+ * perform the authoritative page/DOM checks; the cookie marker is only
+ * refreshed after that validation succeeds.
+ */
+function requestUnifiedAuthVerification({ epoch = authEpoch, sync = false, reason = 'login' } = {}) {
+  if (epoch !== authEpoch || explicitlyLoggedOut) return Promise.resolve(null)
+  if (unifiedAuthVerification && unifiedAuthVerification.epoch === epoch) {
+    unifiedAuthVerification.sync = unifiedAuthVerification.sync || sync
+    return unifiedAuthVerification.promise
+  }
+
+  const state = { epoch, sync, reason, settled: false, promise: null }
+  const run = (async () => {
+    const deadline = Date.now() + UNIFIED_AUTH_VERIFY_WAIT_MS
+    while (campusAuthActorsPending() && Date.now() < deadline) {
+      await waitForAuthVerificationDelay(100)
+      assertAuthEpoch(epoch)
+    }
+
+    let statuses = null
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      assertAuthEpoch(epoch)
+      const [jwglxt, theol] = await Promise.all([
+        freshSourceStatus('jwglxt'),
+        freshSourceStatus('theol'),
+      ])
+      statuses = { jwglxt, theol }
+      if ((jwglxt?.connected && theol?.connected) || attempt === 1) break
+      await waitForAuthVerificationDelay(UNIFIED_AUTH_VERIFY_RETRY_DELAY_MS)
+    }
+
+    assertAuthEpoch(epoch)
+    for (const source of ['jwglxt', 'theol']) {
+      const status = statuses?.[source]
+      if (status?.connected) {
+        await rememberVerifiedSession(source, status.url || sourceSessionUrl(source), epoch)
+      } else {
+        // A fresh page check is authoritative. Do not let a stale cookie
+        // marker make the next status broadcast look connected.
+        verifiedSessions[source] = null
+      }
+    }
+    const finalStatus = {
+      jwglxt: { ...(statuses?.jwglxt || { connected: false }), authPending: false },
+      theol: { ...(statuses?.theol || { connected: false }), authPending: false },
+    }
+    await broadcastAuthStatus({ statusOverride: finalStatus })
+    if (state.sync && (finalStatus.jwglxt.connected || finalStatus.theol.connected)) {
+      try {
+        await syncForegroundCampusData()
+      } catch (error) {
+        void writeDiagnostic('sync.post_unified_auth_failed', {
+          reason,
+          error: diagnosticError(error),
+        })
+      }
+    }
+    return finalStatus
+  })()
+
+  state.promise = run
+    .catch((error) => {
+      if (epoch === authEpoch && !explicitlyLoggedOut) {
+        void writeDiagnostic('auth.unified_verification_failed', {
+          reason,
+          error: diagnosticError(error),
+        })
+        void broadcastAuthStatus()
+      }
+      return null
+    })
+    .finally(() => {
+      state.settled = true
+      if (unifiedAuthVerification === state) unifiedAuthVerification = null
+    })
+  unifiedAuthVerification = state
+  return state.promise
 }
 
 function assertAuthEpoch(epoch, { allowLoggedOut = false } = {}) {
@@ -717,12 +1505,17 @@ async function getStatus(options = {}) {
     verifiedStatus('jwglxt'),
     verifiedStatus('theol'),
   ])
+  const unifiedPending = unifiedAuthVerificationPending()
   const [jwglxt, theol] = await Promise.all([
-    verifiedJwglxt || (authPendingSources.has('jwglxt')
-      ? { connected: false, checkedAt: new Date().toISOString(), authPending: true }
+    verifiedJwglxt
+      ? (unifiedPending ? pendingAuthStatus(verifiedJwglxt) : verifiedJwglxt)
+      : (authPendingSources.has('jwglxt') || unifiedPending
+        ? pendingAuthStatus()
       : probeSources && !probeSources.has('jwglxt') ? cachedStatus('jwglxt') : sourceStatus('jwglxt')),
-    verifiedTheol || (authPendingSources.has('theol')
-      ? { connected: false, checkedAt: new Date().toISOString(), authPending: true }
+    verifiedTheol
+      ? (unifiedPending ? pendingAuthStatus(verifiedTheol) : verifiedTheol)
+      : (authPendingSources.has('theol') || unifiedPending
+        ? pendingAuthStatus()
       : probeSources && !probeSources.has('theol') ? cachedStatus('theol') : sourceStatus('theol')),
   ])
   if (explicitlyLoggedOut) return loggedOutStatus()
@@ -730,7 +1523,7 @@ async function getStatus(options = {}) {
 }
 
 async function broadcastAuthStatus(options) {
-  const authStatus = await getStatus(options).catch(() => ({ jwglxt: { connected: false }, theol: { connected: false } }))
+  const authStatus = options?.statusOverride || await getStatus(options).catch(() => ({ jwglxt: { connected: false }, theol: { connected: false } }))
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('theia:auth-status', authStatus)
   if (mainWindow && !mainWindow.isDestroyed()) {
     const labels = { jwglxt: '教务系统', theol: '北化在线THEOL', tygl: '健康云体测系统' }
@@ -1256,10 +2049,34 @@ async function inspectLoadedSourcePage(window, source, fallbackUrl) {
   }
 }
 
-async function openAuthenticatedSourceWindow(rawUrl, title = '学校原站', { pauseAssignments = false } = {}) {
+async function openAuthenticatedSourceWindow(rawUrl, title = '学校原站', { pauseAssignments = false, verified = false } = {}) {
   const url = permittedSourceUrl(rawUrl)
   const source = sourceFromUrl(url)
   if (!source || source === 'theol') return createSourceWindow(url, title, { pauseAssignments })
+  if (verified) {
+    // Authentication actors can resolve as soon as CAS has rendered an
+    // authenticated frame, while the next navigation is still racing cookie
+    // propagation. Keep the first user-visible page behind the same DOM proof
+    // used by the normal path; otherwise the first click can show CAS even
+    // though the actor just reported success.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const window = await createSourceWindow(url, title, { pauseAssignments, show: false })
+      try {
+        const state = await inspectLoadedSourcePage(window, source, url)
+        if (state.authenticated) {
+          window.show()
+          window.focus()
+          return window
+        }
+        await closeWindowAndWait(window)
+      } catch (error) {
+        await closeWindowAndWait(window)
+        throw error
+      }
+      if (attempt < 2) await new Promise((resolveDelay) => setTimeout(resolveDelay, 250))
+    }
+    return null
+  }
   const window = await createSourceWindow(url, title, { pauseAssignments, show: false })
   try {
     const state = await inspectLoadedSourcePage(window, source, url)
@@ -1597,7 +2414,184 @@ async function captureRenderedPage(url, text) {
     .replace(/[^a-zA-Z0-9.-]+/g, '_')
     .replace(/^_+|_+$/g, '')
   await mkdir(pageCaptureOutput, { recursive: true })
-  await writeFile(resolve(pageCaptureOutput, `${label || 'page'}.html`), text, 'utf8')
+  const file = resolve(pageCaptureOutput, `${label || 'page'}.html`)
+  await writeFile(file, text, 'utf8')
+  pageCaptureLog.push({
+    index: pageCaptureIndex,
+    url: `${parsed.origin}${parsed.pathname}`,
+    bytes: Buffer.byteLength(String(text || '')),
+    file,
+  })
+}
+
+const LIVE_CAPTURE_FIELDS = Object.freeze({
+  profile: 'profile',
+  terms: 'terms',
+  courses: 'courses',
+  schedule: 'schedule',
+  grades: 'grades',
+  exams: 'exams',
+  'selected-courses': 'selectedCourses',
+  'academic-progress': 'academicProgress',
+  notices: 'notices',
+  ...Object.fromEntries(JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES.map((domain) => [domain, 'academicExtras'])),
+})
+
+function liveCaptureCount(value) {
+  if (Array.isArray(value)) return value.length
+  if (!value || typeof value !== 'object') return 0
+  if (Array.isArray(value.records)) return value.records.length
+  if (Array.isArray(value.items)) return value.items.length
+  if (Array.isArray(value.categories)) return value.categories.length
+  if (Array.isArray(value.roots)) return value.roots.length
+  return Object.keys(value).length
+}
+
+function liveCaptureFieldPaths(value, prefix = '', output = new Set(), depth = 0) {
+  if (value === null || value === undefined || depth > 7) return output
+  if (Array.isArray(value)) {
+    for (const item of value.slice(0, 100)) liveCaptureFieldPaths(item, `${prefix}[]`, output, depth + 1)
+    return output
+  }
+  if (typeof value !== 'object') return output
+  for (const [key, child] of Object.entries(value)) {
+    const path = prefix ? `${prefix}.${key}` : key
+    output.add(path)
+    liveCaptureFieldPaths(child, path, output, depth + 1)
+  }
+  return output
+}
+
+function liveCaptureDigest(value) {
+  try {
+    return createHash('sha256').update(JSON.stringify(value)).digest('hex')
+  } catch {
+    return null
+  }
+}
+
+function liveCaptureResultCounts(result) {
+  const extras = result?.academicExtras?.domains || {}
+  const academicProgress = result?.academicProgress
+  return {
+    profileFields: result?.profile && typeof result.profile === 'object' ? Object.keys(result.profile).length : 0,
+    terms: Array.isArray(result?.terms) ? result.terms.length : 0,
+    courses: Array.isArray(result?.courses) ? result.courses.length : 0,
+    schedule: Array.isArray(result?.schedule) ? result.schedule.length : 0,
+    grades: Array.isArray(result?.grades) ? result.grades.length : 0,
+    exams: Array.isArray(result?.exams) ? result.exams.length : 0,
+    selectedCourses: Array.isArray(result?.selectedCourses) ? result.selectedCourses.length : 0,
+    notices: Array.isArray(result?.notices) ? result.notices.length : 0,
+    academicProgressCategories: Array.isArray(academicProgress?.categories) ? academicProgress.categories.length : 0,
+    academicProgressRoots: Array.isArray(academicProgress?.roots) ? academicProgress.roots.length : 0,
+    academicExtras: Object.fromEntries(Object.entries(extras).map(([domain, value]) => [domain, {
+      records: Array.isArray(value?.records) ? value.records.length : 0,
+      attachments: Array.isArray(value?.attachments) ? value.attachments.length : 0,
+      completeness: value?.completeness || 'unknown',
+      queryStats: value?.queryStats || null,
+    }])),
+    domainOutcomes: result?.domainOutcomes || {},
+    errors: Array.isArray(result?.errors) ? result.errors : [],
+  }
+}
+
+function liveCaptureDomainSummary(result, domain) {
+  const field = LIVE_CAPTURE_FIELDS[domain]
+  const outcome = result?.domainOutcomes?.[domain] || null
+  const value = field === 'academicExtras' ? result?.academicExtras?.domains?.[domain] : result?.[field]
+  const fields = [...liveCaptureFieldPaths(value)].sort()
+  return {
+    outcome,
+    count: liveCaptureCount(value),
+    fields,
+    digest: liveCaptureDigest(value),
+    hasPayload: value !== undefined,
+  }
+}
+
+function compareLiveCaptureResults(browser, api) {
+  const domains = [...new Set([
+    ...Object.keys(browser?.result?.domainOutcomes || {}),
+    ...Object.keys(api?.result?.domainOutcomes || {}),
+    ...Object.keys(LIVE_CAPTURE_FIELDS),
+  ])].sort()
+  const entries = Object.fromEntries(domains.map((domain) => {
+    const browserSummary = liveCaptureDomainSummary(browser?.result, domain)
+    const apiSummary = liveCaptureDomainSummary(api?.result, domain)
+    const browserFields = new Set(browserSummary.fields)
+    const apiFields = new Set(apiSummary.fields)
+    return [domain, {
+      browser: browserSummary,
+      api: apiSummary,
+      differences: {
+        countDelta: browserSummary.count - apiSummary.count,
+        browserOnlyFields: browserSummary.fields.filter((field) => !apiFields.has(field)),
+        apiOnlyFields: apiSummary.fields.filter((field) => !browserFields.has(field)),
+        digestEqual: Boolean(browserSummary.digest && apiSummary.digest && browserSummary.digest === apiSummary.digest),
+      },
+    }]
+  }))
+  return {
+    schema: 'theia-live-capture-comparison/v2',
+    capturedAt: new Date().toISOString(),
+    domains: entries,
+    totals: {
+      browserErrors: browser?.result?.errors?.length || 0,
+      apiErrors: api?.result?.errors?.length || 0,
+      browserSucceeded: Object.values(browser?.result?.domainOutcomes || {}).filter((item) => item?.succeeded === true).length,
+      apiSucceeded: Object.values(api?.result?.domainOutcomes || {}).filter((item) => item?.succeeded === true).length,
+    },
+  }
+}
+
+function createLiveCaptureAttachmentStore(root, label) {
+  return {
+    async find() { return null },
+    async save({ id, extension = 'bin', buffer }) {
+      const bytes = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || '')
+      const digest = createHash('sha256').update(bytes).digest('hex')
+      const filename = `${String(id || 'attachment').replace(/[^a-zA-Z0-9._-]+/g, '_')}.${String(extension || 'bin').replace(/[^a-zA-Z0-9._-]+/g, '_')}`
+      const directory = resolve(root, 'attachments', label)
+      await mkdir(directory, { recursive: true })
+      const file = resolve(directory, filename)
+      await writeFile(file, bytes)
+      return { id, bytes: bytes.length, sha256: digest, filename, path: file }
+    },
+  }
+}
+
+async function writeLiveCaptureJson(root, name, value) {
+  await mkdir(root, { recursive: true })
+  await writeFile(resolve(root, name), `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+}
+
+async function fetchRenderedPageInWindow(window, target) {
+  const payload = JSON.stringify({ url: target })
+  const result = await Promise.race([
+    window.webContents.executeJavaScript(`(async ({ url }) => {
+      const response = await fetch(url, { credentials: 'include' })
+      return { url: response.url, status: response.status, text: await response.text() }
+    })(${payload})`),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Rendered page fetch timed out')), 30_000)),
+  ])
+  if (Number(result?.status || 0) < 200 || Number(result?.status || 0) >= 300) {
+    throw new Error(`Rendered page fetch failed (${result?.status || 0})`)
+  }
+  const text = String(result?.text || '')
+  if (!text) throw new Error('Rendered page fetch returned an empty document')
+  return { url: result?.url || target, text }
+}
+
+function raceRenderedOperation(operation, timeoutMs, message) {
+  let timer
+  return Promise.race([
+    operation,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), timeoutMs)
+    }),
+  ]).finally(() => {
+    if (timer) clearTimeout(timer)
+  })
 }
 
 async function loadWithBackgroundBrowser(url, {
@@ -1655,6 +2649,31 @@ async function loadWithBackgroundBrowser(url, {
     await captureRenderedPage(finalUrl, text)
     return { url: finalUrl, text }
   } catch (error) {
+    // Some Zhengfang pages keep a subresource open indefinitely. The DOM
+    // document itself is still available through the authenticated renderer,
+    // so fetch the same page from that context before discarding the window.
+    const canUseRenderedFetch = !signal?.aborted
+      && !window.isDestroyed()
+      && /timed out|ERR_(?:ABORTED|FAILED|CONNECTION_RESET)|failed to load/iu.test(diagnosticError(error))
+    if (canUseRenderedFetch) {
+      try {
+        const fallback = await fetchRenderedPageInWindow(window, target)
+        const finalUrl = permittedSourceUrl(fallback.url || target)
+        await captureRenderedPage(finalUrl, fallback.text)
+        void writeDiagnostic('source.rendered_fetch_fallback', {
+          source: sourceFromUrl(target),
+          url: diagnosticUrl(target),
+          reason: diagnosticError(error),
+        })
+        return fallback
+      } catch (fallbackError) {
+        void writeDiagnostic('source.rendered_fetch_fallback_failed', {
+          source: sourceFromUrl(target),
+          url: diagnosticUrl(target),
+          error: diagnosticError(fallbackError),
+        })
+      }
+    }
     // A timed-out or failed navigation can leave a hidden BrowserWindow with
     // a broken renderer. Reusing it causes every later sync to fail in the
     // same way, so discard it and let the next request create a clean window.
@@ -1931,19 +2950,32 @@ async function submitWithSchoolBrowser(rawUrl, values, { referer } = {}) {
   const url = permittedSourceUrl(rawUrl)
   if (referer) await loadWithSchoolBrowser(permittedSourceUrl(referer))
   if (!syncPageWindow || syncPageWindow.isDestroyed()) throw new Error('Background school browser is unavailable')
+  const window = syncPageWindow
   const payload = JSON.stringify({ url, values: values || {} })
-  const result = await syncPageWindow.webContents.executeJavaScript(`(async ({ url, values }) => {
-    const response = await fetch(url, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-      body: new URLSearchParams(values).toString(),
+  let result
+  try {
+    result = await raceRenderedOperation(window.webContents.executeJavaScript(`(async ({ url, values }) => {
+      const response = await fetch(url, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: new URLSearchParams(values).toString(),
+      })
+      return { url: response.url, status: response.status, text: await response.text() }
+    })(${payload})`), 45_000, 'Rendered form request timed out')
+  } catch (error) {
+    if (syncPageWindow === window) syncPageWindow = null
+    await closeWindowAndWait(window)
+    void writeDiagnostic('source.background_form_window_reset', {
+      source: sourceFromUrl(url),
+      url: diagnosticUrl(url),
+      error: diagnosticError(error),
     })
-    return { url: response.url, status: response.status, text: await response.text() }
-  })(${payload})`)
+    throw error
+  }
   await captureRenderedPage(result.url || url, result.text || '')
   return result
 }
@@ -1973,6 +3005,41 @@ async function submitWithFitnessBrowser(rawUrl, values, { referer } = {}) {
 
 function submitSchoolForm(url, values, options) {
   return syncPageQueue.enqueue(() => submitWithSchoolBrowser(url, values, options), { priority: 0 })
+}
+
+async function loadBinaryWithSchoolBrowser(rawUrl, { signal = null } = {}) {
+  return syncPageQueue.enqueue(async () => {
+    const url = permittedSourceUrl(rawUrl)
+    if (signal?.aborted) throw new Error('Background binary navigation aborted')
+    let window = syncPageWindow
+    if (!window || window.isDestroyed()) {
+      await loadWithSchoolBrowser(JWGLXT_URLS.home, { signal })
+      window = syncPageWindow
+    }
+    if (!window || window.isDestroyed()) throw new Error('Background school browser is unavailable')
+    const payload = JSON.stringify({ url })
+    const result = await window.webContents.executeJavaScript(`(async ({ url }) => {
+      const response = await fetch(url, { credentials: 'include' })
+      const buffer = new Uint8Array(await response.arrayBuffer())
+      let binary = ''
+      const chunkSize = 0x8000
+      for (let index = 0; index < buffer.length; index += chunkSize) {
+        binary += String.fromCharCode(...buffer.subarray(index, Math.min(index + chunkSize, buffer.length)))
+      }
+      const contentType = response.headers.get('content-type') || ''
+      const text = /html|text\\//i.test(contentType) && buffer.length <= 1024 * 1024
+        ? new TextDecoder().decode(buffer)
+        : ''
+      return { url: response.url, status: response.status, contentType, base64: btoa(binary), text }
+    })(${payload})`)
+    return {
+      url: result?.url || url,
+      status: Number(result?.status || 0),
+      headers: new Headers({ 'content-type': String(result?.contentType || '') }),
+      text: String(result?.text || ''),
+      buffer: Buffer.from(String(result?.base64 || ''), 'base64'),
+    }
+  }, { priority: 0 })
 }
 
 function submitFitnessForm(url, values, options = {}) {
@@ -2023,10 +3090,22 @@ async function openSourceWindow(rawUrl, { title = '学校原站', expectedEpoch 
           assertAuthEpoch(epoch)
         }
       }
+      // Once this exact browser session has been verified, open the requested
+      // page directly. The previous path loaded a second hidden BrowserWindow
+      // and inspected its DOM before showing it, so every click paid the full
+      // navigation cost twice from the user's perspective. A changed or
+      // unknown cookie still takes the guarded hidden probe below.
+      if (source !== 'theol' && status?.connected && verifiedSessions[source]) {
+        await createSourceWindow(url, title, { pauseAssignments: false })
+        assertAuthEpoch(epoch)
+        resumeAssignments?.({ schedule: false })
+        return true
+      }
       // A configured academic API authenticates its own cookie jar and cannot
       // prove that an Electron source window is authenticated. Probe the
-      // actual page in the shared browser partition before showing it. This
-      // also recovers a healthy browser session that was not remembered yet.
+      // actual page in the shared browser partition before showing it when no
+      // browser session has been verified yet. This also recovers a healthy
+      // browser session that was not remembered yet.
       if (source !== 'theol') {
         const opened = await openAuthenticatedSourceWindow(url, title, { pauseAssignments: false })
         assertAuthEpoch(epoch)
@@ -2040,11 +3119,8 @@ async function openSourceWindow(rawUrl, { title = '学校原站', expectedEpoch 
         }
       }
       if (!status.connected || source !== 'theol') {
-        resumeAssignments?.({ schedule: false })
-        assertAuthEpoch(epoch)
-        pendingSourceOpens.push({ source, url, title })
         const credentials = await credentialVault.status().catch(() => ({ saved: false }))
-        await openLoginWindow({
+        const actors = await openLoginWindow({
           background: Boolean(credentials?.saved),
           sources: [source],
           expectedEpoch: epoch,
@@ -2052,6 +3128,32 @@ async function openSourceWindow(rawUrl, { title = '学校原站', expectedEpoch 
           skipSync: true,
         })
         assertAuthEpoch(epoch)
+
+        // A source-page request is a foreground user action. When a saved
+        // password exists, keep the login actor hidden and wait for its full
+        // lifecycle before opening the requested page. The old code returned
+        // as soon as the hidden login window was created, which made the
+        // caller race the redirect and left the user staring at a login page
+        // even though authentication completed moments later.
+        if (credentials?.saved) {
+          const actor = actors?.find?.((candidate) => candidate?.source === source)
+          if (actor?.lifecycle) await actor.lifecycle
+          assertAuthEpoch(epoch)
+          if (!actor?.authenticated) {
+            resumeAssignments?.({ schedule: false })
+            throw new Error(`${source === 'jwglxt' ? '教务系统' : '学校平台'}自动认证未完成，请在认证窗口中完成验证后重试`)
+          }
+          const opened = await openAuthenticatedSourceWindow(url, title, { pauseAssignments: false, verified: true })
+          assertAuthEpoch(epoch)
+          resumeAssignments?.({ schedule: false })
+          if (!opened) {
+            verifiedSessions[source] = null
+            throw new Error(`${source === 'jwglxt' ? '教务系统' : '学校平台'}认证已完成，但来源页面仍要求登录，请刷新后重试`)
+          }
+          return true
+        }
+
+        resumeAssignments?.({ schedule: false })
         return true
       }
       if (!verifiedSessions[source]) {
@@ -2379,17 +3481,25 @@ async function finishAuthActor(actor) {
   authPendingSources.delete(actor.source)
   if (!actor.authenticated) removePendingSourceOpens(actor.source)
   if (actor.invalidated || actor.epoch !== authEpoch || explicitlyLoggedOut) return
+  const isCampusSource = actor.source === 'jwglxt' || actor.source === 'theol'
+  // A user-facing CAS login may finish one service before the other service's
+  // redirect has completed. Defer its data refresh until both page checks have
+  // settled so one shared identity produces one coherent snapshot.
+  const unifiedVerification = actor.authenticated && actor.userInitiated && isCampusSource
+    ? requestUnifiedAuthVerification({ epoch: actor.epoch, sync: true, reason: 'user-login' })
+    : null
   await broadcastAuthStatus({ sources: [actor.source] })
   if (!actor.authenticated || actor.epoch !== authEpoch || explicitlyLoggedOut) return
   const recovery = authRecovery[actor.source]
   recovery.lastAt = Date.now()
   recovery.failures = 0
   if (actor.source === 'theol') syncService.enableAssignmentScan({ schedule: false })
-  if (actor.source === 'jwglxt' || actor.source === 'theol') {
-    // A saved cookie/session that was already healthy does not need a full
-    // campus scrape every time THEIA starts. Explicit login and a newly
-    // authenticated actor still refresh the fast-path datasets.
-    const shouldRefresh = !actor.skipSync && (actor.userInitiated || !actor.sessionReused)
+  if (isCampusSource && !unifiedVerification) {
+    // A saved cookie/session is still a valid source of fresh data. The old
+    // sessionReused shortcut made startup silently skip every existing record,
+    // leaving the renderer with stale data and domains stuck at "等待本轮
+    // 获取". Source-page actors explicitly set skipSync and remain cheap.
+    const shouldRefresh = !actor.skipSync
     if (!shouldRefresh) {
       void writeDiagnostic('sync.post_auth_skipped', {
         source: actor.source,
@@ -2400,7 +3510,18 @@ async function finishAuthActor(actor) {
       try {
         // The actor lifecycle (and therefore the THEOL lease) has completed
         // before source-scoped synchronization is queued here.
-        await syncService.syncNow({ sources: [actor.source] })
+        const syncOptions = actor.userInitiated
+          ? {
+            sources: [actor.source],
+            domains: actor.source === 'jwglxt' ? FOREGROUND_JWGLXT_SYNC_DOMAINS : ['courses', 'notices'],
+            foreground: true,
+          }
+          : { sources: [actor.source], domains: SILENT_AUTH_SYNC_DOMAINS[actor.source] || [] }
+        if (actor.userInitiated) {
+          await syncForegroundCampusData()
+        } else {
+          await syncService.syncNow(syncOptions)
+        }
       } catch (error) {
         if (actor.epoch === authEpoch && !explicitlyLoggedOut) {
           void writeDiagnostic('sync.post_auth_failed', { source: actor.source, error: diagnosticError(error) })
@@ -2408,7 +3529,11 @@ async function finishAuthActor(actor) {
       }
     }
   }
-  if (actor.epoch === authEpoch && !explicitlyLoggedOut) await flushPendingSourceOpens(actor.source, actor.epoch)
+  if (unifiedVerification) await unifiedVerification
+  if (actor.epoch === authEpoch && !explicitlyLoggedOut) {
+    await flushPendingSourceOpens(actor.source, actor.epoch)
+    if (actor.source === 'jwglxt') scheduleAcademicStaticPrefetch({ reason: actor.skipSync ? 'source_open' : 'authenticated' })
+  }
 }
 
 async function openLoginWindow({ background = false, sources, expectedEpoch = authEpoch, userInitiated = false, requireBrowser = false, skipSync = false } = {}) {
@@ -2422,7 +3547,7 @@ async function openLoginWindow({ background = false, sources, expectedEpoch = au
     ? [...new Set(sources.filter((source) => AUTH_SOURCES.includes(source)))]
     : ['theol', 'jwglxt']
   void writeDiagnostic('auth.open_requested', { background, sources: requestedSources })
-  await authActorManager.open({
+  const actors = await authActorManager.open({
     background,
     requestedSources,
     expectedEpoch,
@@ -2435,6 +3560,220 @@ async function openLoginWindow({ background = false, sources, expectedEpoch = au
       || (requestedSources.includes('jwglxt') && (requestedSources.length === 1 || background)),
   })
   assertAuthEpoch(expectedEpoch)
+  // Publish the intermediate state immediately. The renderer can then show a
+  // neutral CAS-verification indicator while either campus redirect is still
+  // open instead of retaining an old warning from the previous probe.
+  void broadcastAuthStatus()
+  return actors
+}
+
+async function closeLiveCaptureActors(reason = 'live capture finished') {
+  const actors = authActorManager.invalidateAll({ reason, pendingSourceOpens })
+  await Promise.allSettled(actors.flatMap((actor) => [
+    actor.window,
+    ...(actor.windows ? [...actor.windows] : []),
+  ].filter((window) => window && !window.isDestroyed()).map((window) => closeWindowAndWait(window))))
+  await Promise.allSettled(actors.map((actor) => actor.lifecycle))
+}
+
+async function waitForLiveCaptureAuthentication(actors, timeoutMs = 120_000) {
+  const lifecycle = Promise.all((actors || []).map((actor) => actor.lifecycle || Promise.resolve()))
+  let timer
+  try {
+    await Promise.race([
+      lifecycle,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`教务浏览器认证超时（${timeoutMs} ms）`)), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+  const status = await verifiedStatus('jwglxt')
+  if (!status?.connected) throw new AuthRequiredError('Academic system', status?.url || JWGLXT_URLS.home)
+  return status
+}
+
+async function runLiveCapture() {
+  if (!liveCaptureOutput) throw new Error('live capture output is not configured')
+  const output = liveCaptureOutput
+  await mkdir(output, { recursive: true })
+  const startedAt = new Date().toISOString()
+  const runStartedMs = Date.now()
+  const diagnostics = { browser: [], api: [] }
+  const diagnosticFor = (channel) => (event, fields = {}) => {
+    const safe = { event, ...fields }
+    if (safe.error) safe.error = diagnosticError(safe.error)
+    if (safe.url) safe.url = diagnosticUrl(safe.url)
+    if (safe.referer) safe.referer = diagnosticUrl(safe.referer)
+    diagnostics[channel].push(safe)
+    void writeDiagnostic(`live_capture.${channel}.${event}`, safe)
+  }
+
+  await schoolProxyReady.catch(() => undefined)
+  const authStartedMs = Date.now()
+  let authStatus = null
+  let authError = null
+  let apiBootstrapClient = null
+  try {
+    const actors = await openLoginWindow({
+      background: true,
+      sources: ['jwglxt'],
+      expectedEpoch: authEpoch,
+      requireBrowser: true,
+      skipSync: true,
+    })
+    authStatus = await waitForLiveCaptureAuthentication(actors, 25_000)
+  } catch (error) {
+    authError = diagnosticError(error)
+    // The real CAS page may require an interactive anti-bot slider. Do not
+    // synthesize or bypass that challenge. For this isolated capture command,
+    // use the already-authorized direct API account only to seed a temporary
+    // browser cookie jar, then continue through rendered page/fetch requests.
+    await closeLiveCaptureActors('live capture auth fallback')
+    try {
+      const credentialStatus = await academicApiVault.status()
+      if (!credentialStatus.saved || credentialStatus.error) throw error
+      const credentials = await academicApiVault.readCredentials()
+      apiBootstrapClient = new AcademicApiClient({ ...credentials, onDiagnostic: diagnosticFor('api') })
+      await apiBootstrapClient.login()
+      const apiCookieNames = [...apiBootstrapClient.cookies.keys()]
+      const browserCookieUrl = 'https://jwglxt.buct.edu.cn/jwglxt/'
+      const existingBrowserCookies = await schoolSession.cookies.get({ url: browserCookieUrl })
+      for (const cookie of existingBrowserCookies) {
+        if (cookie.name === 'JSESSIONID' || apiCookieNames.includes(cookie.name)) {
+          await schoolSession.cookies.remove(browserCookieUrl, cookie.name).catch(() => undefined)
+        }
+      }
+      for (const [name, value] of apiBootstrapClient.cookies.entries()) {
+        await schoolSession.cookies.set({
+          url: browserCookieUrl,
+          name,
+          value,
+          path: '/',
+          secure: true,
+          httpOnly: true,
+        })
+      }
+      void writeDiagnostic('live_capture.api_cookie_bridge', {
+        names: apiCookieNames,
+        browserCookiesAfterSet: (await schoolSession.cookies.get({ url: browserCookieUrl })).map((cookie) => cookie.name),
+      })
+      const browserStatus = await new JwglxtAdapter(academicSessionClient, {
+        onDiagnostic: diagnosticFor('browser'),
+      }).status()
+      if (!browserStatus.connected) {
+        void writeDiagnostic('live_capture.api_cookie_bridge_failed', {
+          status: { connected: browserStatus.connected, error: browserStatus.error || null, url: browserStatus.url || null },
+        })
+        throw new Error(browserStatus.error || 'API 会话未能在页面上下文中建立')
+      }
+      authStatus = {
+        ...browserStatus,
+        mode: 'direct-api-cookie-bridge-for-rendered-capture',
+        fallbackFrom: authError,
+      }
+      authError = null
+    } catch (fallbackError) {
+      authError = diagnosticError(fallbackError)
+      await writeLiveCaptureJson(output, 'auth-error.json', {
+        error: authError,
+        fallbackFrom: diagnosticError(error),
+        elapsedMs: Date.now() - authStartedMs,
+        status: await verifiedStatus('jwglxt').catch(() => null),
+      })
+      throw fallbackError
+    }
+  }
+
+  const browserAttachmentStore = createLiveCaptureAttachmentStore(output, 'browser')
+  const apiAttachmentStore = createLiveCaptureAttachmentStore(output, 'api')
+  let browserCapture = null
+  let apiCapture = null
+  let apiError = null
+  try {
+    const browserAdapter = new JwglxtAdapter(academicSessionClient, {
+      attachmentStore: browserAttachmentStore,
+      onDiagnostic: diagnosticFor('browser'),
+    })
+    const browserStartedAt = new Date().toISOString()
+    const browserStartedMs = Date.now()
+    const browserResult = await browserAdapter.sync({ includeAcademicExtras: true })
+    browserCapture = {
+      mode: 'authenticated-browser-session-rendered',
+      startedAt: browserStartedAt,
+      completedAt: new Date().toISOString(),
+      elapsedMs: Date.now() - browserStartedMs,
+      auth: authStatus,
+      counts: liveCaptureResultCounts(browserResult),
+      result: browserResult,
+    }
+    await writeLiveCaptureJson(output, 'browser-result.json', browserCapture)
+  } catch (error) {
+    const message = diagnosticError(error)
+    await writeLiveCaptureJson(output, 'browser-error.json', { error: message })
+    throw error
+  }
+
+  try {
+    const credentialStatus = await academicApiVault.status()
+    if (!credentialStatus.saved || credentialStatus.error) {
+      apiError = credentialStatus.error || 'saved API credentials are unavailable'
+    } else {
+      const credentials = await academicApiVault.readCredentials()
+      const apiClient = apiBootstrapClient || new AcademicApiClient({ ...credentials, onDiagnostic: diagnosticFor('api') })
+      const apiAdapter = new JwglxtAdapter(apiClient, {
+        academicProgressSource: 'api',
+        attachmentStore: apiAttachmentStore,
+        scheduleEndpoints: ['kbcx/xskbcx_cxXsKb.html?gnmkdm=N2151', 'kbcx/xskbcx_cxXsgrkb.html'],
+        onDiagnostic: diagnosticFor('api'),
+      })
+      const apiStartedAt = new Date().toISOString()
+      const apiStartedMs = Date.now()
+      if (!apiBootstrapClient) await apiClient.login()
+      const apiResult = await apiAdapter.sync({ includeAcademicExtras: true })
+      apiCapture = {
+        mode: 'direct-api-client',
+        startedAt: apiStartedAt,
+        completedAt: new Date().toISOString(),
+        elapsedMs: Date.now() - apiStartedMs,
+        counts: liveCaptureResultCounts(apiResult),
+        result: apiResult,
+      }
+      await writeLiveCaptureJson(output, 'api-result.json', apiCapture)
+    }
+  } catch (error) {
+    apiError = diagnosticError(error)
+    await writeLiveCaptureJson(output, 'api-error.json', { error: apiError })
+  }
+
+  const comparison = compareLiveCaptureResults(browserCapture, apiCapture)
+  await writeLiveCaptureJson(output, 'comparison.json', comparison)
+  await writeLiveCaptureJson(output, 'browser-request-log.json', pageCaptureLog)
+  await writeLiveCaptureJson(output, 'diagnostics.json', diagnostics)
+  await writeLiveCaptureJson(output, 'run-meta.json', {
+    schema: 'theia-live-capture/v2',
+    startedAt,
+    completedAt: new Date().toISOString(),
+    elapsedMs: Date.now() - runStartedMs,
+    output,
+    browser: {
+      mode: browserCapture?.mode || null,
+      elapsedMs: browserCapture?.elapsedMs || null,
+      requestCount: pageCaptureLog.length,
+      error: browserCapture ? null : authError,
+    },
+    api: {
+      mode: apiCapture?.mode || null,
+      elapsedMs: apiCapture?.elapsedMs || null,
+      error: apiError,
+    },
+    auth: {
+      verified: Boolean(authStatus?.connected),
+      elapsedMs: Date.now() - authStartedMs,
+    },
+  })
+  return { output, browser: browserCapture?.counts || null, api: apiCapture?.counts || null, apiError }
 }
 
 async function migrateFromLegacyDir() {
@@ -2510,6 +3849,8 @@ async function startServices() {
   })
   credentialVault = new CredentialVault(app.getPath('userData'), safeStorage)
   academicApiVault = new AcademicApiVault(app.getPath('userData'), safeStorage)
+  academicAttachmentStore = new JwglxtAttachmentStore(app.getPath('userData'))
+  await normalizeAcademicPlanAttachmentCache().catch((error) => writeDiagnostic('jwglxt.attachment_migration_failed', { error: diagnosticError(error) }))
   mailVault = new MailVault(app.getPath('userData'), safeStorage)
   courseSelectionJournal = new CourseSelectionJournal(app.getPath('userData'))
   await courseSelectionJournal.load()
@@ -2576,10 +3917,15 @@ async function startServices() {
       ...(fields.referer ? { referer: diagnosticUrl(fields.referer) } : {}),
     }),
   })
-  // JWGLXT pages are ordinary authenticated GET/POST responses. Reuse the
-  // exact browser cookies but bypass the single THEOL navigation queue so its
-  // independent high-priority domains can run concurrently.
+  // JWGLXT is also a rendered-browser source. Reuse the exact browser cookies
+  // and execute its page/form requests in the hidden school BrowserWindow so
+  // the page-simulation path is exercised instead of silently falling back to
+  // a plain session fetch. The shared queue keeps JWGLXT and THEOL navigation
+  // from racing the single mutable school window.
   academicSessionClient = new SessionClient(schoolSession, {
+    pageLoader: smokeFile ? null : loadSchoolPage,
+    formLoader: smokeFile ? null : submitSchoolForm,
+    binaryLoader: smokeFile ? null : loadBinaryWithSchoolBrowser,
     onDiagnostic: (event, fields) => writeDiagnostic(event, {
       ...fields,
       ...(fields.url ? { url: diagnosticUrl(fields.url) } : {}),
@@ -2623,7 +3969,59 @@ async function startServices() {
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('theia:advisor:stream', event)
       },
       budget: advisorBudget,
+      agentOperations: {
+        outputDirectory: resolve(app.getPath('documents'), 'THEIA Agent'),
+        syncCampusData: (request) => syncAdvisorCampusData(request),
+        networkRequest: (request) => executeAdvisorNetworkRequest(request),
+        openCampusSource: async ({ url }) => {
+          const epoch = authEpoch
+          assertAuthEpoch(epoch)
+          await schoolProxyReady.catch(() => undefined)
+          assertAuthEpoch(epoch)
+          const opened = await openSourceWindow(url, { title: 'THEIA Agent · 校园来源', expectedEpoch: epoch })
+          return { opened, host: new URL(url).hostname }
+        },
+        updateSettings: async ({ settings }) => applyTheiaSettings(settings),
+        controlCourseSelection: async ({ action }) => {
+          if (action === 'stop') {
+            courseSelectionService.stop()
+          } else {
+            const targets = courseSelectionJournal?.snapshot()?.targets || []
+            if (!targets.length) throw new Error('没有已保存的选课目标，无法启动选课任务')
+            courseSelectionService.start({ targets })
+          }
+          sendCourseSelectionSnapshot()
+          const snapshot = courseSelectionSnapshot()
+          return { action, active: Boolean(snapshot.active), targetCount: snapshot.targets.length }
+        },
+        readFile: (request) => readAgentFile(request),
+        writeFile: (request) => writeAgentFile(request),
+        listDirectory: (request) => listAgentDirectory(request),
+        createDirectory: (request) => createAgentDirectory(request),
+        deletePath: (request) => deleteAgentPath(request),
+        runCommand: (request) => runAgentCommand(request),
+        webRequest: (request) => executeAgentWebRequest(request),
+        openWebpage: (request) => openAgentWebpage(request),
+      },
     })
+  }
+
+  const applyTheiaSettings = async (next) => {
+    const allowed = next && typeof next === 'object' ? next : {}
+    const previousAdvisorBudgetLevel = store.snapshot().settings.advisorConfig?.budgetLevel
+    if (typeof allowed.academicApiEnabled === 'boolean') courseSelectionApiClient = null
+    const snapshot = await updateSettingsTransaction({
+      store,
+      next: allowed,
+      restartLocalApi,
+      configureAutoSync: (enabled, interval) => syncService.configureAutoSync(enabled, interval),
+      configureMail: (config) => mailService.configure(config),
+      publishSnapshot: sendSnapshot,
+    })
+    if (allowed.advisorConfig?.budgetLevel && allowed.advisorConfig.budgetLevel !== previousAdvisorBudgetLevel) {
+      await rebuildAdvisorRuntime()
+    }
+    return snapshot
   }
 
   await rebuildAdvisorRuntime()
@@ -2657,10 +4055,15 @@ async function startServices() {
   syncService = new SyncService({
     store,
     jwglxt: new AcademicApiFirstAdapter({
-      browserAdapter: new JwglxtAdapter(academicSessionClient),
+      browserAdapter: new JwglxtAdapter(academicSessionClient, { attachmentStore: academicAttachmentStore }),
       credentialVault: academicApiVault,
       isEnabled: () => store.snapshot().settings.academicApiEnabled,
       onDiagnostic: (event, fields) => writeDiagnostic(event, fields),
+      adapterFactory: (client) => new JwglxtAdapter(client, {
+        academicProgressSource: 'api',
+        attachmentStore: academicAttachmentStore,
+        scheduleEndpoints: ['kbcx/xskbcx_cxXsKb.html?gnmkdm=N2151', 'kbcx/xskbcx_cxXsgrkb.html'],
+      }),
     }),
     theol: new TheolAdapter(sessionClient),
     onProgress: (progress) => {
@@ -2760,7 +4163,10 @@ async function startServices() {
         .catch((error) => writeDiagnostic('course_selection.sentinel_write_failed', { error: diagnosticError(error) }))
       sendCourseSelectionSnapshot()
     },
-    onSuccess: async () => { await syncService.syncNow() },
+    onSuccess: async () => {
+      await syncForegroundCampusData()
+      scheduleAcademicStaticPrefetch({ reason: 'course_selection' })
+    },
     onSchoolSchedule: async (result) => {
       const completedAt = new Date().toISOString()
       await store.update((state) => updateSchoolScheduleCatalog(state, {
@@ -2851,8 +4257,10 @@ async function startServices() {
     store,
     getLocalApi: () => localApi,
     calendarAssetUrl,
+    academicPlanAssetBaseUrl,
     sendSnapshot,
   })
+  registerUserDataIpc({ ipcMain, store })
   registerCourseWorkQueueIpc({ ipcMain, queue: courseWorkQueue })
 
   ipcMain.handle('theia:get-snapshot', () => {
@@ -2959,6 +4367,8 @@ async function startServices() {
     authEpoch += 1
     statusChecks.jwglxt = null
     statusChecks.theol = null
+    forceSourceStatusChecks.clear()
+    unifiedAuthVerification = null
     const interactiveActor = theolInteractiveActor
     theolInteractiveActor = null
     if (interactiveActor) {
@@ -3007,7 +4417,9 @@ async function startServices() {
   })
   ipcMain.handle('theia:sync-now', async () => {
     await schoolProxyReady.catch(() => undefined)
-    return syncService.syncNow()
+    const snapshot = await syncForegroundCampusData()
+    scheduleAcademicStaticPrefetch({ reason: 'manual_refresh' })
+    return snapshot
   })
   ipcMain.handle('theia:sync-domain', async (_event, domainId) => {
     await schoolProxyReady.catch(() => undefined)
@@ -3037,6 +4449,22 @@ async function startServices() {
     }
     return snapshot
   })
+  ipcMain.handle('theia:query-free-classrooms', async (_event, query) => {
+    const epoch = authEpoch
+    assertAuthEpoch(epoch)
+    await schoolProxyReady.catch(() => undefined)
+    assertAuthEpoch(epoch)
+    const term = store.snapshot().terms.find((item) => item?.id === query?.termId)
+    if (!term) throw new Error('请选择有效的教务学期')
+    const snapshot = await syncService.syncNow({
+      sources: ['jwglxt'],
+      domains: ['free-classroom'],
+      freeClassroom: { ...query, term },
+      foreground: true,
+    })
+    assertAuthEpoch(epoch)
+    return snapshot
+  })
   registerCourseSelectionIpc({
     ipcMain,
     courseSelectionService,
@@ -3060,6 +4488,53 @@ async function startServices() {
     await schoolProxyReady.catch(() => undefined)
     assertAuthEpoch(epoch)
     return openSourceWindow(url, { expectedEpoch: epoch })
+  })
+  ipcMain.handle('theia:open-academic-attachment', async (_event, domain, attachmentId) => {
+    const epoch = authEpoch
+    assertAuthEpoch(epoch)
+    if (!JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES.includes(domain)) throw new Error('Unsupported academic attachment domain')
+    const attachment = store.snapshot().academicExtras?.domains?.[domain]?.attachments
+      ?.find((item) => item?.id === attachmentId)
+    if (!attachment) return { cached: false }
+    let cached = await academicAttachmentStore?.find(attachment.id, 'pdf')
+    // Older snapshots may contain attachment metadata created before the
+    // local-file path existed. Repair that one artifact on demand instead of
+    // sending the user straight to a slow/login-gated source page.
+    if (!cached && attachment.sourceUrl) {
+      const repairKey = `${domain}:${attachment.id}`
+      let repair = academicAttachmentRepairs.get(repairKey)
+      if (!repair) {
+        // Opening a PDF is a foreground, single-artifact action. It must not
+        // queue behind a full JWGLXT refresh or refetch unrelated extension
+        // pages before the requested file can be shown.
+        repair = repairAcademicAttachment(attachment, { domain, expectedEpoch: epoch })
+        academicAttachmentRepairs.set(repairKey, repair)
+      }
+      try {
+        await repair
+        assertAuthEpoch(epoch)
+        cached = await academicAttachmentStore?.find(attachment.id, 'pdf')
+      } catch (error) {
+        void writeDiagnostic('jwglxt.attachment_repair_failed', {
+          domain,
+          attachmentId,
+          error: diagnosticError(error),
+        })
+      } finally {
+        if (academicAttachmentRepairs.get(repairKey) === repair) academicAttachmentRepairs.delete(repairKey)
+      }
+    }
+    if (!cached) {
+      void writeDiagnostic('jwglxt.attachment_cache_miss', { domain, attachmentId })
+      return { cached: false }
+    }
+    const openError = await shell.openPath(cached.path)
+    if (openError) {
+      void writeDiagnostic('jwglxt.attachment_open_failed', { domain, attachmentId, error: String(openError).slice(0, 500) })
+      return { cached: false }
+    }
+    void writeDiagnostic('jwglxt.attachment_opened', { domain, attachmentId, bytes: cached.bytes })
+    return { cached: true }
   })
   ipcMain.handle('theia:open-assignment-source', async (_event, assignmentId) => {
     const epoch = authEpoch
@@ -3190,6 +4665,7 @@ async function startServices() {
   })
   ipcMain.handle('theia:save-model-config', async (_event, config) => {
     const next = config && typeof config === 'object' ? config : {}
+    const previousAdvisorBudgetLevel = store.snapshot().settings.advisorConfig?.budgetLevel
     const baseUrl = normalizeModelServiceBaseUrl(next.baseUrl)
     const requestedModel = String(next.model || '').trim()
     const provider = normalizeModelProvider(next.provider)
@@ -3233,14 +4709,14 @@ async function startServices() {
       modelName,
       models,
       modelRouting: next.modelRouting,
-      advisorConfig: next.advisorConfig,
+      advisorConfig: { ...(store.snapshot().settings.advisorConfig || {}), ...(next.advisorConfig || {}) },
       modelProvider: provider,
       allowKeyless: provider === 'ollama-chat' && !explicitApiKey,
       apiKey: explicitApiKey,
       publishSnapshot: sendSnapshot,
     })
     // Rebuild advisor runtime if budgetLevel changed
-    if (next.advisorConfig?.budgetLevel && next.advisorConfig.budgetLevel !== store.snapshot().settings.advisorConfig?.budgetLevel) {
+    if (next.advisorConfig?.budgetLevel && next.advisorConfig.budgetLevel !== previousAdvisorBudgetLevel) {
       await rebuildAdvisorRuntime()
     }
     return modelService.status(store.snapshot().settings)
@@ -3315,16 +4791,7 @@ async function startServices() {
     return { snapshot, pdfPath }
   })
   ipcMain.handle('theia:update-settings', async (_event, next) => {
-    const allowed = next && typeof next === 'object' ? next : {}
-    if (typeof allowed.academicApiEnabled === 'boolean') courseSelectionApiClient = null
-    return updateSettingsTransaction({
-      store,
-      next: allowed,
-      restartLocalApi,
-      configureAutoSync: (enabled, interval) => syncService.configureAutoSync(enabled, interval),
-      configureMail: (config) => mailService.configure(config),
-      publishSnapshot: sendSnapshot,
-    })
+    return applyTheiaSettings(next)
   })
   ipcMain.handle('theia:export-data', async (_event, { format = 'json', collection = 'grades' } = {}) => {
     const snapshot = store.snapshot()
@@ -3468,7 +4935,7 @@ async function createMainWindow() {
           'cancelAdvisorRequest', 'deleteAdvisorThread', 'onAdvisorStream',
           'getCourseSelection', 'discoverCourseSelection', 'getCourseSelectionCandidates', 'getCachedSchoolSchedule',
           'saveCourseSelectionTarget', 'removeCourseSelectionTarget', 'setCourseSelectionSentinel', 'startCourseSelection', 'stopCourseSelection',
-          'openSource', 'openSchedulePdf', 'exportData', 'getApiStatus', 'updateSettings',
+          'openSource', 'openAcademicAttachment', 'openSchedulePdf', 'exportData', 'getApiStatus', 'updateSettings',
           'getCredentialStatus', 'saveCredentials', 'clearCredentials',
           'getAcademicApiCredentialStatus', 'saveAcademicApiCredentials', 'clearAcademicApiCredentials',
           'getMailCredentialStatus', 'saveMailCredentials', 'clearMailCredentials', 'refreshMailbox',
@@ -3564,7 +5031,10 @@ async function autoLoginOnStartup() {
   const credentialStatus = await credentialVault.status()
   if (credentialStatus.saved && !credentialStatus.error) {
     await schoolProxyReady.catch(() => undefined)
-    await openLoginWindow({ background: true })
+    // API credentials and the browser partition are independent. Require a
+    // real browser check here so the first source-page click does not pay for
+    // a second hidden authentication probe.
+    await openLoginWindow({ background: true, requireBrowser: true })
   }
 }
 
@@ -3572,6 +5042,8 @@ async function shutdownServices() {
   if (shutdownPromise) return shutdownPromise
   shutdownPromise = (async () => {
     if (academicCalendarProbeTimer) clearInterval(academicCalendarProbeTimer)
+    if (academicStaticPrefetchTimer) clearTimeout(academicStaticPrefetchTimer)
+    academicStaticPrefetchTimer = null
     modelService?.cancelAll()
     advisorRuntime?.cancelAll()
     syncPageQueue.cancelPending(new Error('Application shutdown cancelled the queued school request'))
@@ -3622,9 +5094,23 @@ if (theolMobileDiagnosticOutput) {
   else migrateFromLegacyDir().then(() => app.whenReady()).then(async () => {
     Menu.setApplicationMenu(null)
     registerLocalProtocols()
+    if (liveCaptureOutput) {
+      try {
+        const result = await startServices().then(() => runLiveCapture())
+        console.log(`[THEIA] live capture written: ${JSON.stringify(result)}`)
+      } catch (error) {
+        console.error('[THEIA] live capture failed', error)
+        requestedExitCode = 1
+      } finally {
+        await closeLiveCaptureActors('live capture finished')
+        await shutdownServices()
+        app.exit(requestedExitCode)
+      }
+      return
+    }
     await Promise.all([startVite(), startServices()])
     await createMainWindow()
-  if (!smokeFile) void autoLoginOnStartup().catch((error) => console.error('[THEIA] automatic login failed', error))
+    if (!smokeFile) void autoLoginOnStartup().catch((error) => console.error('[THEIA] automatic login failed', error))
     app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) void createMainWindow() })
   }).catch((error) => {
     console.error('[THEIA] startup failed', error)

@@ -12,6 +12,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { AdvisorRisk, AdvisorUrgentItem } from "../../types";
+import { formatDateTime } from "../../ui/app-shared";
 
 export type AdvisorRiskListItem = AdvisorUrgentItem | AdvisorRisk;
 
@@ -54,15 +55,7 @@ function itemReasons(item: AdvisorRiskListItem) {
 }
 
 function formatDueAt(value: string | null) {
-  if (!value) return "时间未知";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "时间未知";
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  return value ? formatDateTime(value) : "时间未知";
 }
 
 function safeErrorMessage(error: string) {

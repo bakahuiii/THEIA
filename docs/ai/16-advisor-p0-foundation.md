@@ -1,21 +1,21 @@
 # Advisor P0 可信底座
 
-本文是 P0 的实现合同和边界清单。它描述 P1-P3 本地工作台与 P4-P5 模型运行时共同依赖的确定性可信底座。P1-P3 完成范围见 [17-advisor-p1-p3-local-workbench.md](17-advisor-p1-p3-local-workbench.md)，P4-P5 当前实现见 [18-advisor-p4-p5-model-runtime.md](18-advisor-p4-p5-model-runtime.md)。未来改动若改变快照、数据质量、证据、claim 或 overview 语义，必须同时更新本文和对应测试。
+本文是 P0 的实现合同和边界清单。它描述 P1-P3 本地工作台与当前 Agent 共同依赖的确定性可信底座。P1-P3 完成范围见 [17-advisor-p1-p3-local-workbench.md](17-advisor-p1-p3-local-workbench.md)，Agent 当前实现见 [20-a-b-c-advisor-agent-sidecar.md](20-a-b-c-advisor-agent-sidecar.md)。未来改动若改变快照、数据质量、证据、claim 或 overview 语义，必须同时更新本文和对应测试。
 
 ## 1. 当前结论
 
 P0 已提供一条本地、只读、可重复验证的顾问底座：从同一个已提交的 `CampusStore` 版本生成 DataQuality、Evidence、LocalClaim、Risk 和 UrgentItem，再通过受信任的 IPC 返回一个自洽 overview。该路径不访问学校网络、不调用模型、不读取浏览器 session、不写 CampusState。
 
-P0 本身不是完整 AI 顾问；P1-P5 已在本合同之上实现各自阶段能力，不能反过来弱化下列 P0 边界。阶段关系如下：
+P0 本身不是完整 AI 顾问；P1-P3 与当前 Agent 均建立在本合同之上，不能反过来弱化下列 P0 边界。阶段关系如下：
 
 | P0 已实现 | 后续阶段当前状态 |
 | --- | --- |
-| 原子 `snapshotWithRevision()` 和逐域 content digest | P4 已由独立 `AdvisorRuntime` 冻结请求并复核 revision |
-| 逐来源/逐领域 provenance 与 DataQuality | P4 已由 `ContextBuilder`/DisclosurePlan 选择最小模型上下文 |
-| 证据注册、披露字段和闭合引用 | P4 已实现严格 narrative schema、请求级 catalog 和 `CitationVerifier` |
-| 本地 typed claims、有限风险规则和稳定 agenda | P4-P5 已实现短期逐实体 consent 和敏感 scope 绑定 |
-| 只读 `advisor:get-overview` 主进程服务 | P4 已接入 Provider、内存线程、取消、并发和预算 |
-| trusted main-frame IPC、安全窗口边界和离线 packaged smoke | 持久 `AdvisorStore`、多轮摘要和有界工具循环仍未实现 |
+| 原子 `snapshotWithRevision()` 和逐域 content digest | Agent 由独立 `AdvisorRuntime` 冻结请求并复核 revision |
+| 逐来源/逐领域 provenance 与 DataQuality | Agent 通过惰性只读工具按需取得最小数据切片 |
+| 证据注册、披露字段和闭合引用 | Agent 使用动态披露账本、固定工具协议和 `CitationVerifier` 的目录/不可信引用校验；最终普通文本不再被改写成 narrative JSON |
+| 本地 typed claims、有限风险规则和稳定 agenda | 模型只能解释工具实际返回的本地条目 |
+| 只读 `advisor:get-overview` 主进程服务 | Agent 已接入 Provider、流式转发、加密线程、取消、并发和预算 |
+| trusted main-frame IPC、安全窗口边界和离线 packaged smoke | 加密 `AdvisorStore` 已启用；跨 revision 摘要、密钥轮换和旧 evidence 生命周期仍未实现 |
 
 现有 `electron/model-service.mjs` 继续负责 OpenAI-compatible 模型探测和传输，以及作业、笔记、论文等既有工作流。P4 新增的 `electron/advisor-runtime.mjs` 在其外层负责冻结顾问快照、控制披露、校验 claim 引用和管理请求生命周期，因此 **ModelService 仍不等于 AdvisorRuntime**。
 
@@ -193,13 +193,13 @@ evidenceRefs
 
 ## 6. P4 模型请求的冻结规则
 
-P4 已按下列规则让每个模型请求形成自己的不可变请求上下文：
+当前 Agent 按下列规则让每个模型请求形成自己的不可变请求上下文：
 
 1. `AdvisorRuntime` 调用一次 `snapshotWithRevision()`，采样一次 `evaluatedAt`。
 2. 本地引擎从该四元实例生成 DataQuality、Evidence、claim 和 action catalog。
-3. `ContextBuilder` 根据用户问题、用途、service identity 和 consent 从该 catalog 选择最小披露集合。
-4. runtime 保存本次请求实际发送的 claim/action/evidence allowlist 及其 digest，然后才调用 Provider。
-5. 模型响应到达后，CitationVerifier 必须针对**请求时冻结的 catalog**验证 schema 和引用。
+3. Agent 启动时不会预披露 catalog 条目；模型只能通过固定只读工具按需取得允许的切片。
+4. runtime 为本轮工具结果建立动态 claim/evidence/reference 账本；工具协议和不可信引用仍由 `CitationVerifier` 做边界校验。
+5. 模型最终普通文本按原字节保存和流式显示，不再经过本地 narrative schema、引用补写或事实重写。
 6. 即使等待期间 CampusStore 已提交新 revision，也不得把响应中的旧 ID 解析到“当前”catalog，或用当前值替换请求时值。
 7. 若产品选择拒绝过期回答，应把它标为 revision conflict 并重新发起一轮明确请求；不得静默重绑定。
 
@@ -227,7 +227,7 @@ P4 已按下列规则让每个模型请求形成自己的不可变请求上下�
 7. overview 四元实例键内外一致，所有 evidence/claim 引用闭合；每条 evidence 的 `domainDigest` 等于对应领域业务 `contentDigest`，独立 `evidenceDigest` 存在且合法。
 8. 同一 claim ID 跨时间的动态值变化有测试，消费端整体替换 overview。
 9. 所有 P0 测试和 packaged smoke 使用 fixture，保持离线，不访问真实学校账户或模型。
-10. 不把 ModelService、AI export 或 overview IPC 单独描述为完整模型顾问；P4 状态必须以独立 `AdvisorRuntime` 和 [P4-P5 实施说明](18-advisor-p4-p5-model-runtime.md)为准。
+10. 不把 ModelService、AI export 或 overview IPC 单独描述为完整模型顾问；Agent 状态必须以独立 `AdvisorRuntime` 和 [Agent 实施说明](20-a-b-c-advisor-agent-sidecar.md)为准。
 
 相关实现与测试入口：
 

@@ -394,6 +394,7 @@ export function projectCourseDecision(value) {
 export function projectDataQualityDomain(value) {
   const input = record(value, 'Advisor data quality domain')
   const lastAttempt = record(input.lastAttempt || {}, 'Advisor data quality last attempt')
+  const sourceAttempts = Array.isArray(input.sourceAttempts) ? input.sourceAttempts.slice(0, 8) : []
   return {
     domain: requiredText(input.domain, 'Advisor data quality domain id', 64),
     availability: requiredText(input.availability, 'Advisor data quality availability', 32),
@@ -404,6 +405,26 @@ export function projectDataQualityDomain(value) {
     source: controlledIdentifierList(input.source),
     recordCount: finiteNumber(input.recordCount) ?? 0,
     contentDigest: requiredText(input.contentDigest, 'Advisor data quality content digest', 64),
+    sourceAttempts: sourceAttempts.map((entry) => {
+      const attempt = record(entry, 'Advisor data quality source attempt')
+      return {
+        source: controlledIdentifierList(attempt.source),
+        attemptedAt: optionalInstant(attempt.attemptedAt),
+        completedAt: optionalInstant(attempt.completedAt),
+        capturedAt: optionalInstant(attempt.capturedAt),
+        sourceSucceededAt: optionalInstant(attempt.sourceSucceededAt),
+        status: requiredText(attempt.status || 'never', 'Advisor source attempt status', 32),
+        completeness: requiredText(attempt.completeness || 'unknown', 'Advisor source attempt completeness', 32),
+        retainedPrevious: attempt.retainedPrevious === true,
+        errorCode: optionalControlledIdentifier(attempt.errorCode, 120),
+        parserVersion: optionalText(attempt.parserVersion, 120),
+        receivedRecordCount: finiteNumber(attempt.receivedRecordCount),
+        previousRecordCount: finiteNumber(attempt.previousRecordCount),
+        successfulTermIds: controlledIdentifierList(attempt.successfulTermIds).slice(0, 64),
+        failedTermIds: controlledIdentifierList(attempt.failedTermIds).slice(0, 64),
+      }
+    }),
+    derivedFrom: controlledIdentifierList(input.derivedFrom).slice(0, 32),
     lastAttempt: {
       status: requiredText(lastAttempt.status || 'never', 'Advisor data quality attempt status', 32),
       emptyConfirmed: lastAttempt.emptyConfirmed === true,

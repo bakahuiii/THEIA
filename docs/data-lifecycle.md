@@ -59,7 +59,7 @@ preferences: settings
 
 ### 4.1 会话来源
 
-学校页面通过 Electron 的持久 session 使用统一认证 Cookie；`SessionClient` 负责安全请求、字符编码、登录页识别和错误归类。教务 API 凭据与统一认证会话分离，API cookie jar 仅存在内存，不能镜像进 Electron 的统一认证浏览器 session。API 未启用或未配置时使用浏览器通道；已启用 API 后的本次 API 故障会返回错误并保留既有本地数据，不在该轮同步中静默切换浏览器通道。邮箱使用独立的加密凭据和 IMAP 通道；模型服务也使用独立 API Key。
+学校页面通过 Electron 的持久 session 使用统一认证 Cookie；`SessionClient` 负责安全请求、字符编码、登录页识别和错误归类。教务 API 凭据与统一认证会话分离，API cookie jar 仅存在内存，不能镜像进 Electron 的统一认证浏览器 session。API 未启用或未配置时使用浏览器通道；API 失败的来源域会尝试一次浏览器回退，成功的 API 域继续保留，浏览器认证也失败时报告认证错误并保留既有本地数据。邮箱使用独立的加密凭据和 IMAP 通道；模型服务也使用独立 API Key。
 
 ### 4.2 Adapter 与 parser
 

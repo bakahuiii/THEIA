@@ -13,6 +13,17 @@ function modelSettings(settings) {
     ? settings.modelRouting
     : {}
   const route = (value) => typeof value === 'string' && value.trim().length <= 300 ? value.trim() || null : null
+  const advisor = settings?.advisorConfig && typeof settings.advisorConfig === 'object' ? settings.advisorConfig : {}
+  const budgetLevel = ['high', 'xhigh', 'max', 'ultra'].includes(advisor.budgetLevel) ? advisor.budgetLevel : 'high'
+  const permissionMode = ['read-only', 'full-access'].includes(advisor.permissionMode)
+    ? advisor.permissionMode
+    : 'read-only'
+  const effort = ['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(advisor.reasoningEffort) ? advisor.reasoningEffort : 'medium'
+  const style = ['direct', 'balanced', 'detailed'].includes(advisor.responseStyle) ? advisor.responseStyle : 'balanced'
+  const responseLength = ['adaptive', 'short', 'standard', 'detailed'].includes(advisor.responseLength) ? advisor.responseLength : 'adaptive'
+  const temperature = typeof advisor.temperature === 'number' && Number.isFinite(advisor.temperature)
+    ? Math.max(0, Math.min(2, advisor.temperature))
+    : 1
   return {
     modelBaseUrl: typeof settings?.modelBaseUrl === 'string' ? settings.modelBaseUrl : '',
     modelProvider: normalizeModelProvider(settings?.modelProvider),
@@ -26,6 +37,7 @@ function modelSettings(settings) {
       courseworkModel: route(routing.courseworkModel),
       fallbackModel: route(routing.fallbackModel),
     },
+    advisorConfig: { budgetLevel, permissionMode, reasoningEffort: effort, responseStyle: style, responseLength, temperature },
   }
 }
 
@@ -146,6 +158,7 @@ async function saveModelConfigTransactionUnlocked({
   modelName,
   models,
   modelRouting,
+  advisorConfig,
   modelProvider,
   allowKeyless = false,
   apiKey = '',
@@ -180,6 +193,7 @@ async function saveModelConfigTransactionUnlocked({
         modelName,
         modelModels: [...models],
         modelRouting: modelSettings({ modelRouting }).modelRouting,
+        advisorConfig: modelSettings({ advisorConfig }).advisorConfig,
       },
     }))
     publishSnapshot(snapshot)

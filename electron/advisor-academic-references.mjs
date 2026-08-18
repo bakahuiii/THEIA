@@ -85,6 +85,54 @@ function publicSources(value) {
     .filter(Boolean))].sort()
 }
 
+function publicRunId(value) {
+  const normalized = text(value)
+  // Run identifiers are diagnostics only.  Keep the stable opaque form used
+  // by THEIA, while rejecting mixed-case/underscore payloads that can carry
+  // arbitrary provenance or secret-like text from an adapter extension.
+  return /^[a-z0-9][a-z0-9.-]{0,127}$/.test(normalized) ? normalized : null
+}
+
+function publicErrorCode(value) {
+  const normalized = text(value)
+  return /^[a-z][a-z0-9_-]{0,119}$/.test(normalized) ? normalized : null
+}
+
+function publicParserVersion(value) {
+  const normalized = text(value)
+  return /^[a-zA-Z0-9._/-]{1,120}$/.test(normalized) ? normalized : null
+}
+
+function publicTermIds(value) {
+  return [...new Set(list(value)
+    .map(text)
+    .filter((termId) => /^[a-zA-Z0-9._/-]{1,80}$/.test(termId)))].sort().slice(0, 64)
+}
+
+function projectPublicSourceAttempt(value) {
+  const attempt = record(value)
+  return {
+    source: publicSources(attempt.source),
+    attemptedAt: publicInstant(attempt.attemptedAt),
+    completedAt: publicInstant(attempt.completedAt),
+    capturedAt: publicInstant(attempt.capturedAt),
+    sourceSucceededAt: publicInstant(attempt.sourceSucceededAt),
+    status: publicEnum(attempt.status, PUBLIC_ATTEMPT_STATUS, 'never'),
+    completeness: publicEnum(attempt.completeness, PUBLIC_COMPLETENESS, 'unknown'),
+    retainedPrevious: attempt.retainedPrevious === true,
+    errorCode: publicErrorCode(attempt.errorCode),
+    parserVersion: publicParserVersion(attempt.parserVersion),
+    receivedRecordCount: Number.isSafeInteger(Number(attempt.receivedRecordCount)) && Number(attempt.receivedRecordCount) >= 0
+      ? Number(attempt.receivedRecordCount)
+      : null,
+    previousRecordCount: Number.isSafeInteger(Number(attempt.previousRecordCount)) && Number(attempt.previousRecordCount) >= 0
+      ? Number(attempt.previousRecordCount)
+      : null,
+    successfulTermIds: publicTermIds(attempt.successfulTermIds),
+    failedTermIds: publicTermIds(attempt.failedTermIds),
+  }
+}
+
 function publicSource(value) {
   return PUBLIC_SOURCE_MAP.get(text(value)) || null
 }
@@ -154,17 +202,21 @@ function projectPublicDomainQuality(value, domain = null) {
     capturedAt: publicInstant(quality.capturedAt),
     sourceSucceededAt: publicInstant(quality.sourceSucceededAt),
     source: publicSources(quality.source),
-    parserVersion: null,
+    parserVersion: publicParserVersion(quality.parserVersion),
     recordCount: publicCount(quality.recordCount),
     contentDigest: publicDigest(quality.contentDigest),
+    sourceAttempts: list(quality.sourceAttempts).map(projectPublicSourceAttempt).slice(0, 8),
+    derivedFrom: [...new Set(list(quality.derivedFrom)
+      .map(text)
+      .filter((dependency) => PUBLIC_DOMAINS.has(dependency)))].sort().slice(0, 32),
     lastAttempt: {
-      runId: null,
+      runId: publicRunId(lastAttempt.runId),
       attemptedAt: publicInstant(lastAttempt.attemptedAt),
       completedAt: publicInstant(lastAttempt.completedAt),
       status: publicEnum(lastAttempt.status, PUBLIC_ATTEMPT_STATUS, 'never'),
       emptyConfirmed: lastAttempt.emptyConfirmed === true,
       retainedPrevious: lastAttempt.retainedPrevious === true,
-      errorCode: null,
+      errorCode: publicErrorCode(lastAttempt.errorCode),
     },
     provenanceInferred: quality.provenanceInferred === true,
   }

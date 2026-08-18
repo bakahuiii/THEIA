@@ -17,10 +17,10 @@ THEIA 是面向北京化工大学校园服务的本地优先 Windows 桌面工�
 
 ## 模型服务与隐私
 
-在“设置”中填写服务地址与 API 密钥。THEIA 会检查兼容的 `/v1/models` 端点、列出可用模型并选择合适的文本模型；对于不提供模型列表的中转服务，仍可手动填写模型 ID。THEIA 使用 OpenAI 兼容的 Chat Completions 端点：
+在“设置”中填写服务地址与 API 密钥。THEIA 会检查兼容的 `/v1/models` 端点、列出可用模型并选择合适的文本模型；对于不提供模型列表的中转服务，仍可手动填写模型 ID。`openai-compatible` 服务一律使用 Responses API：
 
 ```text
-POST {服务地址}/chat/completions
+POST {服务地址}/v1/responses
 Authorization: Bearer {API 密钥}
 ```
 
@@ -30,11 +30,9 @@ Authorization: Bearer {API 密钥}
 
 ## 顾问能力现状
 
-THEIA 已具备不依赖模型的确定性顾问底座。`getAdvisorOverview` 从一次原子的 `CampusStore.snapshotWithRevision()` 读取数据，在本地计算各数据域质量、证据引用、类型化结论、数据质量风险、作业与考试时间记录以及稳定议程。该路径不访问学校、不请求模型、不读取浏览器会话，也不写入状态，因此可在离线和未配置 API 密钥时运行。
+顾问在用户发起后把问题交给配置的模型服务。普通模型文本按流式增量显示，完成后以原文保存和展示，不再被本地叙述 schema、引用校验、数据新旧提示或“未确定”模板改写。
 
-在此底座上，P1-P3 已提供本地议程、学业分析和选课决策工作台；P4-P5 首发已把受约束的模型解释接入顾问页。`AdvisorRuntime` 只在用户明确发起并确认披露后发送按意图裁剪的最小上下文，回答必须通过严格叙述 schema，以及请求时冻结的 claim、action 和低信任通知/邮件引用目录校验。模型不能直接读取 `CampusStore`、Feed、回环 API、浏览器会话或本机文件。
-
-当前首发仍不是自由 Agent：没有持久会话或持久多轮摘要，没有工具循环、Agent Provider、多代理、流式输出、embedding 或持久 RAG，也没有任何模型登录、同步、抢课、填答、发信、提交或文件访问权限。`course` 意图尚未接入 P3 当前候选/决策的专用交互，邮件也不会被顾问自动联网读取或改变已读状态。准确边界见 [P4-P5 模型运行时说明](docs/ai/18-advisor-p4-p5-model-runtime.md)。
+模型可在同一轮返回唯一白名单格式 `theia-advisor-tool-call/v1` 来请求本地数据或已声明的 Agent 操作；只有精确匹配该格式与当前工具白名单的 JSON 才会被执行。默认“只读（受控 Agent）”保留同步校园资料、公开 HTTPS 请求、校园页面、THEIA 设置和已保存选课控制，但不授予通用文件系统、Shell 或任意网页访问。“完全访问”额外提供本地文件/目录读写删除、命令执行、任意 HTTP(S) 请求和网页打开，操作后果由本机用户负责；两种模式都不会把保存的 Cookie、密码、API Key、会话或原始 IPC 交给模型。顾问会话保存在本机并由系统加密存储保护。
 
 ## 作业流程
 
@@ -74,7 +72,7 @@ npm run cli -- doctor
 
 `export --format ai` 会在所选父目录内新建 `THEIA-AI-EXPORT-YYYYMMDD-HHmmss` 目录，其中包含 16 份规范化数据域 JSON、`AI_CONTEXT.md`、`DATA_DICTIONARY.md` 和 `manifest.json`；清单为其余 18 个文件记录 SHA-256 摘要。该数据包是由用户主动导出的静态 AI 阅读快照，不是学校系统的实时会话，也不能用于导入或写入。它会排除凭据、Cookie、浏览器状态、绝对路径、原始附件和工作区输出，但仍可能包含敏感的学业与邮件数据。请只保存在本机，或仅交给你明确信任的模型服务。准确结构和校验规则见[《AI 导出契约》](docs/reference/ai-export-contract.md)。
 
-桌面端“设置”提供单独加密的教务 API 凭据槽和明确的数据源选择器。启用 API 优先且已保存凭据时，THEIA 使用隔离的教务 API 适配器；未启用或未配置时，使用统一身份认证浏览器路径。如果已启用的 API 请求失败，THEIA 会保留现有本地快照并报告来源错误，不会在同一次同步中静默切换路径。
+桌面端“设置”提供单独加密的教务 API 凭据槽和明确的数据源选择器。启用 API 优先且已保存凭据时，THEIA 使用隔离的教务 API 适配器；未启用或未配置时，使用统一身份认证浏览器路径。API 失败的来源域会尝试一次统一身份认证浏览器回退；已成功的 API 域继续保留。浏览器认证也失败时会明确报告认证错误，不会静默吞掉失败或用空结果覆盖现有本地快照。
 
 直接 API 会话必须与 `persist:theia` 隔离，因为北化可能在第二次登录时使先前的教务会话失效。API Cookie 不得复制到统一身份认证浏览器会话。
 
@@ -119,9 +117,11 @@ THEIA 的源代码以 [MIT License](LICENSE) 发布。该许可只适用于本�
 - [文档总索引](docs/README.md)：按用户、开发、数据和运维主题查找文档。
 - [用户指南](docs/guides/USER_GUIDE.md)：桌面端完整操作说明。
 - [新生快速开始](docs/guides/FRESHMAN_START.md)：首次使用与基础同步。
-- [产品方向](PRODUCT_DIRECTION.md)：产品边界和近期方向。
 - [AI 方向](AI_DIRECTION.md)：AI 顾问的目标、阶段和原则。
-- [待办事项](TODO.md)：尚未完成的工作与优先级。
+- [当前 Agent 说明](docs/ai/20-a-b-c-advisor-agent-sidecar.md)：内嵌顾问、惰性工具和权限边界。
+- [顾问数据流与开放 Agent](docs/ai/19-p6-data-flow-and-open-agent.md)：数据流、线程和开放式只读 Agent 记录。
+- [学业顾问交接](docs/ai/21-advisor-handoff.md)：当前 Agent 维护入口和验证命令。
+- [发行兼容与恢复](docs/ai/22-distribution-compatibility-and-recovery.md)：打包兼容、认证恢复和诊断边界。
 
 ### 架构、数据与开发
 

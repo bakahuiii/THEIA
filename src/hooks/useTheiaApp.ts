@@ -33,12 +33,20 @@ import {
   hideAdvisorItem,
   visibleAdvisorItems,
 } from "./advisor-presentation.mjs";
+import { projectBrowserRendererSnapshot } from "../user-data-view";
 
 type SyncFreshness = {
   kind: "syncing" | "failed" | "idle" | "ready";
   label: string;
   detail: string;
 };
+
+function syncSnapshotIsPending(sync: CampusState["sync"] | null | undefined) {
+  const startedAt = Date.parse(sync?.lastStartedAt || "");
+  if (!Number.isFinite(startedAt)) return false;
+  const completedAt = Date.parse(sync?.lastCompletedAt || "");
+  return !Number.isFinite(completedAt) || completedAt < startedAt;
+}
 
 const emptyModelStatus: ModelStatus = {
   configured: false,
@@ -63,6 +71,7 @@ export function useTheiaApp() {
   const [auth, setAuth] = useState<AuthStatus>(disconnectedStatus());
   const [view, setView] = useState<ViewId>("dashboard");
   const [syncing, setSyncing] = useState(false);
+  const [academicDomainRefreshing, setAcademicDomainRefreshing] = useState<SyncRetryDomain | null>(null);
   const [exportingSchedulePdf, setExportingSchedulePdf] = useState(false);
   const [syncProgress, setSyncProgress] = useState<string | null>(null);
   const [syncStage, setSyncStage] = useState<string | null>(null);
@@ -112,6 +121,7 @@ export function useTheiaApp() {
   const [calendarAssetUrls, setCalendarAssetUrls] = useState<
     Partial<Record<"calendar" | "teachingSchedule" | "weeklyCalendar", string>>
   >({});
+  const [academicPlanAssetBaseUrl, setAcademicPlanAssetBaseUrl] = useState("");
   const [credentialStatus, setCredentialStatus] =
     useState<CredentialStatus | null>(null);
   const [academicApiCredentialStatus, setAcademicApiCredentialStatus] =
@@ -150,9 +160,35 @@ export function useTheiaApp() {
   const courseSelectionCandidatesRequestSequence = useRef(0);
   const advisorOverviewRequestSequence = useRef(0);
 
+  const applyRendererSnapshot = useCallback((snapshot: CampusState) => {
+    setState(projectBrowserRendererSnapshot(snapshot));
+    // A campus snapshot can invalidate the inputs behind the previous
+    // recommendation. Clear it before starting any replacement request so the
+    // dashboard never presents an action from an older data revision.
+    advisorOverviewRequestSequence.current += 1;
+    setAdvisorOverview(null);
+    setAdvisorError(null);
+    setAdvisorLoading(false);
+    // Progress events are transient IPC notifications. A renderer can miss
+    // the terminal event while it is being created or while Electron is
+    // recovering a saved session. The persisted timestamps are authoritative
+    // and let the UI reconcile the live indicator from the next snapshot.
+    if (syncSnapshotIsPending(snapshot.sync)) {
+      setSyncing(true);
+      setSyncStage("all");
+      setSyncProgress("正在更新校园数据…");
+    } else if (snapshot.sync.lastCompletedAt) {
+      setSyncing(false);
+      setSyncStage(null);
+      setSyncProgress("校园数据更新完成");
+    }
+  }, []);
+
   const refreshAdvisorOverview = useCallback(async () => {
     const requestSequence = ++advisorOverviewRequestSequence.current;
     setAdvisorLoading(true);
+    setAdvisorOverview(null);
+    setAdvisorError(null);
     try {
       const overview = await bridge.getAdvisorOverview();
       if (requestSequence !== advisorOverviewRequestSequence.current) return null;
@@ -162,6 +198,7 @@ export function useTheiaApp() {
     } catch (error) {
       if (requestSequence !== advisorOverviewRequestSequence.current) return null;
       const text = error instanceof Error ? error.message : String(error);
+      setAdvisorOverview(null);
       setAdvisorError(text);
       return null;
     } finally {
@@ -216,15 +253,16 @@ export function useTheiaApp() {
         if (active) {
           setApiBase(api.baseUrl);
           setCalendarAssetUrls(api.academicCalendarAssets || {});
+          setAcademicPlanAssetBaseUrl(api.academicPlanAssetBaseUrl || "");
         }
       },
     });
     void bridge
-      .getSnapshot()
+      .getRendererSnapshot()
       .then((snapshot) => {
         if (!active) return;
         syncFailureObserver.initialize(snapshot);
-        setState(snapshot);
+        applyRendererSnapshot(snapshot);
         void refreshAdvisorOverview();
         // Keep cached data loading silent so the first usable frame stays calm.
         // Connection probes run only after authoritative local data is loaded.
@@ -284,7 +322,7 @@ export function useTheiaApp() {
     };
     const offSnapshot = bridge.onSnapshot((snapshot) => {
       syncFailureObserver.observe(snapshot);
-      setState(snapshot);
+      applyRendererSnapshot(snapshot);
       void refreshAdvisorOverview();
       void loadApiStatus().catch(() => undefined);
     });
@@ -355,7 +393,7 @@ export function useTheiaApp() {
       offNewMail();
       offProgress();
     };
-  }, [refreshAdvisorOverview, setError, setMsg, syncFailureObserver]);
+  }, [applyRendererSnapshot, refreshAdvisorOverview, setError, setMsg, syncFailureObserver]);
 
   useEffect(() => {
     if (!state) return;
@@ -406,7 +444,7 @@ export function useTheiaApp() {
     try {
       const snapshot = await bridge.syncNow();
       syncFailureObserver.observe(snapshot);
-      setState(snapshot);
+      applyRendererSnapshot(snapshot);
       if (!snapshot.sync.lastError) {
         setSyncFailure(null);
         setRuntimeSyncError(null);
@@ -417,12 +455,26 @@ export function useTheiaApp() {
       setSyncing(false);
     }
   };
+  const refreshAcademicDomain = async (domain: SyncRetryDomain) => {
+    if (academicDomainRefreshing) return;
+    setAcademicDomainRefreshing(domain);
+    try {
+      const snapshot = await bridge.retrySyncDomain(domain);
+      applyRendererSnapshot(snapshot);
+      setMsg("数据已更新。", "success");
+    } catch (error) {
+      setError(error);
+    } finally {
+      setAcademicDomainRefreshing(null);
+    }
+  };
   const executeAdvisorAction = async (item: AdvisorUrgentItem) => {
     const retryableDomains = new Set<SyncRetryDomain>([
       "profile", "terms", "schedule", "exams", "grades", "selected-courses",
       "academic-progress", "jwglxt-courses", "jwglxt-notices", "theol-courses",
       "assignments", "theol-notices", "mailbox", "academic-calendar", "fitness",
-      "school-schedule",
+      "school-schedule", "academic-extras", "academic-plan", "graduation-audit",
+      "grade-details", "exam-extra", "free-classroom",
     ]);
     const domain = item.domain as SyncRetryDomain | null | undefined;
     setAdvisorActionPendingId(item.id);
@@ -434,7 +486,7 @@ export function useTheiaApp() {
         case "resync": {
           if (domain && retryableDomains.has(domain)) {
             const snapshot = await bridge.retrySyncDomain(domain);
-            setState(snapshot);
+            applyRendererSnapshot(snapshot);
             setMsg(`${item.title}：数据已重新获取。`, "success");
           } else {
             await sync();
@@ -500,7 +552,7 @@ export function useTheiaApp() {
   ) => {
     setWorkingAssignmentId(assignmentId);
     try {
-      setState(await operation());
+      applyRendererSnapshot(await operation());
       setMsg(success, "success");
     } catch (error) {
       setError(error);
@@ -567,7 +619,7 @@ export function useTheiaApp() {
     try {
       const result = await bridge.importCourseWorkFile(assignmentId, kind);
       if (!result.canceled) {
-        setState(result.snapshot);
+        applyRendererSnapshot(result.snapshot);
         setMsg(
           kind === "answer-key"
             ? "测试答案 JSON 已导入，可写入内置浏览器中的测试页面"
@@ -586,7 +638,7 @@ export function useTheiaApp() {
     try {
       const result = await bridge.openSubmission(assignmentId);
       if (!result.canceled) {
-        setState(result.snapshot);
+        applyRendererSnapshot(result.snapshot);
         setMsg(result.message || "已打开北化在线THEOL提交页", "success");
       }
     } catch (error) {
@@ -599,7 +651,7 @@ export function useTheiaApp() {
     setWorkingAssignmentId(assignmentId);
     try {
       const result = await bridge.applyTestAnswers(assignmentId);
-      setState(result.snapshot);
+      applyRendererSnapshot(result.snapshot);
       setMsg(
         result.failed.length
           ? `已写入 ${result.applied.length}/${result.total} 题；${result.failed.length} 题未匹配，请在测试页核对`
@@ -808,6 +860,7 @@ export function useTheiaApp() {
     syncFreshness,
     apiBase,
     calendarAssetUrls,
+    academicPlanAssetBaseUrl,
     credentialStatus,
     academicApiCredentialStatus,
     mailCredentialStatus,
@@ -853,6 +906,8 @@ export function useTheiaApp() {
     executeAdvisorAction,
     requestLogin,
     sync,
+    academicDomainRefreshing,
+    refreshAcademicDomain,
     exportSchedulePdf,
     prepareCourseWork,
     processCourseWorkWithModel,

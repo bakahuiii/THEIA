@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 const mainSource = await readFile(new URL('../electron/main.mjs', import.meta.url), 'utf8')
+const authManagerSource = await readFile(new URL('../electron/auth-actor-manager.mjs', import.meta.url), 'utf8')
 
 function sourceBetween(start, end) {
   const startIndex = mainSource.indexOf(start)
@@ -12,16 +13,12 @@ function sourceBetween(start, end) {
   return mainSource.slice(startIndex, endIndex)
 }
 
-test('JWGLXT bypasses the rendered THEOL page queue while sharing its browser cookies', () => {
+test('JWGLXT uses the rendered school page queue while sharing its browser cookies', () => {
   assert.match(
     mainSource,
-    /academicSessionClient = new SessionClient\(schoolSession, \{\s*onDiagnostic:/s,
+    /academicSessionClient = new SessionClient\(schoolSession, \{\s*pageLoader: smokeFile \? null : loadSchoolPage,\s*formLoader: smokeFile \? null : submitSchoolForm,\s*(?:binaryLoader: smokeFile \? null : loadBinaryWithSchoolBrowser,\s*)?onDiagnostic:/s,
   )
-  assert.doesNotMatch(
-    mainSource.match(/academicSessionClient = new SessionClient\(schoolSession, \{([\s\S]*?)\n  \}\)/)?.[1] || '',
-    /pageLoader|formLoader/,
-  )
-  assert.match(mainSource, /browserAdapter: new JwglxtAdapter\(academicSessionClient\)/)
+  assert.match(mainSource, /browserAdapter: new JwglxtAdapter\(academicSessionClient, \{\s*attachmentStore: academicAttachmentStore/s)
   assert.match(mainSource, /theol: new TheolAdapter\(sessionClient\)/)
   assert.match(
     mainSource,
@@ -36,15 +33,19 @@ test('JWGLXT bypasses the rendered THEOL page queue while sharing its browser co
 })
 
 test('authentication uses source-scoped single-flight actors instead of a shared login queue', () => {
-  assert.match(mainSource, /const authActors = new Map\(\)/)
-  assert.match(mainSource, /const current = authActors\.get\(source\)[\s\S]*?return current[\s\S]*?return createAuthActor\(source, \{ background \}\)/)
-  assert.match(mainSource, /const actors = requestedSources\.map\(\(source\) => \{[\s\S]*?await Promise\.all\(actors\.map\(\(actor\) => actor\.opened\)\)/)
+  assert.match(mainSource, /const authActorManager = createAuthActorManager\(/)
+  assert.match(mainSource, /const authActors = authActorManager\.actors/)
+  assert.match(authManagerSource, /return create\(source, \{ background, userInitiated \}\)/)
+  assert.match(mainSource, /await authActorManager\.open\([\s\S]*?requestedSources/s)
+  assert.match(authManagerSource, /const actors = new Map\(\)/)
+  assert.match(authManagerSource, /if \(current && !current\.invalidated[\s\S]*?return current/s)
+  assert.match(authManagerSource, /await Promise\.all\(actorList\.map\(\(actor\) => actor\.opened\)\)/)
   assert.doesNotMatch(mainSource, /\blet loginWindow\b|\blet loginTarget\b|\blet loginQueue\b|\blet authPoll\b/)
 })
 
 test('THEOL login owns its exclusive lease for the complete actor lifecycle', () => {
   const actorLifecycle = mainSource.match(/async function runAuthActor\(actor\) \{[\s\S]*?\n\}/)?.[0] || ''
-  const createActor = mainSource.match(/function createAuthActor\(source,[\s\S]*?\nasync function openLoginWindow/)?.[0] || ''
+  const createActor = authManagerSource
   assert.match(actorLifecycle, /actor\.resumeAssignments = syncService\.pauseAssignmentScan\(\)\s*await syncService\.waitForAssignmentScan\(\)/s)
   assert.match(actorLifecycle, /if \(actor\.source === 'theol'\) await syncService\.runTheolExclusive\(runLifecycle\)\s*else await runLifecycle\(\)/s)
   assert.match(actorLifecycle, /await actor\.closed/)
@@ -104,14 +105,15 @@ test('successful authentication releases its actor before source-scoped synchron
   const finishActor = mainSource.match(/async function finishAuthActor\(actor\) \{[\s\S]*?\n\}/)?.[0] || ''
   assert.match(finishActor, /if \(authActors\.get\(actor\.source\) === actor\) authActors\.delete\(actor\.source\)/)
   assert.match(finishActor, /if \(actor\.source === 'theol'\) syncService\.enableAssignmentScan\(\{ schedule: false \}\)/)
-  assert.match(finishActor, /await syncService\.syncNow\(\{ sources: \[actor\.source\] \}\)/)
+  assert.match(finishActor, /const syncOptions = actor\.userInitiated[\s\S]*?await syncService\.syncNow\(syncOptions\)/s)
   assert.match(finishActor, /await flushPendingSourceOpens\(actor\.source, actor\.epoch\)/)
   assert.match(mainSource, /async function flushPendingSourceOpens\(source, epoch = authEpoch\)[\s\S]*?request\.source === source[\s\S]*?if \(explicitlyLoggedOut \|\| epoch !== authEpoch\) return/)
 })
 
 test('authentication continuations are bound to their actor window and epoch', () => {
   const pollActor = mainSource.match(/async function pollAuthStatus\(actor\) \{[\s\S]*?\n\}/)?.[0] || ''
-  assert.match(mainSource, /function isCurrentAuthActor\(actor, window = actor\?\.window\)[\s\S]*?actor\.epoch === authEpoch[\s\S]*?authActors\.get\(actor\.source\) === actor[\s\S]*?actor\.window === window/s)
+  assert.match(mainSource, /function isCurrentAuthActor\(actor, window = actor\?\.window\)[\s\S]*?authActorManager\.isCurrent\(actor, window\)/s)
+  assert.match(authManagerSource, /actor\.epoch === getEpoch\(\)[\s\S]*?actors\.get\(actor\.source\) === actor[\s\S]*?actor\.window === window/s)
   assert.match(mainSource, /await credentialVault\.readCredentials\(\)\s*if \(!isCurrentAuthActor\(actor, window\) \|\| actor\.epoch !== epoch\) return/s)
   assert.match(mainSource, /await frame\.executeJavaScript\(script\)\s*if \(!isCurrentAuthActor\(actor, window\) \|\| actor\.epoch !== epoch\) return/s)
   assert.match(mainSource, /await rememberVerifiedSession\(source, authenticatedUrl, epoch\)\s*if \(!isCurrentAuthActor\(actor, window\) \|\| actor\.epoch !== epoch\) return/s)
@@ -145,15 +147,54 @@ test('verified session writes remain bound to the epoch that initiated each requ
   assert.match(authActor, /rememberVerifiedSession\(actor\.source, status\.url \|\| loginTargetDetails\(actor\.source\)\.url, actor\.epoch\)/)
 })
 
+test('source-page opens wait for saved-password authentication before showing the requested page', () => {
+  const sourceWindow = sourceBetween('async function openSourceWindow(', '\n\nasync function autoFillSavedCredentials(')
+  assert.match(sourceWindow, /const actors = await openLoginWindow\(/)
+  assert.match(sourceWindow, /if \(credentials\?\.saved\) \{[\s\S]*?if \(actor\?\.lifecycle\) await actor\.lifecycle[\s\S]*?if \(!actor\?\.authenticated\)/s)
+  assert.match(sourceWindow, /const opened = await openAuthenticatedSourceWindow\(url, title/)
+  assert.doesNotMatch(sourceWindow, /pendingSourceOpens\.push\(\{ source, url, title \}\)[\s\S]*?credentials\?\.saved/s)
+  assert.match(mainSource, /const actors = await authActorManager\.open\([\s\S]*?return actors/s)
+})
+
+test('source-page opens reuse a verified browser session without a hidden probe', () => {
+  const sourceWindow = sourceBetween('async function openSourceWindow(', '\n\nasync function autoFillSavedCredentials(')
+  assert.match(sourceWindow, /source !== 'theol' && status\?\.connected && verifiedSessions\[source\][\s\S]*?await createSourceWindow\(url, title, \{ pauseAssignments: false \}\)/s)
+})
+
+test('source-page authentication re-probes the first page after actor completion', () => {
+  const sourceWindow = sourceBetween('async function openAuthenticatedSourceWindow(', '\n\nasync function waitForSchedulePdfButton(')
+  assert.match(sourceWindow, /if \(verified\) \{[\s\S]*?show: false[\s\S]*?inspectLoadedSourcePage/s)
+  assert.match(sourceWindow, /for \(let attempt = 0; attempt < 3; attempt \+= 1\)/)
+  assert.match(sourceWindow, /setTimeout\(resolveDelay, 250\)/)
+})
+
+test('reused startup sessions refresh the primary academic domains', () => {
+  const finishActor = mainSource.match(/async function finishAuthActor\(actor\) \{[\s\S]*?\n\}/)?.[0] || ''
+  assert.match(finishActor, /const shouldRefresh = !actor\.skipSync/)
+  assert.match(mainSource, /'selected-courses', 'academic-progress', 'notices'/)
+})
+
+test('one CAS login verifies both campus applications before the user sync', () => {
+  const verification = sourceBetween('function requestUnifiedAuthVerification(', '\n\nfunction assertAuthEpoch(')
+  const finishActor = mainSource.match(/async function finishAuthActor\(actor\) \{[\s\S]*?\n\}/)?.[0] || ''
+  assert.match(verification, /freshSourceStatus\('jwglxt'\)[\s\S]*?freshSourceStatus\('theol'\)/s)
+  assert.match(verification, /rememberVerifiedSession\(source, status\.url \|\| sourceSessionUrl\(source\), epoch\)/)
+  assert.match(verification, /await syncForegroundCampusData\(\)/)
+  assert.match(finishActor, /actor\.authenticated && actor\.userInitiated && isCampusSource/)
+  assert.match(finishActor, /if \(isCampusSource && !unifiedVerification\)/)
+  assert.match(finishActor, /if \(unifiedVerification\) await unifiedVerification/)
+  assert.match(mainSource, /authPending: true/)
+})
+
 test('explicit logout invalidates actors and closes browsers before clearing session storage', () => {
   const logoutHandler = mainSource.match(/ipcMain\.handle\('theia:logout',[\s\S]*?\n  ipcMain\.handle\('theia:sync-now'/)?.[0] || ''
-  assert.match(logoutHandler, /explicitlyLoggedOut = true\s*syncService\.disable\(\)\s*authEpoch \+= 1/s)
+  assert.match(logoutHandler, /explicitlyLoggedOut = true\s*syncService\.disable\(\)\s*(?:await courseWorkQueue\?\.setEnabled\(false\)\s*)?authEpoch \+= 1/s)
   assert.match(logoutHandler, /statusChecks\.jwglxt = null\s*statusChecks\.theol = null/s)
   assert.match(logoutHandler, /const interactiveActor = theolInteractiveActor\s*theolInteractiveActor = null\s*if \(interactiveActor\) \{\s*interactiveActor\.invalidated = true/s)
   assert.match(logoutHandler, /interactiveActor\?\.resolveClosed\(\)[\s\S]*?interactiveActor\?\.lifecycle/s)
   assert.match(logoutHandler, /actor\.invalidated = true[\s\S]*?clearAuthActorTimers\(actor\)[\s\S]*?actor\.resolveOpened\(\)/)
   assert.match(logoutHandler, /await Promise\.all\(\[\.\.\.windows\]\.map\(\(window\) => closeWindowAndWait\(window\)\)\)[\s\S]*?await Promise\.allSettled\(\[[\s\S]*?\.\.\.actors\.map\(\(actor\) => actor\.lifecycle\),[\s\S]*?interactiveActor\?\.lifecycle,[\s\S]*?\]\.filter\(Boolean\)\)[\s\S]*?await syncService\.cancelAndWait\(\)[\s\S]*?await schoolSession\.clearStorageData/s)
-  assert.match(logoutHandler, /syncPageJobQueue\.splice\(0\)[\s\S]*?fitnessPageJobQueue\.splice\(0\)/)
+  assert.match(logoutHandler, /syncPageQueue\.cancelPending\([\s\S]*?fitnessPageQueue\.cancelPending\(/)
   assert.match(logoutHandler, /syncPageWindow,[\s\S]*?fitnessPageWindow,[\s\S]*?syncPageWindow = null\s*fitnessPageWindow = null/s)
   assert.match(logoutHandler, /const status = loggedOutStatus\(\)/)
   assert.doesNotMatch(logoutHandler, /getStatus\(\)/)
@@ -183,17 +224,16 @@ test('fitness owns a separate hidden browser and serial executor from THEOL', ()
   const fitnessSubmit = sourceBetween('async function submitWithFitnessBrowser(', '\n\nfunction submitSchoolForm(')
   const fitnessSubmitQueue = sourceBetween('function submitFitnessForm(', '\n\nasync function flushPendingSourceOpens(')
 
-  assert.match(mainSource, /let fitnessPageWindow\s*let fitnessPageJobRunning = false\s*const fitnessPageJobQueue = \[\]/s)
-  assert.match(mainSource, /function drainFitnessPageQueue\(\)[\s\S]*?fitnessPageJobQueue\.sort[\s\S]*?drainFitnessPageQueue\(\)/)
+  assert.match(mainSource, /let fitnessPageWindow[\s\S]*?const fitnessPageQueue = createPriorityJobQueue\(\)/)
   assert.match(fitnessBrowser, /currentWindow: \(\) => fitnessPageWindow/)
   assert.match(fitnessBrowser, /upgradeTyglRedirects: true/)
   assert.doesNotMatch(fitnessBrowser, /syncPageWindow|allowTheol: true/)
-  assert.match(fitnessQueue, /fitnessPageJobQueue\.push\(\{ fn: \(\) => loadWithFitnessBrowser/)
-  assert.doesNotMatch(fitnessQueue, /syncPageJobQueue|loadWithSchoolBrowser/)
+  assert.match(fitnessQueue, /fitnessPageQueue\.enqueue\(\(\) => loadWithFitnessBrowser/)
+  assert.doesNotMatch(fitnessQueue, /syncPageQueue|loadWithSchoolBrowser/)
   assert.match(fitnessInteraction, /const home = await loadWithFitnessBrowser\('https:\/\/tygl\.buct\.edu\.cn\/'\)/)
   assert.match(fitnessInteraction, /const window = fitnessPageWindow/)
   assert.doesNotMatch(fitnessInteraction, /syncPageWindow|loadWithSchoolBrowser/)
-  assert.match(fitnessPageLoader, /fitnessPageJobQueue\.push[\s\S]*?loadFitnessPageWithSchoolBrowser[\s\S]*?drainFitnessPageQueue/)
+  assert.match(fitnessPageLoader, /fitnessPageQueue\.enqueue\(\(\) => loadFitnessPageWithSchoolBrowser/)
   assert.match(fitnessRequest, /new SessionClient\(schoolSession, \{\s*pageLoader: \(url, options = \{\}\) => loadFitnessBrowserPage\([\s\S]*?formLoader: \(url, values, options\) => submitFitnessForm/s)
   assert.doesNotMatch(fitnessRequest, /loadSchoolPage|submitSchoolForm|syncPageWindow/)
   assert.match(fitnessSession, /loadFitnessBrowserPage\('https:\/\/tygl\.buct\.edu\.cn\/', 2\)/)
@@ -201,7 +241,7 @@ test('fitness owns a separate hidden browser and serial executor from THEOL', ()
   assert.match(fitnessSubmit, /if \(sourceFromUrl\(url\) === 'theol'\) throw/)
   assert.match(fitnessSubmit, /await loadWithFitnessBrowser[\s\S]*?const window = fitnessPageWindow/)
   assert.doesNotMatch(fitnessSubmit, /syncPageWindow|loadWithSchoolBrowser/)
-  assert.match(fitnessSubmitQueue, /fitnessPageJobQueue\.push[\s\S]*?submitWithFitnessBrowser[\s\S]*?drainFitnessPageQueue/)
+  assert.match(fitnessSubmitQueue, /fitnessPageQueue\.enqueue\(\(\) => submitWithFitnessBrowser/)
   assert.doesNotMatch(fitnessSubmitQueue, /syncPageJobQueue|submitWithSchoolBrowser/)
 })
 
@@ -221,7 +261,7 @@ test('only an explicit user login re-enables sync after logout', () => {
   const openLogin = sourceBetween('async function openLoginWindow(', '\n\nasync function migrateFromLegacyDir(')
   const loginIpc = sourceBetween("ipcMain.handle('theia:login'", "\n  ipcMain.handle('theia:clear-academic-api-credentials'")
   assert.match(openLogin, /assertAuthEpoch\(expectedEpoch, \{ allowLoggedOut: userInitiated \}\)/)
-  assert.match(openLogin, /if \(userInitiated\) \{\s*syncService\.enable\(\)\s*explicitlyLoggedOut = false\s*\}/s)
+  assert.match(openLogin, /if \(userInitiated\) \{\s*syncService\.enable\(\)\s*explicitlyLoggedOut = false\s*(?:await courseWorkQueue\?\.setEnabled\(true\)\s*)?\}/s)
   assert.doesNotMatch(openLogin, /if \(!background\)/)
   assert.match(loginIpc, /const epoch = authEpoch[\s\S]*?await schoolProxyReady[\s\S]*?assertAuthEpoch\(epoch, \{ allowLoggedOut: true \}\)[\s\S]*?openLoginWindow\(\{ expectedEpoch: epoch, userInitiated: true \}\)/)
 })

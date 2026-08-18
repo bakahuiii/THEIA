@@ -1,14 +1,15 @@
-import { Download, FileText, Inbox, LoaderCircle, Mail, Paperclip, RefreshCw } from "lucide-react";
-import { useState } from "react";
+import { ChevronLeft, ChevronRight, Download, FileText, Inbox, LoaderCircle, Mail, Paperclip, RefreshCw } from "lucide-react";
+import { useEffect, useState } from "react";
 import { bridge } from "../bridge";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../components/ui/dialog";
 import type { EmailMessage } from "../types";
-import { EmptyState } from "../ui/app-shared";
+import { EmptyState, THEIA_TIME_ZONE } from "../ui/app-shared";
 
 function formatMailboxTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   const parts = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: THEIA_TIME_ZONE,
     year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
   }).formatToParts(date).reduce<Record<string, string>>((result, part) => ({ ...result, [part.type]: part.value }), {});
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
@@ -20,6 +21,8 @@ function formatSize(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+const MAIL_PAGE_SIZE = 50;
+
 function mailboxDocument(html: string) {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'"><style>html{min-height:100%;background:#fff;color-scheme:light}body{box-sizing:border-box;min-height:100%;max-width:920px;margin:0 auto;padding:clamp(28px,5vw,54px);color:#202124;background:#fff;font:15px/1.72 -apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;word-break:break-word}*,*:before,*:after{box-sizing:border-box}body>table:first-of-type{margin-left:auto;margin-right:auto}img{display:block;max-width:100% !important;height:auto !important;margin:18px auto}table{max-width:100% !important;height:auto !important;border-collapse:collapse}td,th{max-width:100%;overflow-wrap:anywhere}a{color:#0969da;text-decoration:none}a:hover{text-decoration:underline}blockquote{margin:20px 0;padding:4px 0 4px 18px;color:#57606a;border-left:3px solid #d0d7de}pre,code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}pre{max-width:100%;overflow:auto;padding:14px;background:#f6f8fa;border-radius:8px}@media(max-width:640px){body{padding:24px 18px;font-size:14px}}</style></head><body>${html}<style>html,body{height:auto !important;min-height:0 !important;overflow:visible !important}body{overflow-x:hidden !important}</style></body></html>`;
 }
@@ -30,6 +33,7 @@ export function MailboxView({ emails, query = "" }: { emails: EmailMessage[]; qu
   const [detailError, setDetailError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [downloadMessage, setDownloadMessage] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
 
   const openMail = async (mail: EmailMessage, refresh = false) => {
     const currentHtml = Boolean(mail.bodyHtml && mail.bodyHtmlVersion === 4);
@@ -73,6 +77,12 @@ export function MailboxView({ emails, query = "" }: { emails: EmailMessage[]; qu
           .some((value) => String(value).toLocaleLowerCase().includes(normalizedQuery)),
       )
     : emails;
+  const pageCount = Math.max(1, Math.ceil(visibleEmails.length / MAIL_PAGE_SIZE));
+  useEffect(() => setPage(0), [query]);
+  useEffect(() => {
+    if (page >= pageCount) setPage(pageCount - 1);
+  }, [page, pageCount]);
+  const pageEmails = visibleEmails.slice(page * MAIL_PAGE_SIZE, (page + 1) * MAIL_PAGE_SIZE);
 
   if (!emails.length) {
     return <EmptyState icon={Inbox} title="收件箱为空" detail="在“数据与接口”中配置校园邮箱后，邮件会保存在本机并显示在这里。" />;
@@ -84,7 +94,7 @@ export function MailboxView({ emails, query = "" }: { emails: EmailMessage[]; qu
 
   return <>
     <div className="notice-list mailbox-list">
-      {visibleEmails.map((mail) => <article key={mail.id} className={mail.unread ? "mailbox-row unread" : "mailbox-row"}>
+      {pageEmails.map((mail) => <article key={mail.id} className={mail.unread ? "mailbox-row unread" : "mailbox-row"}>
         <button type="button" className="notice-open-button mailbox-open-button" onClick={() => void openMail(mail)} aria-label={`查看邮件：${mail.subject}`}>
           <div className="notice-source imap"><Mail size={17} /></div>
           <div className="notice-copy mailbox-copy">
@@ -129,8 +139,15 @@ export function MailboxView({ emails, query = "" }: { emails: EmailMessage[]; qu
                   {downloading === key ? <LoaderCircle size={15} className="mail-download-spinner" /> : <Download size={15} />} 下载
                 </button>
               </div>;
-            })}
-          </div>
+      })}
+    </div>
+    {visibleEmails.length > MAIL_PAGE_SIZE && (
+      <nav className="communications-pagination" aria-label="校园邮箱分页">
+        <button type="button" className="icon-button" onClick={() => setPage((value) => Math.max(0, value - 1))} disabled={page === 0} aria-label="上一页" title="上一页"><ChevronLeft size={16} /></button>
+        <span>{page * MAIL_PAGE_SIZE + 1}–{Math.min((page + 1) * MAIL_PAGE_SIZE, visibleEmails.length)} / {visibleEmails.length}</span>
+        <button type="button" className="icon-button" onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))} disabled={page >= pageCount - 1} aria-label="下一页" title="下一页"><ChevronRight size={16} /></button>
+      </nav>
+    )}
           {downloadMessage && <p className="mail-download-message">{downloadMessage}</p>}
         </section> : null}
       </DialogContent>}

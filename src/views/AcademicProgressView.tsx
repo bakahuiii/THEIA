@@ -1,6 +1,7 @@
 import { BookOpen, ChevronRight, GraduationCap } from "lucide-react";
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
-import { computeGpa, formatGpa } from "../../core/gpa.mjs";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { buildAcademicAnalysis } from "../../core/academic-model.mjs";
+import { formatGpa } from "../../core/gpa.mjs";
 import {
   EmptyState,
   formatGradePoint,
@@ -340,6 +341,10 @@ export function AcademicProgressView({
   useEffect(() => {
     if (terms.length && !termFilter) setTermFilter(terms[0].id.split("-")[0]);
   }, [terms, termFilter]);
+  const academicAnalysis = useMemo(
+    () => buildAcademicAnalysis({ grades, progress }),
+    [grades, progress],
+  );
   const isRequirementExpanded = useCallback((
     requirement: AcademicRequirement,
   ) => {
@@ -361,8 +366,7 @@ export function AcademicProgressView({
       />
     );
   const counts = progress.courseCounts?.planned;
-  const calculatedGpa = computeGpa(grades).gpa;
-  const displayedGpa = calculatedGpa ?? progress.gpa ?? null;
+  const displayedGpa = academicAnalysis.gpa.value;
   const officialRoots = Array.isArray(progress.roots) && progress.roots.length
     ? progress.roots
     : [];

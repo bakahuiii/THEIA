@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { access } from 'node:fs/promises'
 import { parseTeachingSchedulePdf, parseWeeklyCalendarPdf } from '../core/academic-calendar-pdf-analysis.mjs'
+import { pdfTextLoadOptions } from '../core/pdf-text-loader.mjs'
 
 const WEEKLY = `2025-2026学年第二学期本科教学工作周历（学生版）
 周 次 日 期 星 期 事 项
@@ -24,6 +26,14 @@ const TEACHING = `北京化工大学 2025-2026 学年第二学期本科生教学
 校
 历 班
 级`
+
+test('PDF text extraction uses bundled CMaps and standard fonts', async () => {
+  const options = pdfTextLoadOptions()
+  assert.equal(options.cMapPacked, true)
+  assert.equal(options.useWorkerFetch, false)
+  await access(`${options.cMapUrl}UniGB-UCS2-H.bcmap`)
+  await access(`${options.standardFontDataUrl}FoxitDingbats.pfb`)
+})
 
 test('weekly calendar becomes one editable entry per PDF row', () => {
   const result = parseWeeklyCalendarPdf(WEEKLY)

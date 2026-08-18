@@ -3,13 +3,26 @@ import { fetch as undiciFetch } from 'undici'
 import { normalizeAnswerKey } from '../core/parsers/theol-work.mjs'
 import { isLiteralLoopbackModelService, modelServiceIdentity, normalizeModelServiceBaseUrl } from '../core/model-url-policy.mjs'
 import { normalizeModelProvider } from '../core/model-provider-policy.mjs'
+import { normalizeProviderUsage } from './ai/provider.mjs'
 import { prepareModelEndpoint } from './model-network-policy.mjs'
 
 const MAX_CONTEXT_CHARS = 48_000
 const MODEL_DISCOVERY_TIMEOUT_MS = 15_000
+export const DEFAULT_MODEL_REQUEST_TIMEOUT_MS = 5 * 60 * 1000
+export const MAX_MODEL_REQUEST_TIMEOUT_MS = 60 * 60 * 1000
 export const MAX_MODEL_REQUEST_BYTES = 2 * 1024 * 1024
 export const MAX_MODEL_LIST_RESPONSE_BYTES = 2 * 1024 * 1024
 export const MAX_MODEL_COMPLETION_RESPONSE_BYTES = 8 * 1024 * 1024
+
+function normalizeModelRequestTimeout(value) {
+  if (value === undefined) return DEFAULT_MODEL_REQUEST_TIMEOUT_MS
+  if (!Number.isSafeInteger(value) || value < 1) throw new TypeError('Model request timeout is invalid')
+  return Math.min(value, MAX_MODEL_REQUEST_TIMEOUT_MS)
+}
+
+function modelRequestTimeoutLabel(value) {
+  return value % 1000 === 0 ? `${value / 1000} seconds` : `${value} milliseconds`
+}
 
 function completionResponseByteLimit(value) {
   if (value === undefined) return MAX_MODEL_COMPLETION_RESPONSE_BYTES
@@ -64,6 +77,26 @@ export async function readBoundedResponseText(response, maximumBytes, label = 'M
   return new TextDecoder().decode(combined)
 }
 
+function boundedHttpErrorDetail(body) {
+  const raw = String(body || '').trim()
+  if (!raw) return ''
+  try {
+    const parsed = JSON.parse(raw)
+    const error = parsed?.error && typeof parsed.error === 'object' ? parsed.error : parsed
+    const message = [error?.message, error?.code, error?.type]
+      .filter((value) => typeof value === 'string' && value.trim())
+      .map((value) => value.trim())
+      .join(' — ')
+    if (message) return message.slice(0, 600)
+  } catch { /* Keep a bounded plain-text provider error below. */ }
+  return raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').slice(0, 600)
+}
+
+function modelHttpError(status, body, label = 'Model service') {
+  const detail = boundedHttpErrorDetail(body)
+  return new Error(`${label} returned HTTP ${status}${detail ? `: ${detail}` : ''}`)
+}
+
 function streamEvents(chunk, pending) {
   const lines = `${pending}${chunk}`.split(/\r?\n/)
   const remainder = lines.pop() || ''
@@ -76,7 +109,30 @@ function streamEvents(chunk, pending) {
   return { events, remainder }
 }
 
-export async function readBoundedEventStream(response, maximumBytes, { extractDelta, onDelta = () => {} } = {}) {
+function responseMetadata(payload) {
+  const usage = normalizeProviderUsage(payload)
+  const requestId = typeof payload?.response?.id === 'string'
+    ? payload.response.id
+    : typeof payload?.id === 'string' ? payload.id : null
+  return usage || requestId ? { usage, requestId } : null
+}
+
+function streamEventFailure(payload) {
+  const type = String(payload?.type || '').toLowerCase()
+  const status = String(payload?.response?.status || payload?.status || '').toLowerCase()
+  if (!['error', 'response.failed', 'response.incomplete'].includes(type)
+    && !['failed', 'incomplete'].includes(status)
+    && !(payload?.error && !payload?.delta)) return null
+  const detail = boundedHttpErrorDetail(payload?.error || payload?.response?.status_details || payload)
+  const label = type === 'response.incomplete' || status === 'incomplete' ? 'incomplete' : type === 'response.failed' || status === 'failed' ? 'failed' : 'error'
+  return new Error(`Model stream returned ${label}${detail ? `: ${detail}` : ''}`)
+}
+
+export async function readBoundedEventStream(response, maximumBytes, {
+  extractDelta,
+  onDelta = () => {},
+  onMetadata = () => {},
+} = {}) {
   if (typeof extractDelta !== 'function') throw new TypeError('Model event-stream parser is required')
   const declared = contentLength(response)
   if (declared !== null && declared > maximumBytes) {
@@ -89,6 +145,7 @@ export async function readBoundedEventStream(response, maximumBytes, { extractDe
   let bytes = 0
   let pending = ''
   let text = ''
+  let completed = false
   try {
     while (true) {
       const { done, value } = await reader.read()
@@ -105,6 +162,10 @@ export async function readBoundedEventStream(response, maximumBytes, { extractDe
         if (event === '[DONE]') continue
         let payload
         try { payload = JSON.parse(event) } catch { throw new Error('Model stream returned invalid JSON') }
+        const metadata = responseMetadata(payload)
+        if (metadata) onMetadata(metadata)
+        const failure = streamEventFailure(payload)
+        if (failure) throw failure
         const delta = streamDeltaContent(extractDelta(payload))
         if (!delta) continue
         text += delta
@@ -116,24 +177,27 @@ export async function readBoundedEventStream(response, maximumBytes, { extractDe
       if (event === '[DONE]') continue
       let payload
       try { payload = JSON.parse(event) } catch { throw new Error('Model stream returned invalid JSON') }
+      const metadata = responseMetadata(payload)
+      if (metadata) onMetadata(metadata)
+      const failure = streamEventFailure(payload)
+      if (failure) throw failure
       const delta = streamDeltaContent(extractDelta(payload))
       if (delta) { text += delta; onDelta(delta) }
     }
+    completed = true
   } finally {
+    if (!completed) await reader.cancel().catch(() => {})
     reader.releaseLock?.()
   }
   if (!text) throw new Error('Model stream returned no answer content')
   return text
 }
 
-export async function readBoundedSse(response, maximumBytes, { onDelta = () => {} } = {}) {
-  return readBoundedEventStream(response, maximumBytes, {
-    onDelta,
-    extractDelta: (payload) => payload?.choices?.[0]?.delta?.content,
-  })
-}
-
-export async function readBoundedNdjson(response, maximumBytes, { extractDelta, onDelta = () => {} } = {}) {
+export async function readBoundedNdjson(response, maximumBytes, {
+  extractDelta,
+  onDelta = () => {},
+  onMetadata = () => {},
+} = {}) {
   if (typeof extractDelta !== 'function') throw new TypeError('Model NDJSON parser is required')
   const declared = contentLength(response)
   if (declared !== null && declared > maximumBytes) {
@@ -146,10 +210,15 @@ export async function readBoundedNdjson(response, maximumBytes, { extractDelta, 
   let bytes = 0
   let pending = ''
   let text = ''
+  let completed = false
   const consume = (line) => {
     if (!line.trim()) return
     let payload
     try { payload = JSON.parse(line) } catch { throw new Error('Model stream returned invalid JSON') }
+    const metadata = responseMetadata(payload)
+    if (metadata) onMetadata(metadata)
+    const failure = streamEventFailure(payload)
+    if (failure) throw failure
     const delta = streamDeltaContent(extractDelta(payload))
     if (delta) { text += delta; onDelta(delta) }
   }
@@ -165,7 +234,9 @@ export async function readBoundedNdjson(response, maximumBytes, { extractDelta, 
       for (const line of lines) consume(line)
     }
     consume(`${pending}${decoder.decode()}`)
+    completed = true
   } finally {
+    if (!completed) await reader.cancel().catch(() => {})
     reader.releaseLock?.()
   }
   if (!text) throw new Error('Model stream returned no answer content')
@@ -200,12 +271,14 @@ function streamDeltaContent(content) {
   return ''
 }
 
-function completionUrl(baseUrl) {
+function responsesUrl(baseUrl) {
   const url = new URL(normalizeModelServiceBaseUrl(baseUrl))
   const pathname = url.pathname.replace(/\/+$/, '')
-  if (!pathname.endsWith('/chat/completions')) {
-    url.pathname = pathname.endsWith('/v1') ? `${pathname}/chat/completions` : `${pathname}/v1/chat/completions`
-  }
+  url.pathname = pathname.endsWith('/responses')
+    ? pathname
+    : pathname.endsWith('/v1')
+      ? `${pathname}/responses`
+      : `${pathname}/v1/responses`
   url.search = ''
   url.hash = ''
   return url.toString()
@@ -214,12 +287,74 @@ function completionUrl(baseUrl) {
 function modelsUrl(baseUrl) {
   const url = new URL(normalizeModelServiceBaseUrl(baseUrl))
   let pathname = url.pathname.replace(/\/+$/, '')
-  if (pathname.endsWith('/chat/completions')) pathname = pathname.slice(0, -'/chat/completions'.length)
+  if (pathname.endsWith('/responses')) pathname = pathname.slice(0, -'/responses'.length)
   if (!pathname.endsWith('/models')) pathname = pathname.endsWith('/v1') ? `${pathname}/models` : `${pathname}/v1/models`
   url.pathname = pathname
   url.search = ''
   url.hash = ''
   return url.toString()
+}
+
+function isPromptCacheUnsupportedResponse(status, body) {
+  if (![400, 422].includes(Number(status))) return false
+  const message = String(body || '').toLowerCase()
+  if (!/prompt[ _-]?cache/.test(message)) return false
+  return /(not supported|unsupported|does not support|unknown|unrecognized|unrecognised|invalid|not permitted|extra inputs?)/.test(message)
+}
+
+function isExplicitPromptCacheUnsupportedResponse(body) {
+  const message = String(body || '').toLowerCase()
+  return /prompt[ _-]?cache[ _-]?(breakpoint|options)|cache breakpoint|explicit prompt cache/.test(message)
+}
+
+function supportsExplicitPromptCaching(model) {
+  const match = /^gpt-(\d+)(?:\.(\d+))?/i.exec(String(model || '').trim())
+  if (!match) return false
+  const major = Number(match[1])
+  const minor = Number(match[2] || 0)
+  return major > 5 || (major === 5 && minor >= 6)
+}
+
+function responsesRequest(model, messages, maxTokens, streaming, reasoningEffort, promptCacheKey, explicitCaching = supportsExplicitPromptCaching(model)) {
+  const normalized = Array.isArray(messages) ? messages : []
+  const useExplicitCaching = Boolean(promptCacheKey)
+    && explicitCaching
+    && normalized.some((message) => message?.role === 'system')
+  let breakpointSet = false
+  const input = normalized.map((message) => {
+    const role = message?.role === 'assistant' ? 'assistant' : message?.role === 'system' ? 'system' : 'user'
+    const content = {
+      type: role === 'assistant' ? 'output_text' : 'input_text',
+      text: String(message?.content || ''),
+    }
+    if (useExplicitCaching && !breakpointSet && role === 'system') {
+      content.prompt_cache_breakpoint = { mode: 'explicit' }
+      breakpointSet = true
+    }
+    return { role, content: [content] }
+  })
+  return {
+    model,
+    input,
+    max_output_tokens: maxTokens,
+    ...(reasoningEffort && reasoningEffort !== 'none' ? { reasoning: { effort: reasoningEffort } } : {}),
+    ...(promptCacheKey ? { prompt_cache_key: promptCacheKey } : {}),
+    ...(useExplicitCaching ? { prompt_cache_options: { mode: 'explicit' } } : {}),
+    stream: streaming,
+  }
+}
+
+function responsesText(payload) {
+  const direct = textContent(payload?.output_text)
+  if (direct) return direct
+  const content = (Array.isArray(payload?.output) ? payload.output : [])
+    .flatMap((item) => Array.isArray(item?.content) ? item.content : [])
+  return textContent(content)
+}
+
+function responsesDelta(payload) {
+  if (payload?.type && payload.type !== 'response.output_text.delta') return ''
+  return typeof payload?.delta === 'string' ? payload.delta : ''
 }
 
 function protocolPath(pathname, suffix, { aliases = [] } = {}) {
@@ -367,6 +502,30 @@ export class ModelService {
     this.resolver = resolver
     this.dispatcherFactory = dispatcherFactory
     this.activeControllers = new Set()
+    // Model names are not a reliable capability signal for OpenAI-compatible
+    // services. Remember an explicit server rejection so later requests do
+    // not pay for a predictable failed cache-enabled attempt.
+    this.unsupportedPromptCacheModels = new Set()
+    this.unsupportedExplicitPromptCacheModels = new Set()
+  }
+
+  promptCacheKeyFor(baseUrl, model, requestedKey) {
+    if (!requestedKey) return undefined
+    const identity = `${modelServiceIdentity(baseUrl)}\u0000${model}`
+    return this.unsupportedPromptCacheModels.has(identity) ? undefined : requestedKey
+  }
+
+  disablePromptCache(baseUrl, model) {
+    this.unsupportedPromptCacheModels.add(`${modelServiceIdentity(baseUrl)}\u0000${model}`)
+  }
+
+  explicitPromptCacheFor(baseUrl, model, requestedKey) {
+    if (!requestedKey || !supportsExplicitPromptCaching(model)) return false
+    return !this.unsupportedExplicitPromptCacheModels.has(`${modelServiceIdentity(baseUrl)}\u0000${model}`)
+  }
+
+  disableExplicitPromptCache(baseUrl, model) {
+    this.unsupportedExplicitPromptCacheModels.add(`${modelServiceIdentity(baseUrl)}\u0000${model}`)
   }
 
   prepareEndpoint(url, signal) {
@@ -430,18 +589,25 @@ export class ModelService {
         courseworkModel: String(settings?.modelRouting?.courseworkModel || '').trim() || null,
         fallbackModel: String(settings?.modelRouting?.fallbackModel || '').trim() || null,
       },
+      advisorConfig: settings?.advisorConfig && typeof settings.advisorConfig === 'object'
+        ? structuredClone(settings.advisorConfig)
+        : null,
     }
   }
 
   async request(settings, messages, {
     temperature = 0.2,
     maxTokens = 3_500,
+    reasoningEffort,
+    promptCacheKey,
     maxResponseBytes,
+    timeoutMs,
     signal,
+    onMetadata,
   } = {}) {
     if (normalizeModelProvider(settings?.modelProvider) !== 'openai-compatible') {
       return this.requestProtocol(settings, normalizeModelProvider(settings?.modelProvider), messages, {
-        temperature, maxTokens, maxResponseBytes, signal,
+        temperature, maxTokens, maxResponseBytes, timeoutMs, signal, onMetadata,
       })
     }
     const baseUrl = normalizeModelServiceBaseUrl(settings?.modelBaseUrl)
@@ -451,42 +617,77 @@ export class ModelService {
     if (!apiKey) throw new Error('Save a model API key before processing a task')
 
     const { controller, release } = this.requestController(signal)
+    const requestTimeout = normalizeModelRequestTimeout(timeoutMs)
     let timedOut = false
     const timer = setTimeout(() => {
       timedOut = true
       controller.abort()
-    }, 90_000)
+    }, requestTimeout)
     try {
-      const requestBody = JSON.stringify({ model, messages, temperature, max_tokens: maxTokens })
-      if (Buffer.byteLength(requestBody, 'utf8') > MAX_MODEL_REQUEST_BYTES) throw new Error(`Model request exceeds the ${MAX_MODEL_REQUEST_BYTES}-byte limit`)
-      const targetUrl = completionUrl(baseUrl)
-      const endpoint = await this.prepareEndpoint(targetUrl, controller.signal)
-      try {
-        const response = await this.fetchFn(targetUrl, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: requestBody,
-          redirect: 'error',
-          signal: controller.signal,
-          dispatcher: endpoint.dispatcher,
-        })
-        const body = await readBoundedResponseText(
-          response,
-          completionResponseByteLimit(maxResponseBytes),
-          'Model completion response',
-        )
-        if (!response.ok) throw new Error(`Model service returned HTTP ${response.status}`)
-        let parsed
-        try { parsed = JSON.parse(body) } catch { throw new Error('Model service returned invalid JSON') }
-        const content = textContent(parsed?.choices?.[0]?.message?.content)
-        if (!content) throw new Error('Model service returned no answer content')
-        return content
-      } finally {
-        await endpoint.close({ force: controller.signal.aborted }).catch(() => {})
+      const requestJson = async (targetUrl, requestBody, extractText) => {
+        if (Buffer.byteLength(requestBody, 'utf8') > MAX_MODEL_REQUEST_BYTES) throw new Error(`Model request exceeds the ${MAX_MODEL_REQUEST_BYTES}-byte limit`)
+        const endpoint = await this.prepareEndpoint(targetUrl, controller.signal)
+        try {
+          const response = await this.fetchFn(targetUrl, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: requestBody,
+            redirect: 'error',
+            signal: controller.signal,
+            dispatcher: endpoint.dispatcher,
+          })
+          const body = await readBoundedResponseText(
+            response,
+            completionResponseByteLimit(maxResponseBytes),
+            'Model completion response',
+          )
+          return { response, body, extractText }
+        } finally {
+          await endpoint.close({ force: controller.signal.aborted }).catch(() => {})
+        }
       }
+
+      const targetUrl = responsesUrl(baseUrl)
+      const effectivePromptCacheKey = this.promptCacheKeyFor(baseUrl, model, promptCacheKey)
+      const explicitPromptCache = this.explicitPromptCacheFor(baseUrl, model, effectivePromptCacheKey)
+      let result = await requestJson(
+        targetUrl,
+        JSON.stringify(responsesRequest(model, messages, maxTokens, false, reasoningEffort, effectivePromptCacheKey, explicitPromptCache)),
+        responsesText,
+      )
+      if (!result.response.ok && effectivePromptCacheKey
+        && isPromptCacheUnsupportedResponse(result.response.status, result.body)
+        && !controller.signal.aborted) {
+        if (explicitPromptCache && isExplicitPromptCacheUnsupportedResponse(result.body)) {
+          this.disableExplicitPromptCache(baseUrl, model)
+          result = await requestJson(
+            targetUrl,
+            JSON.stringify(responsesRequest(model, messages, maxTokens, false, reasoningEffort, effectivePromptCacheKey, false)),
+            responsesText,
+          )
+        }
+        if (!result.response.ok) {
+          this.disablePromptCache(baseUrl, model)
+          result = await requestJson(
+            targetUrl,
+            JSON.stringify(responsesRequest(model, messages, maxTokens, false, reasoningEffort, undefined, false)),
+            responsesText,
+          )
+        }
+      }
+      if (!result.response.ok) throw modelHttpError(result.response.status, result.body)
+      let payload
+      try { payload = JSON.parse(result.body) } catch { throw new Error('Model service returned invalid JSON') }
+      const metadata = responseMetadata(payload)
+      if (metadata) onMetadata?.(metadata)
+      const failure = streamEventFailure(payload)
+      if (failure) throw failure
+      const content = result.extractText(payload)
+      if (!content) throw new Error('Model service returned no answer content')
+      return content
     } catch (error) {
       if (controller.signal.aborted || error?.name === 'AbortError') {
-        if (timedOut) throw new Error('Model request timed out after 90 seconds')
+        if (timedOut) throw new Error(`Model request timed out after ${modelRequestTimeoutLabel(requestTimeout)}`)
         throw new Error('Model request was cancelled')
       }
       throw error
@@ -499,13 +700,17 @@ export class ModelService {
   async requestStream(settings, messages, {
     temperature = 0.2,
     maxTokens = 3_500,
+    reasoningEffort,
+    promptCacheKey,
     maxResponseBytes,
+    timeoutMs,
     signal,
     onDelta,
+    onMetadata,
   } = {}) {
     if (normalizeModelProvider(settings?.modelProvider) !== 'openai-compatible') {
       return this.requestProtocolStream(settings, normalizeModelProvider(settings?.modelProvider), messages, {
-        temperature, maxTokens, maxResponseBytes, signal, onDelta,
+        temperature, maxTokens, maxResponseBytes, timeoutMs, signal, onDelta, onMetadata,
       })
     }
     const baseUrl = normalizeModelServiceBaseUrl(settings?.modelBaseUrl)
@@ -514,31 +719,70 @@ export class ModelService {
     const apiKey = await this.vault.readApiKey(baseUrl)
     if (!apiKey) throw new Error('Save a model API key before processing a task')
     const { controller, release } = this.requestController(signal)
+    const requestTimeout = normalizeModelRequestTimeout(timeoutMs)
     let timedOut = false
-    const timer = setTimeout(() => { timedOut = true; controller.abort() }, 90_000)
+    const timer = setTimeout(() => { timedOut = true; controller.abort() }, requestTimeout)
     try {
-      const requestBody = JSON.stringify({ model, messages, temperature, max_tokens: maxTokens, stream: true })
-      if (Buffer.byteLength(requestBody, 'utf8') > MAX_MODEL_REQUEST_BYTES) throw new Error(`Model request exceeds the ${MAX_MODEL_REQUEST_BYTES}-byte limit`)
-      const targetUrl = completionUrl(baseUrl)
-      const endpoint = await this.prepareEndpoint(targetUrl, controller.signal)
-      try {
-        const response = await this.fetchFn(targetUrl, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-          body: requestBody,
-          redirect: 'error', signal: controller.signal, dispatcher: endpoint.dispatcher,
-        })
-        if (!response.ok) {
-          await readBoundedResponseText(response, completionResponseByteLimit(maxResponseBytes), 'Model stream error response')
-          throw new Error(`Model service returned HTTP ${response.status}`)
+      const requestSse = async (targetUrl, requestBody, extractDelta) => {
+        if (Buffer.byteLength(requestBody, 'utf8') > MAX_MODEL_REQUEST_BYTES) throw new Error(`Model request exceeds the ${MAX_MODEL_REQUEST_BYTES}-byte limit`)
+        const endpoint = await this.prepareEndpoint(targetUrl, controller.signal)
+        try {
+          const response = await this.fetchFn(targetUrl, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+            body: requestBody,
+            redirect: 'error', signal: controller.signal, dispatcher: endpoint.dispatcher,
+          })
+          if (!response.ok) {
+            const body = await readBoundedResponseText(response, completionResponseByteLimit(maxResponseBytes), 'Model stream error response')
+            return { response, body }
+          }
+          return {
+            response,
+            content: await readBoundedEventStream(
+              response,
+              completionResponseByteLimit(maxResponseBytes),
+              { extractDelta, onDelta, onMetadata },
+            ),
+          }
+        } finally {
+          await endpoint.close({ force: controller.signal.aborted }).catch(() => {})
         }
-        return await readBoundedSse(response, completionResponseByteLimit(maxResponseBytes), { onDelta })
-      } finally {
-        await endpoint.close({ force: controller.signal.aborted }).catch(() => {})
       }
+
+      const targetUrl = responsesUrl(baseUrl)
+      const effectivePromptCacheKey = this.promptCacheKeyFor(baseUrl, model, promptCacheKey)
+      const explicitPromptCache = this.explicitPromptCacheFor(baseUrl, model, effectivePromptCacheKey)
+      let result = await requestSse(
+        targetUrl,
+        JSON.stringify(responsesRequest(model, messages, maxTokens, true, reasoningEffort, effectivePromptCacheKey, explicitPromptCache)),
+        responsesDelta,
+      )
+      if (!result.response.ok && effectivePromptCacheKey
+        && isPromptCacheUnsupportedResponse(result.response.status, result.body)
+        && !controller.signal.aborted) {
+        if (explicitPromptCache && isExplicitPromptCacheUnsupportedResponse(result.body)) {
+          this.disableExplicitPromptCache(baseUrl, model)
+          result = await requestSse(
+            targetUrl,
+            JSON.stringify(responsesRequest(model, messages, maxTokens, true, reasoningEffort, effectivePromptCacheKey, false)),
+            responsesDelta,
+          )
+        }
+        if (!result.response.ok) {
+          this.disablePromptCache(baseUrl, model)
+          result = await requestSse(
+            targetUrl,
+            JSON.stringify(responsesRequest(model, messages, maxTokens, true, reasoningEffort, undefined, false)),
+            responsesDelta,
+          )
+        }
+      }
+      if (!result.response.ok) throw modelHttpError(result.response.status, result.body)
+      return result.content
     } catch (error) {
       if (controller.signal.aborted || error?.name === 'AbortError') {
-        if (timedOut) throw new Error('Model request timed out after 90 seconds')
+        if (timedOut) throw new Error(`Model request timed out after ${modelRequestTimeoutLabel(requestTimeout)}`)
         throw new Error('Model request was cancelled')
       }
       throw error
@@ -552,10 +796,12 @@ export class ModelService {
     temperature = 0.2,
     maxTokens = 3_500,
     maxResponseBytes,
+    timeoutMs,
     signal,
+    onMetadata,
   } = {}) {
     const provider = normalizeModelProvider(protocol)
-    if (provider === 'openai-compatible') return this.request({ ...settings, modelProvider: provider }, messages, { temperature, maxTokens, maxResponseBytes, signal })
+    if (provider === 'openai-compatible') return this.request({ ...settings, modelProvider: provider }, messages, { temperature, maxTokens, maxResponseBytes, timeoutMs, signal, onMetadata })
     const baseUrl = normalizeModelServiceBaseUrl(settings?.modelBaseUrl)
     const model = String(settings?.modelName || '').trim()
     if (!baseUrl || !model) throw new Error('Configure the model service URL and model name first')
@@ -564,8 +810,9 @@ export class ModelService {
     const requestBody = JSON.stringify(spec.body)
     if (Buffer.byteLength(requestBody, 'utf8') > MAX_MODEL_REQUEST_BYTES) throw new Error(`Model request exceeds the ${MAX_MODEL_REQUEST_BYTES}-byte limit`)
     const { controller, release } = this.requestController(signal)
+    const requestTimeout = normalizeModelRequestTimeout(timeoutMs)
     let timedOut = false
-    const timer = setTimeout(() => { timedOut = true; controller.abort() }, 90_000)
+    const timer = setTimeout(() => { timedOut = true; controller.abort() }, requestTimeout)
     try {
       const targetUrl = protocolUrl(provider, baseUrl, model)
       const endpoint = await this.prepareEndpoint(targetUrl, controller.signal)
@@ -579,6 +826,8 @@ export class ModelService {
         if (!response.ok) throw new Error(`Model service returned HTTP ${response.status}`)
         let payload
         try { payload = JSON.parse(body) } catch { throw new Error('Model service returned invalid JSON') }
+        const metadata = responseMetadata(payload)
+        if (metadata) onMetadata?.(metadata)
         const content = protocolText(provider, payload)
         if (!content) throw new Error('Model service returned no answer content')
         return content
@@ -587,7 +836,7 @@ export class ModelService {
       }
     } catch (error) {
       if (controller.signal.aborted || error?.name === 'AbortError') {
-        if (timedOut) throw new Error('Model request timed out after 90 seconds')
+        if (timedOut) throw new Error(`Model request timed out after ${modelRequestTimeoutLabel(requestTimeout)}`)
         throw new Error('Model request was cancelled')
       }
       throw error
@@ -601,11 +850,13 @@ export class ModelService {
     temperature = 0.2,
     maxTokens = 3_500,
     maxResponseBytes,
+    timeoutMs,
     signal,
     onDelta,
+    onMetadata,
   } = {}) {
     const provider = normalizeModelProvider(protocol)
-    if (provider === 'openai-compatible') return this.requestStream({ ...settings, modelProvider: provider }, messages, { temperature, maxTokens, maxResponseBytes, signal, onDelta })
+    if (provider === 'openai-compatible') return this.requestStream({ ...settings, modelProvider: provider }, messages, { temperature, maxTokens, maxResponseBytes, timeoutMs, signal, onDelta, onMetadata })
     const baseUrl = normalizeModelServiceBaseUrl(settings?.modelBaseUrl)
     const model = String(settings?.modelName || '').trim()
     if (!baseUrl || !model) throw new Error('Configure the model service URL and model name first')
@@ -614,8 +865,9 @@ export class ModelService {
     const requestBody = JSON.stringify(spec.body)
     if (Buffer.byteLength(requestBody, 'utf8') > MAX_MODEL_REQUEST_BYTES) throw new Error(`Model request exceeds the ${MAX_MODEL_REQUEST_BYTES}-byte limit`)
     const { controller, release } = this.requestController(signal)
+    const requestTimeout = normalizeModelRequestTimeout(timeoutMs)
     let timedOut = false
-    const timer = setTimeout(() => { timedOut = true; controller.abort() }, 90_000)
+    const timer = setTimeout(() => { timedOut = true; controller.abort() }, requestTimeout)
     try {
       const targetUrl = protocolUrl(provider, baseUrl, model, true)
       const endpoint = await this.prepareEndpoint(targetUrl, controller.signal)
@@ -629,16 +881,19 @@ export class ModelService {
           await readBoundedResponseText(response, completionResponseByteLimit(maxResponseBytes), 'Model stream error response')
           throw new Error(`Model service returned HTTP ${response.status}`)
         }
-        const options = { extractDelta: (payload) => protocolDelta(provider, payload), onDelta }
+        const options = { extractDelta: (payload) => protocolDelta(provider, payload), onDelta, onMetadata }
+        // Await the body reader before leaving this scope. Returning the
+        // promise directly would run the finally block first and close the
+        // pinned dispatcher while an SSE/NDJSON stream is still consuming it.
         return provider === 'ollama-chat'
-          ? readBoundedNdjson(response, completionResponseByteLimit(maxResponseBytes), options)
-          : readBoundedEventStream(response, completionResponseByteLimit(maxResponseBytes), options)
+          ? await readBoundedNdjson(response, completionResponseByteLimit(maxResponseBytes), options)
+          : await readBoundedEventStream(response, completionResponseByteLimit(maxResponseBytes), options)
       } finally {
         await endpoint.close({ force: controller.signal.aborted }).catch(() => {})
       }
     } catch (error) {
       if (controller.signal.aborted || error?.name === 'AbortError') {
-        if (timedOut) throw new Error('Model request timed out after 90 seconds')
+        if (timedOut) throw new Error(`Model request timed out after ${modelRequestTimeoutLabel(requestTimeout)}`)
         throw new Error('Model request was cancelled')
       }
       throw error

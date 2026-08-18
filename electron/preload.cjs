@@ -2,6 +2,10 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 const api = {
   getSnapshot: () => ipcRenderer.invoke('theia:get-snapshot'),
+  getRendererSnapshot: () => ipcRenderer.invoke('theia:get-renderer-snapshot'),
+  getUserDataOverview: () => ipcRenderer.invoke('theia:get-user-data-overview'),
+  getUserDataDomainSummary: (domain) => ipcRenderer.invoke('theia:get-user-data-domain-summary', domain),
+  getUserDataRecords: (domain, options) => ipcRenderer.invoke('theia:get-user-data-records', domain, options),
   getAdvisorOverview: () => ipcRenderer.invoke('theia:advisor:get-overview'),
   getAdvisorAcademicWhatIf: (scenario) => ipcRenderer.invoke('theia:advisor:academic-what-if', scenario),
   getAdvisorCourseDecisions: (request) => ipcRenderer.invoke('theia:advisor:course-decisions', request),
@@ -37,6 +41,7 @@ const api = {
   logout: () => ipcRenderer.invoke('theia:logout'),
   syncNow: () => ipcRenderer.invoke('theia:sync-now'),
   retrySyncDomain: (domain) => ipcRenderer.invoke('theia:sync-domain', domain),
+  queryFreeClassrooms: (query) => ipcRenderer.invoke('theia:query-free-classrooms', query),
   getCourseSelection: () => ipcRenderer.invoke('theia:get-course-selection'),
   discoverCourseSelection: () => ipcRenderer.invoke('theia:discover-course-selection'),
   getCourseSelectionCandidates: (blockId, target, options) => ipcRenderer.invoke('theia:get-course-selection-candidates', blockId, target, options),
@@ -50,9 +55,14 @@ const api = {
   getAcademicCalendarAssets: () => ipcRenderer.invoke('theia:get-academic-calendar-assets'),
   refreshAcademicCalendarAssets: (options) => ipcRenderer.invoke('theia:refresh-academic-calendar-assets', options),
   openSource: (url) => ipcRenderer.invoke('theia:open-source', url),
+  openAcademicAttachment: (domain, attachmentId) => ipcRenderer.invoke('theia:open-academic-attachment', domain, attachmentId),
   openAssignmentSource: (assignmentId) => ipcRenderer.invoke('theia:open-assignment-source', assignmentId),
   getFitnessScore: (year, options) => ipcRenderer.invoke('theia:get-fitness-score', year, options),
   openSchedulePdf: () => ipcRenderer.invoke('theia:open-schedule-pdf'),
+  getCourseWorkQueue: () => ipcRenderer.invoke('theia:get-course-work-queue'),
+  setCourseWorkQueueEnabled: (enabled) => ipcRenderer.invoke('theia:set-course-work-queue-enabled', enabled),
+  enqueueCourseWork: (request) => ipcRenderer.invoke('theia:enqueue-course-work', request),
+  cancelCourseWorkJob: (jobId) => ipcRenderer.invoke('theia:cancel-course-work-job', jobId),
   prepareCourseWork: (assignmentId) => ipcRenderer.invoke('theia:prepare-course-work', assignmentId),
   openCourseWork: (assignmentId) => ipcRenderer.invoke('theia:open-course-work', assignmentId),
   importCourseWorkFile: (assignmentId, kind) => ipcRenderer.invoke('theia:import-course-work-file', assignmentId, kind),
@@ -94,6 +104,11 @@ const api = {
     const listener = (_event, value) => callback(value)
     ipcRenderer.on('theia:course-selection', listener)
     return () => ipcRenderer.removeListener('theia:course-selection', listener)
+  },
+  onCourseWorkQueue: (callback) => {
+    const listener = (_event, value) => callback(value)
+    ipcRenderer.on('theia:course-work-queue', listener)
+    return () => ipcRenderer.removeListener('theia:course-work-queue', listener)
   },
   onNewMail: (callback) => {
     const listener = (_event, value) => callback(value)

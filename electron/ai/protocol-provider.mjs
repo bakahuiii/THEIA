@@ -1,4 +1,5 @@
 import { safeProviderError } from './provider.mjs'
+import { MAX_MODEL_COMPLETION_RESPONSE_BYTES } from '../model-service.mjs'
 
 function byteLength(value) {
   return Buffer.byteLength(typeof value === 'string' ? value : JSON.stringify(value), 'utf8')
@@ -21,7 +22,8 @@ export class ProtocolProvider {
       const text = await this.modelService.requestProtocol({ ...this.settings, modelName: request.model }, this.protocol, request.messages, {
         temperature: request.temperature ?? 0.1,
         maxTokens: request.maxTokens,
-        maxResponseBytes: 1_000_000,
+        maxResponseBytes: MAX_MODEL_COMPLETION_RESPONSE_BYTES,
+        timeoutMs: request.timeoutMs,
         signal,
       })
       const result = { text, requestId: null, usage: null, inputBytes: byteLength(request.messages), outputBytes: byteLength(text), durationMs: Date.now() - startedAt }
@@ -40,7 +42,8 @@ export class ProtocolProvider {
       const completed = await this.modelService.requestProtocolStream({ ...this.settings, modelName: request.model }, this.protocol, request.messages, {
         temperature: request.temperature ?? 0.1,
         maxTokens: request.maxTokens,
-        maxResponseBytes: 1_000_000,
+        maxResponseBytes: MAX_MODEL_COMPLETION_RESPONSE_BYTES,
+        timeoutMs: request.timeoutMs,
         signal,
         onDelta: (delta) => { text += delta; onEvent?.({ type: 'delta', delta }) },
       })

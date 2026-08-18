@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
-import { mergeSyncResult, normalizeState } from '../core/schema.mjs'
+import { mergeSyncResult, normalizeState, normalizeSyncPayload } from '../core/schema.mjs'
 import { CampusStore } from '../core/store.mjs'
 import { SyncService } from '../core/sync-service.mjs'
 import { aggregateDomainProvenance, sourceDomainOutcome } from '../core/domain-provenance.mjs'
@@ -19,6 +19,37 @@ test('legacy sync timestamps migrate only a completed successful run to lastSucc
   assert.equal(failed.sync.lastSuccessAt, null)
   assert.deepEqual(successful.sync.domains, {})
   assert.deepEqual(failed.sync.domains, {})
+})
+
+test('adapter payloads use the same canonical state boundary before fallback merges', () => {
+  const payload = normalizeSyncPayload({
+    schedule: [null, { id: 'schedule-1', title: '高等数学', termId: '2026-3' }],
+    grades: ['invalid', { id: 'grade-1', courseName: '高等数学', score: 90 }],
+    academicExtras: {
+      domains: {
+        'academic-plan': {
+          records: [{ id: 'legacy-row' }],
+          attachments: [
+            { id: 'old-pdf', type: 'pdf', sourceUrl: 'https://jwglxt.buct.edu.cn/jwglxt/old.pdf' },
+            { id: 'current-pdf', type: 'pdf', sourceUrl: 'https://jwglxt.buct.edu.cn/jwglxt/current.pdf', cached: true },
+          ],
+        },
+        'academic-warning': { records: [{ id: 'warning' }] },
+        thesis: { records: [{ id: 'thesis' }] },
+      },
+    },
+    domainOutcomes: {
+      'academic-plan': { succeeded: true },
+      'academic-warning': { succeeded: true },
+      thesis: { succeeded: true },
+    },
+  })
+  assert.deepEqual(payload.grades.map((item) => item.id), ['grade-1'])
+  assert.match(payload.schedule[0].color, /^#/u)
+  assert.deepEqual(payload.academicExtras.domains['academic-plan'].records, [])
+  assert.deepEqual(payload.academicExtras.domains['academic-plan'].attachments.map((item) => item.id), ['current-pdf'])
+  assert.deepEqual(Object.keys(payload.academicExtras.domains), ['academic-plan'])
+  assert.deepEqual(Object.keys(payload.domainOutcomes), ['academic-plan'])
 })
 
 test('legacy snapshots never infer domain freshness or completeness from global timestamps', () => {
@@ -793,6 +824,37 @@ test('a domain retry requests only that domain and preserves unrelated data and 
   }
 })
 
+test('a scoped free-classroom query reaches the adapter without widening its domain request', async () => {
+  const root = await mkdtemp(resolve(tmpdir(), 'theia-sync-free-classroom-query-'))
+  try {
+    const store = new CampusStore(root)
+    await store.load()
+    let receivedOptions = null
+    const service = new SyncService({
+      store,
+      jwglxt: {
+        async sync(options) {
+          receivedOptions = options
+          return { errors: [], source: { connected: true } }
+        },
+      },
+      theol: { async sync() { throw new Error('THEOL must not run') } },
+    })
+    await service.syncNow({
+      sources: ['jwglxt'],
+      domains: ['free-classroom'],
+      foreground: true,
+      freeClassroom: { term: { id: '2026-3', year: 2026, term: '3' }, weeks: [2], weekdays: [4], periods: [5] },
+    })
+    assert.deepEqual(receivedOptions, {
+      domains: ['free-classroom'],
+      freeClassroom: { term: { id: '2026-3', year: 2026, term: '3' }, weeks: [2], weekdays: [4], periods: [5] },
+    })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('independent filtered platform syncs start concurrently instead of sharing a global queue', async () => {
   const root = await mkdtemp(resolve(tmpdir(), 'theia-sync-independent-sources-'))
   let releaseAcademic = () => {}
@@ -923,7 +985,7 @@ test('a successful source retry replaces its earlier batch error before the batc
           academicCalls += 1
           if (academicCalls === 1) throw new Error('obsolete academic failure')
           return {
-            schedule: [{ id: 'retry-schedule', source: 'jwglxt' }],
+            schedule: [{ id: 'retry-schedule', source: 'jwglxt', weekday: 1, period: '1-2' }],
             errors: [],
             source: { connected: true },
           }
@@ -1009,6 +1071,43 @@ test('a default sync joins an active source and starts the other platform immedi
   } finally {
     releaseAcademic()
     releaseTheol()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('a default JWGLXT run does not satisfy a queued low-frequency extension read', async () => {
+  const root = await mkdtemp(resolve(tmpdir(), 'theia-sync-extension-priority-'))
+  let releaseFull = () => {}
+  try {
+    const store = new CampusStore(root)
+    await store.load()
+    const fullGate = new Promise((resolveGate) => { releaseFull = resolveGate })
+    let observeFullStart
+    const fullStarted = new Promise((resolveStarted) => { observeFullStart = resolveStarted })
+    const calls = []
+    const service = new SyncService({
+      store,
+      jwglxt: {
+        async sync(options = {}) {
+          calls.push(options.domains || null)
+          observeFullStart()
+          if (calls.length === 1) await fullGate
+          return { errors: [], source: { connected: true } }
+        },
+      },
+      theol: {},
+    })
+
+    const full = service.syncNow({ sources: ['jwglxt'] })
+    await fullStarted
+    const extension = service.syncNow({ sources: ['jwglxt'], domains: ['academic-plan'] })
+    assert.deepEqual(calls, [null])
+
+    releaseFull()
+    await Promise.all([full, extension])
+    assert.deepEqual(calls, [null, ['academic-plan']])
+  } finally {
+    releaseFull()
     await rm(root, { recursive: true, force: true })
   }
 })
@@ -1241,7 +1340,7 @@ test('a source requested again after its active-run commit is queued for a fresh
         async sync() {
           jwglxtCalls += 1
           return {
-            schedule: [{ id: `schedule-${jwglxtCalls}`, source: 'jwglxt' }],
+            schedule: [{ id: `schedule-${jwglxtCalls}`, source: 'jwglxt', weekday: 1, period: '1-2' }],
             errors: [],
             source: { connected: true },
           }

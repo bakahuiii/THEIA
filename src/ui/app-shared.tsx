@@ -1,5 +1,11 @@
 /* eslint-disable react-refresh/only-export-components */
-import { ExternalLink, Wifi, WifiOff, type LucideIcon } from "lucide-react";
+import {
+  ExternalLink,
+  LoaderCircle,
+  Wifi,
+  WifiOff,
+  type LucideIcon,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { bridge } from "../bridge";
 import type { Assignment, AuthStatus, CampusState, SourceName } from "../types";
@@ -28,16 +34,107 @@ export type ViewId =
   | "settings";
 export type Term = { id: string; label: string };
 
+function compactTermLabel(label: string) {
+  const compact = label
+    .replace(/^\s*\d{4}\s*-\s*\d{4}\s*(?:学年\s*)?/u, "")
+    .trim();
+  return compact || label;
+}
+
+/** THEIA presents all user-facing instants in the user's campus time zone. */
+export const THEIA_TIME_ZONE = "Asia/Shanghai";
+
+const SHANGHAI_LOCAL_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/;
+
+function formatOptions(withTime: boolean, withSeconds = false): Intl.DateTimeFormatOptions {
+  return withTime
+    ? {
+        timeZone: THEIA_TIME_ZONE,
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        ...(withSeconds ? { second: "2-digit" } : {}),
+        hour12: false,
+      }
+    : { timeZone: THEIA_TIME_ZONE, year: "numeric", month: "short", day: "numeric" };
+}
+
+export function formatDateTime(value?: string | null, withSeconds = false) {
+  if (!value) return "时间未知";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("zh-CN", formatOptions(true, withSeconds)).format(date);
+}
+
+export function formatClock(value?: string | null, withSeconds = false) {
+  if (!value) return "--:--";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "--:--";
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: THEIA_TIME_ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    ...(withSeconds ? { second: "2-digit" } : {}),
+    hour12: false,
+  }).format(date);
+}
+
+export function formatActivityLog(raw: string) {
+  try {
+    const record = JSON.parse(raw) as Record<string, unknown>;
+    if (!record || typeof record !== "object" || Array.isArray(record)) return raw;
+    if (typeof record.at === "string") {
+      record.at = formatIsoWithOffset(record.at);
+    }
+    return JSON.stringify(record);
+  } catch {
+    return raw;
+  }
+}
+
+function formatIsoWithOffset(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: THEIA_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date).reduce<Record<string, string>>((result, part) => {
+    result[part.type] = part.value;
+    return result;
+  }, {});
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}+08:00`;
+}
+
+/** Parse an HTML datetime-local value as a UTC+8 wall-clock value. */
+export function parseLocalDateTime(value?: string | null) {
+  const text = String(value || "").trim();
+  const match = text.match(SHANGHAI_LOCAL_PATTERN);
+  if (match) {
+    const [, year, month, day, hour, minute, second = "00"] = match;
+    const date = new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}+08:00`);
+    return Number.isNaN(date.getTime()) ? Number.NaN : date.getTime();
+  }
+  const date = new Date(text);
+  return date.getTime();
+}
+
+export function localDateTimeInstant(value?: string | null) {
+  const milliseconds = parseLocalDateTime(value);
+  return Number.isFinite(milliseconds) ? new Date(milliseconds).toISOString() : null;
+}
+
 export function formatDate(value?: string | null, withTime = true) {
   if (!value) return "待公布";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(
-    "zh-CN",
-    withTime
-      ? { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }
-      : { year: "numeric", month: "short", day: "numeric" },
-  ).format(date);
+  return new Intl.DateTimeFormat("zh-CN", formatOptions(withTime)).format(date);
 }
 
 export function relativeTime(value?: string | null, now = Date.now()) {
@@ -135,10 +232,22 @@ export function matchTerm(
     : itemTermId.startsWith(`${filter}-`);
 }
 
-export function localDateTimeValue(value?: string | null) {
+export function localDateTimeValue(value?: string | Date | null) {
   const date = value ? new Date(value) : new Date();
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 16);
+  if (Number.isNaN(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: THEIA_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date).reduce<Record<string, string>>((result, part) => {
+    result[part.type] = part.value;
+    return result;
+  }, {});
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
 }
 
 export function EmptyState({
@@ -167,16 +276,20 @@ export function StatusDot({
   status: AuthStatus[SourceName];
 }) {
   const connected = status?.connected;
-  const Icon = connected ? Wifi : WifiOff;
+  const verifying = !status?.error && Boolean(status?.authPending || status?.unchecked);
+  const Icon = verifying ? LoaderCircle : connected ? Wifi : WifiOff;
+  const tone = verifying ? "pending" : connected ? "connected" : "offline";
   return (
     <span
-      className={`source-status ${connected ? "connected" : "offline"}`}
+      className={`source-status ${tone}`}
       title={
         status?.error ||
-        `${sourceLabel(source)}${connected ? "已连接" : "未连接"}`
+        (verifying
+          ? "正在确认统一身份认证会话"
+          : `${sourceLabel(source)}${connected ? "已连接" : "未连接"}`)
       }
     >
-      <Icon size={14} /> {sourceLabel(source)}
+      <Icon size={14} className={verifying ? "spinning" : undefined} /> {sourceLabel(source)}
     </span>
   );
 }
@@ -257,7 +370,7 @@ export function TermSelector({
   const availableTerms = year
     ? terms
         .filter((term) => term.id.startsWith(`${year}-`))
-        .map((term) => ({ code: term.id.split("-")[1], label: term.label }))
+        .map((term) => ({ code: term.id.split("-")[1], label: compactTermLabel(term.label) }))
     : [];
   return (
     <div className="term-selector-group">

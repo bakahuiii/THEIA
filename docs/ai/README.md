@@ -11,7 +11,7 @@
 | 新增桌面能力 | `05-ipc-bridge.md`，再读对应服务文档 |
 | 顾问 P0、数据质量、证据与本地 overview | `16-advisor-p0-foundation.md`，再读 `01-runtime-data-flow.md`、`06-storage-schema.md` |
 | 顾问 P1-P3、今日行动、学业分析与选课沙盘 | `17-advisor-p1-p3-local-workbench.md`，前置合同见 `16-advisor-p0-foundation.md` |
-| 顾问 P4-P5、模型运行时、披露授权、通知与邮件 | `18-advisor-p4-p5-model-runtime.md`，前置本地合同见 `16-advisor-p0-foundation.md`、`17-advisor-p1-p3-local-workbench.md` |
+| 顾问 Agent、流式模型运行时、通知与邮件按需读取 | `20-a-b-c-advisor-agent-sidecar.md`，前置本地合同见 `16-advisor-p0-foundation.md`、`17-advisor-p1-p3-local-workbench.md` |
 | 顾问 P6、数据流审计、加密线程、流式预览与开放式只读 Agent | `19-p6-data-flow-and-open-agent.md` |
 | 顾问 A/B/C、只读工具 Agent、Sidecar 与多协议模型 | `20-a-b-c-advisor-agent-sidecar.md` |
 | 继续 AI 顾问开发、了解当前验收状态与最近修复 | `21-advisor-handoff.md` |
@@ -41,7 +41,7 @@
 
 Loopback API、CLI 和导出是面向本机工具的通用读取面。不要把外部工具的配置、密钥或状态迁入 THEIA 数据目录。
 
-`core/advisor/` 当前同时包含 P0-P3 的确定性数据质量、证据、今日行动、学业分析和选课决策，以及 P4-P5 的最小上下文、模型叙述校验、通知/邮件投影和纯内存词法索引。`electron/advisor-runtime.mjs` 负责冻结请求、授权披露、Provider 调用和响应校验；既有 `ModelService` 只提供模型传输能力，不能单独视为顾问运行时。A/B/C 的产品边界、真实工具循环、导出 sidecar 合同及协议矩阵见 `20-a-b-c-advisor-agent-sidecar.md`。
+`core/advisor/` 同时包含 P0-P3 的确定性数据质量、证据、今日行动、学业分析和选课决策，以及 Agent 的惰性工作区、工具合同、模型叙述和引用校验。`electron/advisor-runtime.mjs` 负责冻结请求、强制流式 Provider 调用、动态账本和响应校验；既有 `ModelService` 只提供模型传输能力，不能单独视为顾问运行时。当前 Agent 说明见 `20-a-b-c-advisor-agent-sidecar.md`。
 
 ## 维护要求
 

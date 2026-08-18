@@ -4,7 +4,7 @@
 
 - Renderer: React 19, TypeScript, Vite, shadcn/Radix.
 - Desktop runtime: Electron with `contextIsolation` enabled.
-- Business logic: ESM modules in `core/`, directly covered by `node --test`.
+- Business logic: ESM modules in `core/`, directly covered by the constrained `node --test --test-concurrency=4` runner.
 - Data root: `%APPDATA%/THEIA`, override only with `THEIA_DATA_ROOT`.
 
 ## Modification Rules

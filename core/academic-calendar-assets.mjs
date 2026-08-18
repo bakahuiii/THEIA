@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { academicCalendarWeek, nextAcademicCalendarBoundary, normalizeAcademicCalendar } from './academic-calendar.mjs'
 import { PARSER_VERSION, academicTrackContextKey, analyzeAcademicCalendarPdfs } from './academic-calendar-pdf-analysis.mjs'
@@ -20,6 +21,7 @@ const SCHEMA = 'theia-academic-calendar-assets/v1'
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/137 Safari/537.36'
 const PROBE_AHEAD_MS = 14 * 24 * 60 * 60 * 1000
 const PROBE_INTERVAL_MS = 6 * 60 * 60 * 1000
+const REQUEST_TIMEOUT_MS = 30_000
 
 function isoDate(value = new Date()) { return new Date(value).toISOString() }
 
@@ -100,14 +102,28 @@ export class AcademicCalendarAssetsService {
     return filename ? resolve(this.assetsRoot, filename) : null
   }
 
+  needsRefresh({ force = false, now = Date.now() } = {}) {
+    if (force) return true
+    return Object.keys(FILES).some((key) => {
+      const path = this.pathFor(key)
+      return !existsSync(path) || shouldProbe(this.manifest.assets?.[key], true, now)
+    })
+  }
+
   async requestText(url) {
-    const response = await this.fetch(url, { headers: { 'User-Agent': USER_AGENT, 'Accept-Language': 'zh-CN,zh;q=0.9' } })
+    const response = await this.fetch(url, {
+      headers: { 'User-Agent': USER_AGENT, 'Accept-Language': 'zh-CN,zh;q=0.9' },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    })
     if (!response.ok) throw new Error(`Academic calendar request failed (${response.status})`)
     return response.text()
   }
 
   async download(url, destination, expected) {
-    const response = await this.fetch(url, { headers: { 'User-Agent': USER_AGENT, 'Accept-Language': 'zh-CN,zh;q=0.9' } })
+    const response = await this.fetch(url, {
+      headers: { 'User-Agent': USER_AGENT, 'Accept-Language': 'zh-CN,zh;q=0.9' },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    })
     if (!response.ok) throw new Error(`Academic calendar download failed (${response.status})`)
     const content = Buffer.from(await response.arrayBuffer())
     if (expected === 'pdf' && !content.subarray(0, 4).equals(Buffer.from('%PDF'))) throw new Error('Academic calendar PDF endpoint returned a non-PDF response')
@@ -162,7 +178,11 @@ export class AcademicCalendarAssetsService {
       return true
     }
     const calendarChanged = await fetchOne('calendar', CALENDAR_PAGE, sourceUrlFromCalendarPage, 'image')
-    if (calendarChanged || !this.manifest.calendar || force) {
+    // A changed image can leave the previous normalized calendar in place if
+    // OCR failed. Retry that parse on the next refresh even when the source
+    // URL is unchanged; otherwise one transient OCR failure would pin stale
+    // vacation dates until the university publishes another image.
+    if (calendarChanged || !this.manifest.calendar || this.manifest.calendarError || force) {
       try {
         this.onDiagnostic('academic_calendar.ocr_started', { key: 'calendar' })
         const calendar = normalizeAcademicCalendar(await this.ocrRunner({ imagePath: this.pathFor('calendar') }))
@@ -184,6 +204,7 @@ export class AcademicCalendarAssetsService {
       academicTrack: this.academicTrackProvider(),
     }
     const shouldAnalyze = force || teachingChanged || weeklyChanged || !this.manifest.analysis
+      || Boolean(this.manifest.analysisError)
       || this.manifest.analysis?.parserVersion !== PARSER_VERSION
       || this.manifest.analysis?.teachingSchedule?.match?.contextKey !== academicTrackContextKey(analysisContext)
     if (shouldAnalyze) {

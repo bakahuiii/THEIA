@@ -1,135 +1,66 @@
-# THEIA A/B/C 顾问、只读 Agent 与 Sidecar
+# THEIA 内嵌顾问与本地 Agent
 
-本文定义 THEIA 面向不同用户的三条 AI 使用路径。它们共享数据质量、证据、最小披露和用户确认规则，但不共享权限。任何一条路径都不会给模型校园账号、浏览器会话、文件系统、命令行、任意网络请求或学校写操作权限。
+更新日期：2026-08-17。
 
-## 1. 结论与选择
+THEIA 的内嵌顾问只有一条模型路径：有界的本地 Agent。用户只需要提出问题；模型/Agent 自行判断是否需要查询数据，不勾选数据域、不挑选通知/邮件、不手动附加正文，也没有普通模型和 Agent 之间的模式开关。问题本身不足以判断目标时，Agent 应先给出基于现有事实的初步建议，再提出一个会实质改变结论的最小澄清问题；不能只回一个空泛的“你想怎么样”。选课与学业规划问题优先读取学业进度和课程/课表分析，再给出可执行的优先级与权衡。
 
-| 路径 | 面向对象 | 数据从哪里来 | 模型能做什么 | 模型不能做什么 |
-| --- | --- | --- | --- | --- |
-| A 内嵌顾问 | 希望直接在 THEIA 中问问题的用户 | 当次冻结的最小顾问上下文 | 解释本地结论、给出可核验建议、流式显示预览 | 自由读取整库、修改校园数据、调用工具或执行操作 |
-| B 只读工具 Agent | 需要多步检索与对比的用户 | 当次已披露上下文的受限投影 | 最多六步调用固定只读工具，再返回带引用的结论 | 网络、浏览器、同步、登录、提交、文件、Shell、任意 URL |
-| C 导出 / Sidecar | 偏好本地模型、其他客户端或 Codex 类工具的用户 | 用户显式生成的 `theia-ai-context/v1` 导出目录 | 在外部环境分析经过清洗的副本 | 回连 THEIA、读取数据目录/会话/凭据、调用 THEIA 写 API |
-
-默认选择 A。B 必须由用户在当前问题中显式勾选。C 必须由用户显式选择目录并生成新包；它不是后台同步，也不是给外部程序的常驻授权。
-
-## 2. 不可突破的共同边界
-
-1. 事实先在本地计算。`DataQuality`、`RiskEngine`、`AgendaEngine`、学业分析和证据注册表先从 `CampusStore.snapshotWithRevision()` 产生确定性结果；模型只解释，不产生新事实。
-2. 一次请求只使用一个深拷贝冻结快照。发送前若 `revision` 改变，旧披露计划失效，必须重新检查。
-3. 所有外发数据经过 `ContextBuilder` 白名单投影。模型、协议适配器和 renderer 都没有读取 `CampusStore`、浏览器 Cookie、凭据保险库或本地路径的入口。
-4. 敏感实体采用当次、短时、精确绑定的确认。邮件正文等授权同时绑定服务身份、线程、请求、实体摘要、上下文摘要和有效期；不能复用到下一轮、另一个模型服务或导出包。
-5. 模型输出必须是 `theia-advisor-model-narrative/v1`，并由 `CitationVerifier` 对冻结的 claim、evidence、action 和低信任 reference 逐项校验。未通过验证的流式文本不会写入线程。
-6. 校园通知、邮件、附件和网页文本是不可信输入。它们不能改变系统提示词、开放工具、提升权限或直接成为本地事实。
-
-禁止能力清单始终为：`filesystem`、`arbitrary-url`、`network`、`browser-session`、`credentials`、`sync`、`login`、`course-selection-execution`、`answer-fill`、`mail-send`、`upload`、`submit`、`shell`、`ipc-proxy`。
-
-## 3. A：内嵌顾问
-
-### 3.1 请求流程
+## 请求生命周期
 
 ```text
-用户问题与意图
-  -> prepare：冻结快照、选择模型、生成最小上下文和披露计划
-  -> 用户查看服务、模型、范围、记录数量与敏感项并确认
-  -> send：再次检查快照、构造受限 Context 和 RequestCatalog
-  -> Provider
-  -> CitationVerifier
-  -> 仅将验证后的答案保存到加密线程并显示证据
+用户问题
+  -> 主进程冻结 CampusStore revision
+  -> 计算本地 overview 与惰性数据工作区
+  -> 向模型发送问题与可调用工具边界
+  -> 模型按需请求有限工具
+  -> 主进程投影并登记实际返回的证据
+  -> 每轮流式闸门吞掉内部 tool-call JSON，只转发最终普通文本
+  -> 原样保存模型回答到加密线程
 ```
 
-普通模式可开启“实时预览”。预览只是模型尚未验证的增量文本，支持取消；只有最终 JSON 通过引用、格式和风险断言后，才会作为正式回复持久化。线程由 `AdvisorStore` 独立 DPAPI 加密保存，不进入 `CampusState`、诊断日志、loopback API 或 AI 导出包。后续问题不会把历史原文自动再发送；持久线程首先是本地阅读历史，不是隐形的历史数据外发。
+初始 `theia-advisor-agent-session/v1` 不包含成绩、课程、课表、作业、通知、邮件、正文、体测数值或学业树。它发送问题、运行时上下文、数据目录和快照 revision；当前不会从问题文字生成 `intent` 或 `focusDomains`（`focusDomains` 固定为空），具体事实仍必须通过工具读取。新配置默认是 `read-only`（受控 Agent），保留既有的校园 typed tools；用户可显式切换到 `full-access`，该会话额外携带建议输出目录并投影通用本地工具。模型在当前工具范围内自行决定是否查询、查询哪个领域或执行用户要求的实际产物；涉及“我的/个人信息/个人博客/个人主页/简历”时运行时会先读取 `profile`。Ultra 也复用同一套当前会话工具，不会因 full-access 被降级为只读。
 
-### 3.2 用户能控制什么
+## 数据工作区
 
-- 问题、意图、服务协议、服务地址、模型及模型角色。
-- “本次可读取数据”多选范围。未选择时按问题类型采用保守默认；一旦显式选择，只有所选的作业、考试、成绩、学业进度、课程、课表、已选课程、选课分析、通知、邮箱或体测领域会进入本次冻结上下文。实时预览只影响输出显示，绝不决定可读取数据。
-- 是否选择某一封通知或邮件；是否将该邮件正文加入本次上下文。
-- 是否开启实时预览；取消正在进行的请求。
-- 是否创建、切换或删除本地加密线程。
-- 每次发送前是否批准精确披露计划。拒绝不会发送任何模型请求。
+`core/advisor/lazy-workspace.mjs` 仅在 Electron 主进程创建。它从同一个冻结快照构造白名单投影，且从不暴露原始对象、文件路径、Cookie、凭据、会话、HTML、附件二进制或来源 URL。
 
-即使同一服务被多次使用，A 也不把“上一次批准”视为“下一次批准”。
+可查询的校园领域为：学籍档案（可含姓名、学号、院系、专业、年级、班级）、作业与测试、考试、成绩、学业进度、课程、课表、已选课程、通知、邮箱、体测、校历、全校课表缓存和抢课目标缓存。通知和邮件保持 `untrusted`；邮箱正文只能在已检索到该封邮件后由 `read_message` 单独读取，且需已经在本地缓存。
 
-## 4. B：只读工具 Agent
+固定工具：
 
-### 4.1 为什么单独做 B
-
-普通顾问适合一次性解释。复杂问题有时需要先查数据健康、再查相关 claim、再列截止项或学业风险。B 允许这一小段推理过程，但工具不是插件市场，也不是通用函数调用。
-
-当前固定工具如下；每个工具只读取本次 `ContextBuilder` 已披露、已冻结的投影，而不是全量数据：
-
-| 工具 | 只读结果 | 不能读取 |
-| --- | --- | --- |
-| `get_data_health` | 当前领域的数据质量 | 同步器、原始响应、日志 |
-| `find_claims` | 最多 12 条已披露 claim 与证据引用 | 任意数据库查询、原文附件 |
-| `list_deadlines` | 已披露的作业与考试紧急项 | 其他课程平台页面 |
-| `inspect_academic_progress` | 已披露 claim 和相关风险 | 培养方案原始文件、教务会话 |
-| `inspect_course_analysis` | 已披露课程/课表风险 | 抢课执行、候选页、选课写操作 |
-
-### 4.2 执行协议与预算
-
-1. 用户在输入框启用“只读工具 Agent”。启用后，实时预览关闭，避免将未完成工具链的 JSON 中间态误认为答案。
-2. 运行时给模型一个极小的工具协议：模型只能返回 `theia-advisor-tool-call/v1` 或最终 `theia-advisor-model-narrative/v1`。
-3. 每次工具调用都验证名称、参数对象和字段白名单。工具结果通过普通 `user` 消息回传，明确标记为数据而非指令。
-4. 最多 6 个工具步骤；同一工具最多 2 次；总输入、输出和 90 秒期限沿用顾问预算。任一上限触发即失败关闭。
-5. 最终答案仍交给 `CitationVerifier`。工具调用本身不是证据，不能绕过 claim/evidence/reference 约束。
-
-模型没有可发现的环境对象，也不接收 Node、Electron、IPC、网络客户端、浏览器窗口、文件路径、凭据或原始校园实体。因此即使模型输出伪造的 `open_url`、`sync`、`submit`、`shell` 等调用，也会在本地解析阶段被拒绝。
-
-### 4.3 B 的用户授权语义
-
-“启用 Agent”只授权当前问题使用上述固定只读工具。它不授权下一问题，也不授权新增工具。对数据本身，B 继承 A 的当次披露计划和敏感数据确认：工具只能在已经出站的上下文投影内检索，不会扩展披露范围。
-
-## 5. C：导出与 Sidecar
-
-### 5.1 导出包
-
-现有 `theia-ai-context/v1` 导出由用户在本地选择目录后生成。它含 19 个物理文件：16 个规范化 JSON 领域文件、`AI_CONTEXT.md`、`DATA_DICTIONARY.md` 和 `manifest.json`；清单为另外 18 个文件记录 SHA-256、字节数、数据集和时间。具体契约见 [AI 导出契约](../reference/ai-export-contract.md)。
-
-导出前会移除密码、API Key、Cookie、会话、授权码、绝对路径、原始 HTML、二进制附件和工作区路径；HTTP(S) 来源 URL 去除用户名、密码、查询和片段。生成导出不读取校园网站，也不改变本地记录。
-
-### 5.2 Sidecar 合同
-
-Sidecar 可以是本地 Python/Node 程序、桌面客户端、MCP 宿主或其他用户选择的 AI 工具，但它必须遵守以下合同：
-
-1. 输入只允许用户手动交给它的导出目录，先校验 `manifest.json`、文件白名单、字节数和每个 SHA-256。
-2. 哈希、schema、文件计数或生成时间不一致时，标记为损坏/混合快照并停止自动结论；不能静默跳过。
-3. Sidecar 不获得 THEIA 数据目录、`AdvisorStore`、DPAPI vault、浏览器 profile、Cookie、原始附件或运行中的 Electron IPC。
-4. Sidecar 不拥有 THEIA 回调地址和写 API；不能触发同步、登录、抢课、填答、发送邮件、上传或提交。
-5. Sidecar 如要把数据发送给另一模型服务，必须由该 sidecar 自己向用户展示传输目标和内容范围。THEIA 的一次导出不等于用户批准后续任何传输。
-6. Sidecar 输出只能被视作外部建议。要回到 THEIA，必须由用户复制/导入一个新的、受验证的纯文本结果；不得把外部回答写回校园事实或证据链。
-
-这使 C 能覆盖不愿安装额外 THEIA 内嵌模型配置、但愿意使用本地/第三方工作流的用户，同时不会让外部工具变成 THEIA 的后门。
-
-## 6. 模型协议与流式支持
-
-协议由用户显式选择，绝不根据模型名称猜测。探测票据同时绑定协议、规范化服务地址和 API Key 指纹；三者任一变化都需要重新探测/确认。
-
-| 协议 ID | 请求 | 流式 | 认证 | 地址示例 |
-| --- | --- | --- | --- |
-| `openai-compatible` | Chat Completions | SSE | `Authorization: Bearer` | `https://provider.example/v1` |
-| `anthropic-messages` | Messages | SSE | `x-api-key` + `anthropic-version` | `https://api.anthropic.com` 或已含 `/v1` 的地址 |
-| `gemini-generate-content` | GenerateContent | SSE `alt=sse` | `x-goog-api-key` | `https://generativelanguage.googleapis.com` 或已含 `/v1beta` 的地址 |
-| `ollama-chat` | `/api/chat` | NDJSON | 可选 Bearer | `http://127.0.0.1:11434` 或已含 `/api` 的地址 |
-
-Ollama 无 Key 模式仅允许字面量 `localhost`、`127.0.0.1` 或 `[::1]`。任意远程地址仍必须使用 HTTPS，并保存与精确服务地址绑定的 Key。非 OpenAI 服务没有通用的模型列表标准，因此界面允许用户在连接探测后明确填写模型 ID；这不是失败降级，也不是根据厂商名称盲猜模型能力。
-
-所有协议均受同一主进程网络策略约束：禁止凭据嵌入 URL、禁止查询/片段、禁止重定向、限制请求/响应体、固定 DNS 解析结果，并将取消与 90 秒超时传递到网络层。SSE 和 NDJSON 都按字节上限增量解析；无有效文本、非法 JSON 或过大响应会失败关闭。
-
-## 7. 验收矩阵
-
-| 类别 | 必须验证 |
+| 工具 | 返回内容 |
 | --- | --- |
-| A | 冻结快照、当次披露、敏感邮件正文确认、取消、超时、持久线程加密、流式预览不持久化、引用验证 |
-| B | 非法工具名/参数拒绝、每工具两次上限、六步上限、累计预算、工具结果只来自投影、最终引用验证 |
-| C | 19 文件布局、18 条 manifest 哈希、路径/URL/凭据清洗、损坏包拒绝、无回调和无写 API |
-| 协议 | 四种请求体/认证/路径、Anthropic/Gemini SSE、Ollama NDJSON、协议变更使探测票据失效、仅 loopback 的无 Key Ollama |
-| 回归 | `npm test`、`npm run lint`、`npm run build`、`git diff --check`；桌面视觉冒烟应覆盖顾问线程、披露弹窗、流式状态和 Agent 开关 |
+| `get_data_health` | 所请求领域的质量目录与可引用的质量事实 |
+| `search_campus_records` | 一个领域内至多 12 条白名单记录 |
+| `search_local_facts` | 本地确定性分析已生成的 claim |
+| `list_deadlines` | 作业与考试的确定性紧急项 |
+| `inspect_academic_progress` | 培养方案、缺口、GPA、风险的分析切片 |
+| `inspect_course_analysis` | 课表、课程、已选课程相关风险 |
+| `read_message` | 已发现邮件的净化正文 |
 
-## 8. 明确不做
+标准 Agent 每个工具最多四次，整次默认最多 15 个步骤；顾问档位可将总步数提高到 30、50 或 100。预算由顾问档位控制，默认输入 50,000 tokens、输出 8,000 tokens。每轮必须使用 Provider 的流式接口，缺少流式能力时本轮失败而不会退回普通生成。Responses 的 `error`、`response.failed` 和 `response.incomplete` 事件会终止本轮并取消 reader；最终事件中的 input/output/cache usage 会保留到回答和诊断中，不能用占位值推断缓存命中。主进程不会根据中文问题做 intent 路由或 fast/deep/coursework 角色选择；模型按设置中的模型优先级运行，具体查询领域由 Agent 自行决定。
 
-- 不把 B 扩展为通用 MCP 代理或任意工具注册表。
-- 不把 C 的导出目录自动暴露给本地端口、后台扫描器或第三方程序。
-- 不允许模型代替用户对校园系统执行任何写操作。
-- 不因“模型声称已检查”而更新数据质量、同步状态、成绩、学分、GPA 或学业结论。
-- 不将原 P6 课程后台队列与 A/B/C Agent 混合；两者的权限模型和失败恢复模型不同。
+Ultra 仅在 `ultra` 档位和复杂问题下启用。它使用仓库内的 `electron/ultra-mode/`，通过同一 `generateStream({ model, messages, maxTokens, ... }, { signal, onEvent })` 契约运行分解、子 Agent 和汇总；子 Agent 显式收到当前问题、缓存键、取消信号和 revision-bound projected tools。任务图在运行前拒绝重复 ID、未知/循环依赖、未知工具和超限任务；失败任务只返回净化后的错误，已完成回合的 usage/cache 统计仍会保留。
+
+## 证据闭合
+
+工作区维护一个本轮证据账本。工具返回本地记录时，主进程生成对应的 claim/evidence；返回通知或邮件时，登记不可信 reference。普通模型文本按原文保存和显示；若模型主动返回 `theia-advisor-model-narrative/v1`，主进程只接受引用当前账本中存在且数字一致的 claim/reference，并把验证后的 blocks/recommendations 渲染为可读文本；伪造引用不会进入线程。
+
+模型只有在需要读取本地数据或执行已授权操作时才返回精确的 `theia-advisor-tool-call/v1` JSON；否则直接返回自然语言。解析器容忍模型在开头工具 JSON 后附带解释，但只执行完整白名单对象；普通话术中的 JSON 不会触发工具。普通文本仅保留一个很短的协议判别窗口，随后逐 delta 转发；内部 tool-call JSON 不进入 renderer。未知工具或越界参数不会获得本地能力，重复调用会获得一次内部纠正，仍不生成本地替代回答。
+
+## 能力边界
+
+`read-only` 保留已声明的 `sync_campus_data`、公开 HTTPS `network_request`、校园页面打开、THEIA 设置更新和已保存目标选课控制工具，但没有通用 `filesystem`、Shell 或任意网页能力。`full-access` 额外投影 `read_file`、`write_file`、`list_directory`、`create_directory`、`delete_path`、`run_command`、`web_request` 和 `open_webpage`；本机用户承担这些操作的后果。两种模式都不暴露保存的 `credentials`/Cookie、浏览器会话、API Key、原始 IPC 或未声明的学校侧提交能力。
+
+用户的“发送”操作只启动本地 Agent 运行，不是数据访问确认，也不会把全量校园数据库打包到初始 prompt。外部模型仅能收到它在当前问题中实际请求到的受限切片。线程历史默认只压缩为最多两条、1.2 KB 的导航提示，不把完整历史 transcript 自动并入下一次模型请求；工具续轮使用精简系统上下文，当前事实仍必须重新从本地工具读取。
+
+## 维护入口
+
+- 主进程运行时：[advisor-runtime.mjs](../../electron/advisor-runtime.mjs)
+- Ultra 编排器：[orchestrator.mjs](../../electron/ultra-mode/orchestrator.mjs)
+- Ultra 适配器：[adapter.mjs](../../electron/ultra-mode/adapter.mjs)
+- 惰性工作区：[lazy-workspace.mjs](../../core/advisor/lazy-workspace.mjs)
+- Agent 协议：[read-only-agent.mjs](../../core/advisor/read-only-agent.mjs)
+- 引用验证：[citation-verifier.mjs](../../core/advisor/citation-verifier.mjs)
+- 前端工作台：[AdvisorWorkbench.tsx](../../src/components/advisor/AdvisorWorkbench.tsx)
+- 关键测试：[advisor-runtime.test.mjs](../../tests/advisor-runtime.test.mjs)
+- Ultra 与流式失败回归：[advisor-ultra.test.mjs](../../tests/advisor-ultra.test.mjs)、[model-service.test.mjs](../../tests/model-service.test.mjs)

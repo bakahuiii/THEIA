@@ -65,7 +65,7 @@ test('runtime bridge keeps browser previews but fails closed for packaged file r
 })
 
 test('initial snapshot failures become a visible startup error and do not launch fallback probes', () => {
-  const loadStart = appHookSource.indexOf('void bridge\n      .getSnapshot()')
+  const loadStart = appHookSource.indexOf('void bridge\n      .getRendererSnapshot()')
   const runtimeLoaderStart = appHookSource.indexOf('const loadRuntimeStatus', loadStart)
   assert.notEqual(loadStart, -1)
   assert.notEqual(runtimeLoaderStart, -1)

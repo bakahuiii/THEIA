@@ -15,10 +15,10 @@ import {
   TableProperties,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { bridge } from "../bridge";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../components/ui/dialog";
-import { Toggle } from "../ui/app-shared";
+import { formatActivityLog, formatDateTime, Toggle } from "../ui/app-shared";
 import type {
   AcademicApiCredentialStatus,
   ActivityLogEntry,
@@ -35,7 +35,8 @@ import { AdvancedModelSettings } from "./settings/AdvancedModelSettings";
 import { AppearanceSettings } from "./settings/AppearanceSettings";
 import { CredentialForm } from "./settings/Credentials";
 import { MailboxSettings } from "./settings/MailboxSettings";
-type SettingsSection =
+import { formatAcademicTermId } from "../ui/term-label";
+export type SettingsSection =
   | "appearance"
   | "sync"
   | "data"
@@ -105,7 +106,6 @@ const SYNC_DATA_GROUPS: Array<{
       { id: "mailbox", label: "校园邮箱", domain: "mailbox", unit: "封", count: (state) => state.emails.length },
       { id: "academic-calendar", label: "校历", domain: "academic-calendar", unit: "份", count: (state) => Number(Boolean(state.dataCatalog.collections.academicCalendar.calendar || state.dataCatalog.collections.academicCalendar.analysis)) },
       { id: "fitness", label: "体测成绩", domain: "fitness", unit: "个年度", count: (state) => Object.keys(state.dataCatalog.collections.fitness.records).length },
-      { id: "school-schedule", label: "全校课表", domain: "school-schedule", unit: "个学期", count: (state) => Object.keys(state.dataCatalog.collections.schoolSchedule.records).length },
     ],
   },
 ];
@@ -235,6 +235,7 @@ function activityLogTone(entry: ActivityLogEntry) {
 type SettingsViewProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialSection?: SettingsSection;
   state: CampusState;
   apiBase: string;
   auth: AuthStatus;
@@ -259,6 +260,7 @@ type SettingsViewProps = {
 export function SettingsView({
   open,
   onOpenChange,
+  initialSection = "appearance",
   state,
   apiBase,
   credentials,
@@ -282,6 +284,10 @@ export function SettingsView({
   const [saving, setSaving] = useState(false);
   const [retryingDomain, setRetryingDomain] = useState<SyncRetryDomain | null>(null);
   const origin = apiBase || "桌面客户端启动后可用";
+
+  useEffect(() => {
+    if (open) setActiveSection(initialSection);
+  }, [initialSection, open]);
 
   const update = async (settings: Partial<CampusState["settings"]>) => {
     setSaving(true);
@@ -479,9 +485,7 @@ export function SettingsView({
                     <div className="sync-log-header">
                       <strong>上次同步尝试</strong>
                       <span>
-                        {new Date(state.sync.lastRunAt || state.sync.lastCompletedAt || "").toLocaleString(
-                          "zh-CN",
-                        )}
+                        {formatDateTime(state.sync.lastRunAt || state.sync.lastCompletedAt)}
                       </span>
                     </div>
                     {fetchLog.length > 0 && (
@@ -498,7 +502,7 @@ export function SettingsView({
                                   : "empty",
                             ].join(" ")}
                           >
-                            <span>{entry.termId}</span>
+                            <span>{formatAcademicTermId(entry.termId)}</span>
                             <strong>
                               {entry.count > 0
                                 ? entry.count + " 节课"
@@ -549,7 +553,7 @@ export function SettingsView({
                         {syncing
                           ? "状态会随教务系统与北化在线THEOL的返回实时更新"
                           : state.sync.lastRunAt || state.sync.lastCompletedAt
-                            ? `最近主同步：${new Date(state.sync.lastRunAt || state.sync.lastCompletedAt || "").toLocaleString("zh-CN")}`
+                            ? `最近主同步：${formatDateTime(state.sync.lastRunAt || state.sync.lastCompletedAt)}`
                             : "尚未进行主同步"}
                       </small>
                     </div>
@@ -557,7 +561,7 @@ export function SettingsView({
                       <span className="success">成功</span>
                       <span className="partial">部分成功</span>
                       <span className="failed">失败</span>
-                      <span className="pending">未开始</span>
+                      <span className="pending">按需 / 未开始</span>
                     </div>
                   </div>
                   <div className="sync-domain-groups">
@@ -671,7 +675,7 @@ export function SettingsView({
                           className={`activity-log-row ${activityLogTone(entry)}`}
                           key={entry.at + "-" + entry.event + "-" + index}
                         >
-                          <code>{entry.raw}</code>
+                          <code>{formatActivityLog(entry.raw)}</code>
                         </div>
                       ))}
                     </div>

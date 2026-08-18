@@ -1,11 +1,13 @@
 import {
   ArrowLeftRight,
   Blend,
+  ChevronDown,
   ImagePlus,
   Monitor,
   Moon,
   Palette,
   Plus,
+  RotateCcw,
   SlidersHorizontal,
   Sparkles,
   Sun,
@@ -16,6 +18,8 @@ import {
   type FormEvent,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
+  useEffect,
+  useRef,
   useState,
 } from "react";
 import { bridge, isDesktop } from "../../bridge";
@@ -35,6 +39,14 @@ import {
   type VisualPresetGroup,
 } from "../../lib/appearance-presets";
 import { deriveGradientPalette } from "../../lib/gradient-map";
+import {
+  DEFAULT_PARALLAX_TUNING,
+  PARALLAX_TUNING_EVENT,
+  PARALLAX_TUNING_GROUPS,
+  publishParallaxTuning,
+  readParallaxTuning,
+  type ParallaxTuning,
+} from "../../components/parallax3d/parallax-tuning";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -62,8 +74,10 @@ const PRESETS: Array<{
   label: string;
   detail: string;
 }> = [
-  { id: "classic", label: "Classic", detail: "平衡、清透" },
-  { id: "midnight", label: "Midnight", detail: "深夜墨绿" },
+  // The persisted ids predate the visible names and were wired in reverse.
+  // Keep the ids for migration, but present the style they actually render.
+  { id: "midnight", label: "Classic", detail: "平衡、清透" },
+  { id: "classic", label: "Midnight", detail: "深夜墨绿" },
 ];
 
 export function AppearanceSettings({
@@ -92,7 +106,13 @@ export function AppearanceSettings({
   const [savePresetOpen, setSavePresetOpen] = useState(false);
   const [customPresetName, setCustomPresetName] = useState("");
   const [savePresetError, setSavePresetError] = useState("");
+  const [sceneTuning, setSceneTuning] = useState<ParallaxTuning>(() =>
+    readParallaxTuning(),
+  );
+  const sceneTuningRef = useRef(sceneTuning);
   const hasBackground = preferences.background === "image";
+  const sceneEnabled = preferences.scene === "parallax-3d";
+  const duotoneActive = hasBackground && preferences.gradientMap.enabled;
   const paletteSource =
     preferences.gradientMap.syncPalette &&
     preferences.backgroundPalette &&
@@ -105,6 +125,7 @@ export function AppearanceSettings({
   );
 
   const applyPreset = (preset: (typeof PRESETS)[number]) => {
+    if (duotoneActive) return;
     setPreset(preset.id);
   };
 
@@ -132,7 +153,7 @@ export function AppearanceSettings({
           presets: preferences.customVisualPresets.map((preset) => ({
             ...preset,
             detail:
-              (preset.basePreset === "midnight" ? "Midnight" : "Classic") +
+              (preset.basePreset === "midnight" ? "Classic" : "Midnight") +
               " · 本地预设",
           })),
         }
@@ -260,6 +281,42 @@ export function AppearanceSettings({
     onMessage("已移除客户端背景");
   };
 
+  useEffect(() => {
+    sceneTuningRef.current = sceneTuning;
+  }, [sceneTuning]);
+
+  useEffect(() => {
+    const onTuningChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ tuning?: ParallaxTuning }>).detail;
+      if (detail?.tuning) {
+        sceneTuningRef.current = detail.tuning;
+        setSceneTuning(detail.tuning);
+      }
+    };
+    window.addEventListener(PARALLAX_TUNING_EVENT, onTuningChange);
+    return () => window.removeEventListener(PARALLAX_TUNING_EVENT, onTuningChange);
+  }, []);
+
+  const updateSceneTuning = <K extends keyof ParallaxTuning>(
+    key: K,
+    value: ParallaxTuning[K],
+  ) => {
+    // Keep the persistence/event side effect outside React's state updater.
+    // StrictMode may evaluate an updater more than once during development.
+    const next = { ...sceneTuningRef.current, [key]: value } as ParallaxTuning;
+    sceneTuningRef.current = next;
+    setSceneTuning(next);
+    publishParallaxTuning(next, "settings");
+  };
+
+  const resetSceneTuning = () => {
+    const next = { ...DEFAULT_PARALLAX_TUNING };
+    sceneTuningRef.current = next;
+    setSceneTuning(next);
+    publishParallaxTuning(next, "settings");
+    onMessage("已恢复 3D 墨景默认参数");
+  };
+
   return (
     <section className="settings-section appearance-settings">
       <div className="settings-title">
@@ -291,6 +348,8 @@ export function AppearanceSettings({
               .filter(Boolean)
               .join(" ")}
             onClick={() => applyPreset(preset)}
+            disabled={duotoneActive}
+            aria-disabled={duotoneActive}
             aria-pressed={preferences.preset === preset.id}
           >
             <span className="appearance-preset-swatch" aria-hidden="true">
@@ -303,6 +362,11 @@ export function AppearanceSettings({
           </button>
         ))}
       </div>
+      {duotoneActive && (
+        <p className="appearance-theme-disabled-note">
+          双色映射开启时，基础主题样式由双色映射接管，此设置暂不可用。
+        </p>
+      )}
 
       <section className="appearance-visual-presets" aria-labelledby="visual-presets-title">
         <div className="appearance-visual-presets-heading">
@@ -398,7 +462,12 @@ export function AppearanceSettings({
                     aria-pressed={active}
                   >
                     <span
-                      className="appearance-visual-preset-swatch"
+                      className={[
+                        "appearance-visual-preset-swatch",
+                        preset.previewImage ? "has-preview-image" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
                       aria-hidden="true"
                       style={
                         {
@@ -406,6 +475,11 @@ export function AppearanceSettings({
                           "--visual-preset-highlight": preset.gradientMap.highlight,
                           "--visual-preset-shadow-stop": `${preset.gradientMap.shadowPosition}%`,
                           "--visual-preset-highlight-stop": `${preset.gradientMap.highlightPosition}%`,
+                          ...(preset.previewImage
+                            ? {
+                                backgroundImage: `url("${preset.previewImage}")`,
+                              }
+                            : {}),
                         } as CSSProperties
                       }
                     >
@@ -517,6 +591,101 @@ export function AppearanceSettings({
             </Button>
           )}
         </div>
+        <section
+          hidden
+          className={`appearance-parallax-tuning${sceneEnabled ? " is-active" : ""}`}
+          aria-labelledby="appearance-parallax-tuning-title"
+        >
+          <div className="appearance-parallax-tuning-heading">
+            <div>
+              <span>PARALLAX 3D ENGINE</span>
+              <strong id="appearance-parallax-tuning-title">3D 墨景参数</strong>
+              <small>
+                {sceneEnabled
+                  ? "拖动后立即预览，场景与设置页共享同一组参数。"
+                  : "选择“一体化外观”中的 3D 墨景后启用；参数会提前保留。"}
+              </small>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={resetSceneTuning}
+              title="恢复 3D 墨景默认参数"
+            >
+              <RotateCcw size={14} />
+              恢复默认
+            </Button>
+          </div>
+          <div className="appearance-parallax-tuning-groups">
+            {PARALLAX_TUNING_GROUPS.map((group) => (
+              <details
+                className="appearance-parallax-tuning-group"
+                key={group.id}
+                open={group.id === "motion"}
+              >
+                <summary>
+                  <span>
+                    <strong>{group.label}</strong>
+                    <small>{group.detail}</small>
+                  </span>
+                  <ChevronDown aria-hidden="true" />
+                </summary>
+                <div className="appearance-parallax-tuning-content">
+                  {group.toggles?.map((toggle) => (
+                    <div
+                      className="appearance-parallax-tuning-toggle"
+                      data-disabled={!sceneEnabled}
+                      key={toggle.key}
+                    >
+                      <span>
+                        <strong>{toggle.label}</strong>
+                        <small>{toggle.detail}</small>
+                      </span>
+                      <Switch
+                        checked={sceneTuning[toggle.key]}
+                        disabled={!sceneEnabled}
+                        onCheckedChange={(checked) =>
+                          updateSceneTuning(toggle.key, checked)
+                        }
+                      />
+                    </div>
+                  ))}
+                  {group.sliders.map((slider) => {
+                    const value = sceneTuning[slider.key];
+                    return (
+                      <label
+                        className="appearance-parallax-tuning-slider"
+                        data-disabled={!sceneEnabled}
+                        key={slider.key}
+                      >
+                        <span>
+                          <strong>{slider.label}</strong>
+                          {slider.hint && <small>{slider.hint}</small>}
+                        </span>
+                        <input
+                          type="range"
+                          min={slider.min}
+                          max={slider.max}
+                          step={slider.step}
+                          value={value}
+                          disabled={!sceneEnabled}
+                          onChange={(event) =>
+                            updateSceneTuning(
+                              slider.key,
+                              Number(event.target.value),
+                            )
+                          }
+                        />
+                        <output>{Number(value).toFixed(slider.digits)}</output>
+                      </label>
+                    );
+                  })}
+                </div>
+              </details>
+            ))}
+          </div>
+        </section>
         {hasBackground && gradientOpen && (
           <div
             className="appearance-gradient-map-popover"

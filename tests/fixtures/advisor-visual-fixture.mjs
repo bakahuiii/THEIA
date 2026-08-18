@@ -121,7 +121,7 @@ function createState() {
         exams: emptyOutcome({ source: ['jwglxt'] }),
         'selected-courses': outcome({ source: ['jwglxt'] }),
         'academic-progress': outcome({ source: ['jwglxt'] }),
-        assignments: outcome({ source: ['theol'], succeeded: false, status: 'failed', capturedAt: STALE_CAPTURE, sourceSucceededAt: STALE_CAPTURE, retainedPrevious: true, errorCode: 'fixture-timeout' }),
+        assignments: outcome({ source: ['theol'], succeeded: false, status: 'failed', capturedAt: STALE_CAPTURE, sourceSucceededAt: STALE_CAPTURE, retainedPrevious: true, errorCode: 'fixture-timeout', previousRecordCount: 2, receivedRecordCount: 0, failedTermIds: ['2026-3'] }),
         workspaces: emptyOutcome({ source: ['local'] }),
         coursework: outcome({ source: ['local'], completeness: 'partial' }),
         notices: outcome({ source: ['jwglxt', 'theol'], capturedAt: STALE_CAPTURE, sourceSucceededAt: STALE_CAPTURE }),

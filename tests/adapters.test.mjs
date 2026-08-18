@@ -122,6 +122,55 @@ test('THEOL assignment sync removes tasks whose real due time has passed', async
   assert.equal(result.domainOutcomes.assignments.completeness, 'complete')
 })
 
+test('THEOL falls back to the mobile pending-task feed after a course-page failure', async () => {
+  const course = {
+    id: '101', title: 'Course One', source: 'theol',
+    sourceUrl: 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=101',
+  }
+  const requested = []
+  const adapter = new TheolAdapter({
+    async page() { throw new Error('course page layout changed') },
+    async json(url) {
+      requested.push(url)
+      return {
+        status: 1,
+        // The API also returns a sessionid. Do not include it in the fixture:
+        // the parser must not expose or persist it.
+        datas: [{
+          courseId: 101,
+          courseName: 'Course One',
+          reminderListHomework: [{
+            id: 9001, title: 'Future homework', publishStatus: true,
+            deadline: '2099-08-20 23:59:00',
+          }],
+          reminderListTest: [{
+            id: 9002, title: 'Future test', publishStatus: true,
+            expiredTime: '2099-08-21 23:59:00', examType: 1,
+          }],
+          reminderListExpired: [{
+            id: 9003, title: 'Expired homework', publishStatus: true,
+            deadline: '2021-07-16 23:59:00',
+          }],
+        }],
+      }
+    },
+  })
+
+  const result = await adapter.syncAssignments([course])
+  assert.deepEqual(requested, [THEOL_URLS.mobileUndoneTasks])
+  assert.deepEqual(result.assignments.map((item) => [item.kind, item.title]), [
+    ['assignment', 'Future homework'],
+    ['online-test', 'Future test'],
+  ])
+  assert.ok(result.assignments.every((item) => item.courseSourceUrl === course.sourceUrl))
+  assert.ok(result.assignments.every((item) => item.sourceUrl.startsWith('https://course.buct.edu.cn/meol/')))
+  assert.deepEqual(result.successfulCourseIds, ['101'])
+  assert.deepEqual(result.failedCourseIds, [])
+  assert.equal(result.source.mobileFallback.status, 'used')
+  assert.equal(result.source.mobileFallback.added, 2)
+  assert.equal(result.domainOutcomes.assignments.completeness, 'complete')
+})
+
 test('THEOL assignment sync rejects a course page whose identity does not match the requested course', async () => {
   const course = {
     id: '101', title: 'Course One', source: 'theol',
@@ -330,8 +379,9 @@ test('JWGLXT queries current-term schedule, grades and exams through their stude
   assert.ok(result.terms.find(t => t.id === '2024-3'))
   assert.ok(result.terms.find(t => t.id === '2024-12'))
   assert.ok(result.terms.find(t => t.id === '2024-16'))
-  // Multi-term sync: fetches schedule for every discovered term (2025-16 + 2026-3)
-  assert.ok(result.schedule.length >= 1)
+  // Multi-term sync reads every academic term from the student's admission
+  // year through the active year, not only the currently selected term.
+  assert.equal(result.schedule.length, 9)
   assert.equal(result.grades.length, 1)
   assert.ok(result.exams.length >= 1)
   assert.ok(result.courses.length >= 1)
@@ -385,6 +435,104 @@ test('JWGLXT schedule sync prioritizes the selected term and ignores years befor
   assert.equal(result.schedule.length, 1)
   assert.equal(result.source.diagnostics.scheduleFetch[0].termId, '2026-3')
   assert.equal(result.errors.length, 0)
+})
+
+test('JWGLXT retries an unpositioned schedule payload through the configured API endpoint', async () => {
+  const calls = []
+  const client = {
+    async page(url) {
+      if (url.includes('/xtgl/')) return { url, text: '<input id="xh" value="2024TEST01"><input id="xnm" value="2026"><input id="xqm" value="3">' }
+      return { url, text: '<form id="ajaxForm"><select name="xnm"><option value="2026" selected>2026-2027</option></select><select name="xqm"><option value="3" selected>1</option></select></form>' }
+    },
+    async form(url) {
+      calls.push(url)
+      if (url.includes('xskbcx_cxXsKb.html')) return JSON.stringify({ kbList: [{ kcmc: 'API schedule', kch_id: 'MAT14000G', xqj: '2', jc: '0304' }] })
+      return JSON.stringify({ kbList: [{ kcmc: 'Unpositioned list', kch: 'MAT14000G' }] })
+    },
+  }
+
+  const result = await new JwglxtAdapter(client, {
+    scheduleEndpoints: ['kbcx/xskbcx_cxXsgrkb.html', 'kbcx/xskbcx_cxXsKb.html?gnmkdm=N2151'],
+  }).sync({ domains: ['schedule'] })
+  assert.ok(result.schedule.length >= 1)
+  assert.equal(result.schedule[0].period, '3-4')
+  assert.equal(result.domainOutcomes.schedule.completeness, 'complete')
+  assert.ok(calls.some((url) => url.includes('xskbcx_cxXsKb.html')))
+})
+
+test('JWGLXT never treats a fallback empty schedule as confirmation after an unpositioned response', async () => {
+  const client = {
+    async page(url) {
+      if (url.includes('/xtgl/')) return { url, text: '<input id="xh" value="2026TEST01"><input id="xnm" value="2026"><input id="xqm" value="3">' }
+      return { url, text: '<form id="ajaxForm"><select name="xnm"><option value="2026" selected>2026-2027</option></select><select name="xqm"><option value="3" selected>1</option></select></form>' }
+    },
+    async form(url) {
+      return url.includes('xskbcx_cxXsKb.html')
+        ? JSON.stringify({ kbList: [] })
+        : JSON.stringify({ kbList: [{ kcmc: 'Unpositioned list', kch: 'MAT14000G' }] })
+    },
+  }
+
+  const result = await new JwglxtAdapter(client, {
+    scheduleEndpoints: ['kbcx/xskbcx_cxXsgrkb.html', 'kbcx/xskbcx_cxXsKb.html?gnmkdm=N2151'],
+  }).sync({ domains: ['schedule'] })
+  assert.equal(result.schedule, undefined)
+  assert.equal(result.domainOutcomes.schedule.errorCode, 'schedule_read_failed')
+  assert.ok(result.source.diagnostics.scheduleFetch.every((entry) => entry.unpositioned))
+})
+
+test('JWGLXT rejects course-list rows that cannot be placed on a timetable', async () => {
+  const client = {
+    async page(url) {
+      if (url.includes('/xtgl/')) {
+        return { url, text: '<input id="xh" value="2024TEST01"><input id="xnm" value="2025"><input id="xqm" value="3">' }
+      }
+      return {
+        url,
+        text: '<form id="ajaxForm"><select name="xnm"><option value="2025" selected>2025-2026</option></select><select name="xqm"><option value="3" selected>1</option></select></form>',
+      }
+    },
+    async form() {
+      return JSON.stringify({ kbList: [{ kcmc: 'Course list item', kch: 'MAT14000G' }] })
+    },
+  }
+
+  const result = await new JwglxtAdapter(client).sync({ domains: ['schedule'] })
+  assert.equal(result.schedule, undefined)
+  assert.equal(result.domainOutcomes.schedule.succeeded, false)
+  assert.equal(result.domainOutcomes.schedule.errorCode, 'schedule_read_failed')
+  assert.deepEqual(result.errors, [])
+  assert.equal(result.source.diagnostics.scheduleFetch[0].unpositioned, true)
+  assert.equal(result.source.diagnostics.scheduleFetch[0].returnedCount, 1)
+})
+
+test('JWGLXT keeps a partial timetable successful when another term returns an unpositioned course list', async () => {
+  const client = {
+    async page(url) {
+      if (url.includes('/xtgl/')) {
+        return { url, text: '<input id="xh" value="2024TEST01"><input id="xnm" value="2025"><input id="xqm" value="3">' }
+      }
+      return {
+        url,
+        text: '<form id="ajaxForm"><select name="xnm"><option value="2025" selected>2025-2026</option><option value="2024">2024-2025</option></select><select name="xqm"><option value="3" selected>1</option></select></form>',
+      }
+    },
+    async form(_url, values) {
+      if (values.xnm === '2024') return JSON.stringify({ kbList: [{ kcmc: 'Course list item', kch: 'MAT14000G' }] })
+      return JSON.stringify({ kbList: [{ kcmc: 'Positioned course', kch: 'MAT14000G', xqj: '2', jcs: '3-4' }] })
+    },
+  }
+
+  const result = await new JwglxtAdapter(client).sync({ domains: ['schedule'] })
+  assert.equal(result.schedule.length, 3)
+  assert.equal(result.domainOutcomes.schedule.succeeded, true)
+  assert.equal(result.domainOutcomes.schedule.completeness, 'partial')
+  assert.equal(result.domainOutcomes.schedule.errorCode, 'partial_schedule_read')
+  assert.deepEqual(
+    [...result.domainOutcomes.schedule.failedTermIds].sort(),
+    ['2024-3', '2024-12', '2024-16'].sort(),
+  )
+  assert.deepEqual(result.errors, [])
 })
 
 test('JWGLXT grades retry concrete terms when the all-term endpoint rejects blank selectors', async () => {

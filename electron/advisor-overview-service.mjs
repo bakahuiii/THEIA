@@ -51,7 +51,7 @@ export function advisorOverviewFromStore(store, {
   }
   if (typeof clock !== 'function') throw new TypeError('Advisor overview clock must be a function')
 
-  return advisorOverviewFromVersionedSnapshot(store.snapshotWithRevision(), { clock, upgradeRule })
+  return advisorOverviewFromVersionedSnapshot(store.snapshotWithRevision({ clone: false }), { clock, upgradeRule })
 }
 
 export function advisorOverviewFromVersionedSnapshot(versionedSnapshot, {
@@ -92,7 +92,7 @@ function frozenSnapshot(store) {
   if (!store || typeof store.snapshotWithRevision !== 'function') {
     throw new TypeError('Advisor computation requires a versioned CampusStore snapshot')
   }
-  return store.snapshotWithRevision()
+  return store.snapshotWithRevision({ clone: false })
 }
 
 function assertExpectedRevision(versionedSnapshot, expectedRevision) {
@@ -296,7 +296,7 @@ export function advisorCourseDecisionsFromStore(store, request, {
     throw new TypeError('Advisor computation requires a versioned CampusStore snapshot')
   }
   if (typeof clock !== 'function') throw new TypeError('Advisor course decision clock must be a function')
-  const versioned = store.snapshotWithRevision()
+  const versioned = store.snapshotWithRevision({ clone: false })
   assertExpectedRevision(versioned, request?.snapshotRevision)
   const state = versioned.state ?? versioned.snapshot
   const candidates = Array.isArray(request?.candidates) ? request.candidates.map(candidateRecord) : []

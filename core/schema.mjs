@@ -5,11 +5,28 @@ import { emptyDataCatalog, normalizeDataCatalog } from './data-catalog.mjs'
 import { normalizeAcademicProgress } from './academic-progress.mjs'
 import { normalizeModelServiceBaseUrl } from './model-url-policy.mjs'
 import { normalizeDomainProvenanceMap } from './domain-provenance.mjs'
+import { emptyAcademicExtras, JWGLXT_IGNORED_EXTRA_DOMAIN_NAMES, normalizeAcademicExtras } from './jwglxt-extra.mjs'
+import { normalizeAcademicPlanDocument } from './academic-plan-document.mjs'
 
 export const DATA_SCHEMA = 'theia-campus-data/v1'
 export const THEIA_FEED_SCHEMA = 'theia-campus-feed/v1'
 const require = createRequire(import.meta.url)
 export const APP_VERSION = String(require('../package.json').version || '0.0.0')
+const RICH_MAIL_VERSION = 4
+const UNSAFE_RICH_MAIL_MARKUP = /<(?:script|iframe|frame|object|embed|form|input|button|select|textarea|video|audio|source|link|meta|base|svg|math|img)\b|(?:\bon[a-z][\w:-]*\s*=|\b(?:src|srcset|poster)\s*=|url\s*\(|@import\b|javascript:|data:text\/html)/iu
+
+function plainTextFromMailHtml(value) {
+  return String(value || '')
+    .replace(/<\s*(script|style|iframe|frame|object|embed|form|input|button|select|textarea|video|audio|source|link|meta|base|svg|math|img)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/giu, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/giu, ' ')
+    .replace(/&amp;/giu, '&')
+    .replace(/&lt;/giu, '<')
+    .replace(/&gt;/giu, '>')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .slice(0, 500_000) || null
+}
 
 // Adjacent colours are intentionally far apart. Colours are assigned per term
 // and stored on schedule entries so changing the displayed week never changes
@@ -36,6 +53,13 @@ export function emptyState() {
     grades: [],
     selectedCourses: [],
     academicProgress: null,
+    // Structured, read-only JWGLXT pages outside the fast-path datasets. The
+    // adapter never stores raw HTML or request payloads here.
+    academicExtras: emptyAcademicExtras(),
+    // The current-major cultivation plan is an extracted local PDF document.
+    // It is isolated from academicExtras so its page text cannot be mistaken
+    // for scraped table rows or sent through the public feed by accident.
+    academicPlanDocument: null,
     assignments: [],
     workspaces: [],
     notices: [],
@@ -72,12 +96,80 @@ export function emptyState() {
         courseworkModel: null,
         fallbackModel: null,
       },
+      advisorConfig: {
+        budgetLevel: 'high',
+        permissionMode: 'read-only',
+        reasoningEffort: 'medium',
+        responseStyle: 'balanced',
+        responseLength: 'adaptive',
+        temperature: 1,
+      },
     },
   }
 }
 
 function arrayOrEmpty(value) {
   return Array.isArray(value) ? value : []
+}
+
+function recordsOrEmpty(value) {
+  return arrayOrEmpty(value).filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+}
+
+function normalizeStoredDomainProvenance(value) {
+  const domains = normalizeDomainProvenanceMap(value)
+  for (const domain of JWGLXT_IGNORED_EXTRA_DOMAIN_NAMES) delete domains[domain]
+  return domains
+}
+
+const SYNC_PAYLOAD_STATE_FIELDS = Object.freeze([
+  'profile', 'terms', 'courses', 'schedule', 'exams', 'grades', 'selectedCourses',
+  'academicProgress', 'academicExtras', 'academicPlanDocument', 'assignments', 'workspaces', 'notices',
+  'emails', 'dataCatalog',
+])
+
+// All adapter results, including API-to-browser fallback results, cross this
+// boundary before merging. It keeps source-specific omissions as omissions,
+// while any supplied payload is projected through the same state contract used
+// for disk recovery and local API reads.
+export function normalizeSyncPayload(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return input
+  const source = input
+  const stateInput = {}
+  for (const field of SYNC_PAYLOAD_STATE_FIELDS) {
+    if (Object.hasOwn(source, field) && source[field] !== undefined) stateInput[field] = source[field]
+  }
+  const normalizedState = normalizeState(stateInput)
+  const normalized = { ...source }
+  for (const field of SYNC_PAYLOAD_STATE_FIELDS) {
+    if (Object.hasOwn(stateInput, field)) normalized[field] = normalizedState[field]
+  }
+  if (source.domainOutcomes && typeof source.domainOutcomes === 'object' && !Array.isArray(source.domainOutcomes)) {
+    normalized.domainOutcomes = Object.fromEntries(Object.entries(source.domainOutcomes)
+      .filter(([domain]) => !JWGLXT_IGNORED_EXTRA_DOMAIN_NAMES.includes(domain)))
+  }
+  return normalized
+}
+
+function normalizeEmail(item) {
+  if (!item || typeof item !== 'object') return null
+  const normalized = { ...item }
+  if (!String(normalized.body || '').trim() && typeof item.bodyHtml === 'string') {
+    const recoveredBody = plainTextFromMailHtml(item.bodyHtml)
+    if (recoveredBody) normalized.body = recoveredBody
+  }
+  const bodyHtml = typeof item.bodyHtml === 'string' && item.bodyHtml.trim() ? item.bodyHtml : null
+  // Rich mail is rendered only after the IMAP sanitizer has stamped version 4.
+  // Older snapshots can contain raw HTML (including remote images); retaining it
+  // in any state/API projection would bypass the renderer's version check.
+  if (item.bodyHtmlVersion !== RICH_MAIL_VERSION || !bodyHtml || UNSAFE_RICH_MAIL_MARKUP.test(bodyHtml)) {
+    normalized.bodyHtml = null
+    normalized.bodyHtmlVersion = null
+  } else {
+    normalized.bodyHtml = bodyHtml
+    normalized.bodyHtmlVersion = RICH_MAIL_VERSION
+  }
+  return normalized
 }
 
 function boundedInteger(value, fallback, minimum, maximum) {
@@ -149,7 +241,7 @@ function assignScheduleColors(schedule) {
 export function normalizeState(input) {
   const base = emptyState()
   const value = input && typeof input === 'object' && !Array.isArray(input) ? input : {}
-  const grades = arrayOrEmpty(value.grades)
+  const grades = recordsOrEmpty(value.grades)
   const rawSync = value.sync && typeof value.sync === 'object' ? value.sync : {}
   const rawSettings = value.settings && typeof value.settings === 'object' ? value.settings : {}
   const lastCompletedAt = typeof rawSync.lastCompletedAt === 'string' ? rawSync.lastCompletedAt : null
@@ -167,17 +259,19 @@ export function normalizeState(input) {
     createdAt: validTimestamp(value.createdAt, base.createdAt),
     updatedAt: validTimestamp(value.updatedAt, base.updatedAt),
     profile: value.profile && typeof value.profile === 'object' ? value.profile : null,
-    terms: arrayOrEmpty(value.terms),
-    courses: reconcileCourseCategories(arrayOrEmpty(value.courses), grades),
-    schedule: assignScheduleColors(arrayOrEmpty(value.schedule)),
-    exams: arrayOrEmpty(value.exams),
+    terms: recordsOrEmpty(value.terms),
+    courses: reconcileCourseCategories(recordsOrEmpty(value.courses), grades),
+    schedule: assignScheduleColors(recordsOrEmpty(value.schedule)),
+    exams: recordsOrEmpty(value.exams),
     grades,
-    selectedCourses: arrayOrEmpty(value.selectedCourses),
+    selectedCourses: recordsOrEmpty(value.selectedCourses),
     academicProgress: normalizeAcademicProgress(value.academicProgress),
-    assignments: arrayOrEmpty(value.assignments),
-    workspaces: arrayOrEmpty(value.workspaces),
-    notices: arrayOrEmpty(value.notices),
-    emails: arrayOrEmpty(value.emails).filter((item) => item && typeof item === 'object').slice(0, 500),
+    academicExtras: normalizeAcademicExtras(value.academicExtras),
+    academicPlanDocument: normalizeAcademicPlanDocument(value.academicPlanDocument),
+    assignments: recordsOrEmpty(value.assignments),
+    workspaces: recordsOrEmpty(value.workspaces),
+    notices: recordsOrEmpty(value.notices),
+    emails: recordsOrEmpty(value.emails).map(normalizeEmail).filter(Boolean).slice(0, 500),
     dataCatalog: normalizeDataCatalog(value.dataCatalog),
     sync: sanitizeDiagnosticValue({
       ...base.sync,
@@ -185,7 +279,7 @@ export function normalizeState(input) {
       lastCompletedAt,
       lastRunAt,
       lastSuccessAt,
-      domains: normalizeDomainProvenanceMap(rawSync.domains),
+      domains: normalizeStoredDomainProvenance(rawSync.domains),
     }),
     settings: {
       apiPort: boundedInteger(rawSettings.apiPort, base.settings.apiPort, 1024, 65535),
@@ -214,6 +308,26 @@ export function normalizeState(input) {
         courseworkModel: boundedString(rawSettings.modelRouting?.courseworkModel, '', 300) || null,
         fallbackModel: boundedString(rawSettings.modelRouting?.fallbackModel, '', 300) || null,
       },
+      advisorConfig: {
+        budgetLevel: ['high', 'xhigh', 'max', 'ultra'].includes(rawSettings.advisorConfig?.budgetLevel)
+          ? rawSettings.advisorConfig.budgetLevel
+          : 'high',
+        permissionMode: ['read-only', 'full-access'].includes(rawSettings.advisorConfig?.permissionMode)
+          ? rawSettings.advisorConfig.permissionMode
+          : 'read-only',
+        reasoningEffort: ['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(rawSettings.advisorConfig?.reasoningEffort)
+          ? rawSettings.advisorConfig.reasoningEffort
+          : 'medium',
+        responseStyle: ['direct', 'balanced', 'detailed'].includes(rawSettings.advisorConfig?.responseStyle)
+          ? rawSettings.advisorConfig.responseStyle
+          : 'balanced',
+        responseLength: ['adaptive', 'short', 'standard', 'detailed'].includes(rawSettings.advisorConfig?.responseLength)
+          ? rawSettings.advisorConfig.responseLength
+          : 'adaptive',
+        temperature: typeof rawSettings.advisorConfig?.temperature === 'number' && Number.isFinite(rawSettings.advisorConfig.temperature)
+          ? Math.max(0, Math.min(2, rawSettings.advisorConfig.temperature))
+          : 1,
+      },
     },
   }
 }
@@ -228,19 +342,31 @@ export function counts(state) {
     assignments: state.assignments.length,
     notices: state.notices.length,
     emails: state.emails.length,
+    academicExtras: Object.values(state.academicExtras?.domains || {}).reduce((total, domain) => total + (domain.records?.length || 0), 0),
   }
 }
 
 export function mergeSyncResult(state, result) {
   const next = normalizeState(state)
-  for (const key of ['profile', 'terms', 'courses', 'schedule', 'exams', 'grades', 'selectedCourses', 'academicProgress', 'assignments', 'notices']) {
-    if (result[key] !== undefined) next[key] = result[key]
+  for (const key of ['profile', 'terms', 'courses', 'schedule', 'exams', 'grades', 'selectedCourses', 'academicProgress', 'academicExtras', 'assignments', 'notices']) {
+    if (result[key] === undefined) continue
+    if (key === 'academicExtras') {
+      next.academicExtras = {
+        ...next.academicExtras,
+        ...result.academicExtras,
+        domains: {
+          ...(next.academicExtras?.domains || {}),
+          ...(result.academicExtras?.domains || {}),
+        },
+      }
+    } else next[key] = result[key]
   }
   // API enrichment may be temporarily unavailable while the summary response
   // still contains the ordered Zhengfang requirements. Normalize after the
   // assignment above so a later sync cannot replace the displayed tree with
   // the raw flat list and make the academic view remount between structures.
   next.academicProgress = normalizeAcademicProgress(next.academicProgress)
+  next.academicExtras = normalizeAcademicExtras(next.academicExtras)
   const completedAt = result.completed === true
     ? (result.completedAt || new Date().toISOString())
     : null
@@ -350,6 +476,7 @@ export function toTheiaFeed(state) {
       grades: state.grades,
       selectedCourses: state.selectedCourses,
       academicProgress: state.academicProgress,
+      academicExtras: state.academicExtras,
       exams: state.exams,
       assignments: state.assignments,
       workspaces: state.workspaces || [],

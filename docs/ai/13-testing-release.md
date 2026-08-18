@@ -14,11 +14,9 @@
 - `tests/advisor-academic.test.mjs`、`tests/gpa.test.mjs`：P2 培养方案、GPA、缺口、升级线与 What-if。
 - `tests/advisor-course-decision.test.mjs`、`tests/course-selection-advisor-ui.test.mjs`：P3 选课匹配、冲突、重复修读、排名和 UI 隔离。
 - `tests/advisor-action-service.test.mjs`、`tests/advisor-action-wiring.test.mjs`：顾问固定动作的 revision、allowlist 与私有实体反解。
-- `tests/advisor-context-builder.test.mjs`：P4 最小字段投影、披露计划、逐实体 consent、请求 catalog 和输入预算。
 - `tests/advisor-narrative-contract.test.mjs`：严格 narrative、claim/action/低信任引用校验、关键数字与高风险学校决定阻断。
-- `tests/advisor-provider.test.mjs`、`tests/advisor-runtime.test.mjs`：Provider 路由、错误归一化、快照冻结、并发、格式修复、预算，以及 Provider 忽略 Abort 或永不 settle 时的取消/期限竞速。
-- `tests/advisor-notice-mail.test.mjs`：P5 通知/邮件净化、显式选择、逐封正文授权和附件隔离。
-- `tests/advisor-lexical-index.test.mjs`、`tests/advisor-p5-integration.test.mjs`：纯内存词法索引、隐私 scope、请求级低信任引用和索引不得扩大 Provider 披露。
+- `tests/advisor-read-only-agent.test.mjs`、`tests/advisor-runtime.test.mjs`：工具调用参数收敛、强制流式、首包最小化、惰性读取、快照冻结、动态引用账本、错误归一化和预算。
+- `tests/advisor-notice-mail.test.mjs`：通知/邮件净化、正文投影和附件隔离的共享工具函数。
 - `tests/catalog-provenance.test.mjs`：体测、全校课表、校历的内容/provenance 原子更新及失败保留。
 - 专题测试：GPA、课程分类、体测归档、抢课、作业、模型、主题映射。
 
@@ -26,7 +24,7 @@
 
 Advisor P0 的回归门包括：旧快照不得被称为 fresh/complete；失败后保留内容和水位；确认空与最新失败可同时表达；派生域不得高估完整性/水位；overview 的所有引用闭合且四元上下文一致；同一 claim ID 在不同 `evaluatedAt` 下允许动态值变化，消费者必须整体替换实例。
 
-P1-P3 的无模型规则与 UI 门禁见 [17-advisor-p1-p3-local-workbench.md](17-advisor-p1-p3-local-workbench.md)。P4-P5 首发现在还必须通过 ContextBuilder 最小披露、敏感域 consent、严格 `theia-advisor-model-narrative/v1`、冻结 catalog 引用、Provider 错误与永不 settle、协议相对 URL 净化、通知/邮件显式选择以及本地索引不扩大披露等回归；完整入口和未实现边界见 [18-advisor-p4-p5-model-runtime.md](18-advisor-p4-p5-model-runtime.md)。工具循环不是本次首发能力，当前门禁验证的是不存在模型工具执行权或学校写权限，不能把 `suggestedActionIds` 当作 ToolCall。
+P1-P3 的无模型规则与 UI 门禁见 [17-advisor-p1-p3-local-workbench.md](17-advisor-p1-p3-local-workbench.md)。Agent 回归必须覆盖强制流式、首包无校园记录、模型按需工具读取、参数白名单、动态账本引用、空/无效输出真实报错、协议相对 URL 净化、邮件先检索后读正文，以及不存在模型工具执行权或学校写权限；完整入口见 [20-a-b-c-advisor-agent-sidecar.md](20-a-b-c-advisor-agent-sidecar.md)。
 
 ## 运行前检查
 

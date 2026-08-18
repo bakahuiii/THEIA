@@ -3,13 +3,15 @@
 > 2026-08-14 当前入口：A 内嵌顾问、B 受限只读工具 Agent、C 用户导出/sidecar，以及 OpenAI 兼容、Anthropic、Gemini、Ollama 的协议与流式边界，统一见 [A/B/C 顾问、Agent 与 Sidecar](20-a-b-c-advisor-agent-sidecar.md)。原 P6 课程后台队列已按用户要求暂停，不与顾问 Agent 合并。
 
 > 版本：v1.5-p4-p5-first-release
+
+> 2026-08-16 状态：以下 P4-P5 方案为历史记录，不是当前实现合同。`ContextBuilder`、逐实体披露确认、词法索引和非流式单次 Provider 路径已在 `0.4.6` 删除，且 `1.0.0` 前不保留兼容层。当前实现仅以 [内嵌顾问与本地 Agent](20-a-b-c-advisor-agent-sidecar.md) 和 [学业顾问交接](21-advisor-handoff.md) 为准。
 > 初始调查日期：2026-08-13（Asia/Shanghai）
 > P0 实施与离线验收日期：2026-08-13
 > P1-P3 本地工作台实施与最终验收日期：2026-08-14
 > P4-P5 首发实现日期：2026-08-14
 > 适用项目：H:\work\THEIA 当前新 THEIA（北京化工大学校园服务 Windows Electron 桌面端）
 
-> 状态说明：本文保留初始只读审计、总体方案与后续路线。P0 的本地可信底座已于 2026-08-13 通过完整离线验收；P1-P3 的无模型本地决策工作台已于 2026-08-14 完成安全闭合、全量门禁和隔离视觉验收，结果见 [P1-P3 本地工作台说明](17-advisor-p1-p3-local-workbench.md)与[最终交接记录](THEIA_P1_P3_HANDOFF_2026-08-14.md)。P4 模型顾问首发及 P5 通知/邮件按需上下文已于 2026-08-14 落地，准确实现与未完成边界见 [P4-P5 模型运行时说明](18-advisor-p4-p5-model-runtime.md)。P6 的加密线程、SSE 预览和授权/只读工具合同已开始落地；原作业后台队列、用户授权面板、真实工具循环和多轮摘要尚未实现，精确边界见 [P6 数据流审计与开放式只读 Agent 方案](19-p6-data-flow-and-open-agent.md)。P0 放行证据、残余风险和真实数据水位边界见 [P0 验收报告](THEIA_P0_AI_READINESS_ACCEPTANCE_REPORT.md)。
+> 状态说明：本文保留初始只读审计、总体方案与后续路线。P0 的本地可信底座已于 2026-08-13 通过完整离线验收；P1-P3 的无模型本地决策工作台已于 2026-08-14 完成安全闭合、全量门禁和隔离视觉验收，结果见 [P1-P3 本地工作台说明](17-advisor-p1-p3-local-workbench.md)与[最终交接记录](THEIA_P1_P3_HANDOFF_2026-08-14.md)。P4/P5 的旧预投影顾问记录仅保留作历史背景；当前 P6 惰性只读 Agent、强制流式、工具边界、加密线程和本机 MCP 已落地，准确实现以 [内嵌顾问与本地 Agent](20-a-b-c-advisor-agent-sidecar.md)、[学业顾问交接](21-advisor-handoff.md) 和 [本机 API 与 MCP 接入](../../integration/README.md) 为准。跨 revision 摘要、密钥轮换、自动作业队列和真实 Provider/打包验收仍是后续工作。P0 放行证据、残余风险和真实数据水位边界见 [P0 验收报告](THEIA_P0_AI_READINESS_ACCEPTANCE_REPORT.md)。
 
 ---
 
@@ -980,6 +982,8 @@ interface RunBudget {
   maxToolSteps: 0;        // ProviderAdapter v1
   maxInputBytes: 256_000;
   maxOutputBytes: 1_000_000;
+  // Provider hard ceiling only; the agent derives a smaller per-turn value
+  // from the question, tool observations and the selected response length.
   maxOutputTokens: 2_000;
   maxClaims: 32;
   maxRecommendations: 8;
@@ -1561,13 +1565,15 @@ src/components/advisor/EvidenceDrawer.tsx
 src/hooks/advisor-presentation.mjs
 ~~~
 
-P4 模型交互已新增：
+P4 模型交互当前入口为稳定 re-export，实际实现位于 v2：
 
 ~~~text
 src/components/advisor/AdvisorWorkbench.tsx
-src/components/advisor/DisclosureDialog.tsx
 src/components/advisor/AdvisorComposer.tsx
 src/components/advisor/AdvisorMessage.tsx
+src/components/advisor/AdvisorWorkbench.v2.tsx
+src/components/advisor/AdvisorComposer.v2.tsx
+src/components/advisor/AdvisorMessage.v2.tsx
 ~~~
 
 显示规则：
@@ -2089,8 +2095,8 @@ P0-P3 的任一确定性 oracle mismatch、invalid evidence、敏感泄漏或写
 3. 保留旧 modelName 作为 fallback。
 4. 新内部协议使用 theia-advisor-*/v1。
 5. 不静默改变 theia-ai-context/v1。
-6. P4 首发使用内存线程；AdvisorStore 只有在临时数据根完成 nonce/AAD、恢复、删除、损坏和轮换测试后才启用。
-7. 生产持久化必须有 DPAPI 保护主密钥和 AES-GCM 记录加密。
+6. AdvisorStore 已在临时数据根完成 nonce/AAD、恢复、删除、损坏和 v1 迁移测试后启用；当前文件名保留 `threads.v1.dpapi.json` 以兼容旧路径，envelope schema 为 v2。
+7. 生产持久化使用 DPAPI 保护主密钥和 AES-GCM 记录加密；密钥轮换仍是后续工作。
 8. 自动队列和敏感域传输默认关闭。
 9. packaged smoke 覆盖无网络、无 Key、旧 vault、旧 model settings。
 10. 每阶段都可用 feature flag 关闭模型层而保留本地 overview。
@@ -2201,8 +2207,6 @@ THEIA 的最终优势不应是“模型自由度最大”，而应是：
 
 - H:\work\THEIA\README.md：现有模型服务、隐私和作业流程。
 - H:\work\THEIA\AI_DIRECTION.md：作业线/顾问线、计算与叙述边界。
-- H:\work\THEIA\PRODUCT_DIRECTION.md：风险、今日行动、选课沙盘。
-- H:\work\THEIA\TODO.md：尚未闭环能力。
 - H:\work\THEIA\docs\architecture.md：Electron/Core/CampusStore 边界。
 - H:\work\THEIA\docs\data-lifecycle.md：同步、快照、失败与导出语义。
 - H:\work\THEIA\docs\reference\data-model.md：字段、来源、or 与空值语义。

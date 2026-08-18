@@ -22,8 +22,15 @@ import {
   sourceLabel,
   type ViewId,
 } from "../ui/app-shared";
-import { currentAcademicWeek, occursInWeek } from "../ui/calendar";
+import {
+  currentAcademicVacation,
+  currentAcademicWeek,
+  currentShanghaiWeekday,
+  occursInWeek,
+} from "../ui/calendar";
 import type { AdvisorUrgentItem, CampusState, ScheduleItem } from "../types";
+
+const DASHBOARD_PREVIEW_LIMIT = 5;
 
 function DashboardAdvisorTop({
   item,
@@ -150,15 +157,24 @@ export function DashboardView({
       });
     return identities.size;
   }, [state.courses]);
-  const { today, pending, nextExam } = useMemo(() => {
-    const weekday = new Date().getDay() || 7;
+  const {
+    today,
+    pending,
+    pendingPreview,
+    nextExam,
+    noticePreview,
+    scheduleEmptyState,
+  } = useMemo(() => {
+    const weekday = currentShanghaiWeekday();
     const calendar = state.dataCatalog.collections.academicCalendar.calendar;
     const academicWeek = currentAcademicWeek(calendar);
-    const calendarKnown = Boolean(calendar?.semesters.length);
+    const calendarHasSemesters = Boolean(calendar?.semesters.length);
+    const vacation = currentAcademicVacation(calendar);
     const today = state.schedule
       .filter((item) => {
         if (item.weekday !== weekday) return false;
-        if (!calendarKnown) return true;
+        if (vacation) return false;
+        if (!calendarHasSemesters) return true;
         return academicWeek !== null
           && (!item.termId || item.termId === academicWeek.termId)
           && occursInWeek(item.weeks, academicWeek.week);
@@ -175,6 +191,7 @@ export function DashboardView({
           (left.dueAt ? new Date(left.dueAt).getTime() : Infinity) -
           (right.dueAt ? new Date(right.dueAt).getTime() : Infinity),
       );
+    const pendingPreview = pending.slice(0, DASHBOARD_PREVIEW_LIMIT);
     const nextExam = [...state.exams]
       .sort(
         (left, right) =>
@@ -182,8 +199,22 @@ export function DashboardView({
           parseExamTime(right.startAt, right.examTime),
       )
       .find((exam) => parseExamTime(exam.startAt, exam.examTime) > Date.now());
-    return { today, pending, nextExam };
-  }, [state.schedule, state.assignments, state.exams, state.dataCatalog]);
+    const notices = [...state.notices].sort((left, right) => {
+      const leftTime = left.publishedAt ? Date.parse(left.publishedAt) : Number.NEGATIVE_INFINITY;
+      const rightTime = right.publishedAt ? Date.parse(right.publishedAt) : Number.NEGATIVE_INFINITY;
+      return (Number.isFinite(rightTime) ? rightTime : Number.NEGATIVE_INFINITY)
+        - (Number.isFinite(leftTime) ? leftTime : Number.NEGATIVE_INFINITY);
+    });
+    const noticePreview = notices.slice(0, DASHBOARD_PREVIEW_LIMIT);
+    const scheduleEmptyState = !today.length
+      ? vacation
+        ? { title: `${vacation.label || "假期"}中`, detail: "当前处于校历假期，今天没有教学安排" }
+        : calendarHasSemesters && !academicWeek
+          ? { title: "当前不在教学周", detail: "校历未将今天归入教学学期，课表不会被解释为没有课程" }
+          : null
+      : null;
+    return { today, pending, pendingPreview, nextExam, noticePreview, scheduleEmptyState };
+  }, [state.schedule, state.assignments, state.exams, state.notices, state.dataCatalog]);
 
   return (
     <div className="dashboard-grid">
@@ -238,8 +269,8 @@ export function DashboardView({
         ) : (
           <EmptyState
             icon={CalendarDays}
-            title="今天没有课程"
-            detail="当前课表中没有今天的课程安排"
+            title={scheduleEmptyState?.title || "今天没有课程"}
+            detail={scheduleEmptyState?.detail || "当前课表中没有今天的课程安排"}
           />
         )}
       </section>
@@ -258,7 +289,7 @@ export function DashboardView({
         </div>
         {pending.length ? (
           <div className="task-list">
-            {pending.map((item) => (
+            {pendingPreview.map((item) => (
               <AssignmentRow key={item.id} item={item} onOpenSource={onOpenSource} />
             ))}
           </div>
@@ -340,9 +371,9 @@ export function DashboardView({
             <ChevronRight size={18} />
           </button>
         </div>
-        {state.notices.length ? (
+        {noticePreview.length ? (
           <div className="notice-compact">
-            {state.notices.map((notice) => (
+            {noticePreview.map((notice) => (
               <button
                 type="button"
                 key={notice.id}

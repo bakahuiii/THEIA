@@ -10,7 +10,7 @@ import { stripJpegMetadata } from '../scripts/strip-jpeg-metadata.mjs'
 
 test('Windows packaging writes THEIA executable metadata and unpacks the offline OCR runtime', async () => {
   const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
-  assert.equal(packageJson.version, '0.4.2')
+  assert.equal(packageJson.version, '0.5.0')
   assert.equal(packageJson.build.productName, 'THEIA')
   assert.equal(packageJson.build.appId, 'io.github.bakahuiii.theia')
   assert.equal(packageJson.build.nsis.guid, '2467e4eb-7496-532c-ab2c-b64234a36eb3')
@@ -31,6 +31,7 @@ test('packaging excludes credential extractors and accidental runtime data from 
   const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
   for (const pattern of [
     '!electron/extract-*-cookies.py',
+    '!local-docs{,/**/*}',
     '!{dist,electron,core,cli,integration}/**/*.{log,sqlite,sqlite3,db,db-wal,db-shm,tmp,pyc}',
     '!{dist,electron,core,cli,integration}/**/{__pycache__,.cache,cache,caches,logs,.references}{,/**/*}',
     '!{dist,electron,core,cli,integration}/**/{auth-diagnostics.ndjson,api-runtime.json,buct-data.json,model-config-transaction.v1.json,theia-feed.json}',
@@ -52,7 +53,10 @@ test('release packaging also creates a filtered, buildable source archive', asyn
     'SECURITY.md',
     'build/theia-icon.ico',
     'electron/main.mjs',
+    'electron/advisor-upgrade-rule.mjs',
     'scripts/package-source.mjs',
+    'scripts/advisor-benchmark-corpus.mjs',
+    'scripts/benchmark-advisor.mjs',
     'scripts/strip-jpeg-metadata.mjs',
     'src/App.tsx',
     'tests/packaging-config.test.mjs',
@@ -69,6 +73,7 @@ test('release packaging also creates a filtered, buildable source archive', asyn
     'scripts/crawl-jwglxt-api.py',
     'src/assets/DSC_8146-已增强-降噪.jpg',
     'src/styles.css.bak',
+    'local-docs/reference.pdf',
   ]) {
     assert.equal(isForbiddenSourcePath(forbidden), true, forbidden)
     assert.equal(paths.includes(forbidden), false, forbidden)
@@ -132,7 +137,8 @@ test('packaged smoke mode is offline and exercises the advisor overview bridge',
   assert.match(mainSource, /advisorOverview\.schema === 'theia-advisor-overview\/v1'/)
   assert.match(mainSource, /const mainWebContentsId = window\.webContents\.id[\s\S]*?details\.webContentsId === mainWebContentsId/)
   assert.match(smokeSource, /child\.once\('close'/)
-  assert.match(smokeSource, /\[THEIA\\\] \(\?:uncaught exception\|unhandled rejection\):/)
+  assert.match(mainSource, /schema: 'theia-packaged-smoke\/v1'/)
+  assert.match(smokeSource, /\[THEIA\\\] \(\?:uncaught exception\|unhandled rejection\|UnhandledPromiseRejectionWarning\):/)
   assert.match(smokeSource, /\|\| runtimeError/)
 })
 

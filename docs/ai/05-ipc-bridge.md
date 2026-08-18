@@ -30,14 +30,14 @@ view/hook -> src/bridge.ts -> electron/preload.cjs
 
 主进程是所有特权动作唯一位置。URL 经过 `permittedSourceUrl()`；附件与路径用受控 picker 或既有 workspace 记录；不暴露通用 shell、filesystem、session 或 arbitrary URL IPC。
 
-## Advisor P0-P5 边界
+## Advisor 边界
 
 - renderer 不自行拼接 `CampusState`、revision 或当前时间来重算 overview。
 - overview 及其 `dataQuality` 的 `snapshotRevision`、`evaluatedAt`、`timeZone`、`rulesVersion` 必须完全一致。
 - renderer 收到新四元实例键时整体替换旧 overview；稳定 claim ID 只表示同一规则下的 claim 身份，不允许据此跨实例合并 `value`、`displayText`、`confidence` 或 `caveats`。
 - What-if 和 course decisions 各自从一次冻结快照计算；renderer 不能把数据质量从 unknown/partial 升级为 complete，也不能接收并复用过期 revision 的响应。
 - `advisor:execute-action` 的 renderer 参数不得增加原始 assignment ID、URL 或任意 payload；原始 THEOL assignment ID 只能在主进程从当前冻结快照私下唯一反解。
-- P4 模型请求由独立 `AdvisorRuntime` 的 prepare/send 两阶段协议处理：prepare 冻结快照并返回披露计划，send 只在用户确认、prepared request 有效且 revision 未变化时调用 Provider。
-- 当前没有流式 IPC、通用工具调用、任意 URL、filesystem、session 或学校请求代理；`suggestedActionIds` 不是执行授权。
+- Agent 请求由独立 `AdvisorRuntime` 的单次 send 协议处理：renderer 直接提交 `threadId` 与 `question`，主进程在同一请求内部生成 request ID、冻结快照并建立惰性工作区。renderer 不能提交意图、数据域、邮件选择、授权或关闭流式的字段；已有 request ID 仅用于内部生命周期。
+- Provider 支持流式时，每次模型调用都会逐 delta 转发。模型仅能调用固定只读工具，且没有任意 URL、filesystem、session、学校请求代理或执行权；`suggestedActionIds` 不是执行授权。
 
-完整合同见 [16-advisor-p0-foundation.md](16-advisor-p0-foundation.md)、[17-advisor-p1-p3-local-workbench.md](17-advisor-p1-p3-local-workbench.md) 和 [18-advisor-p4-p5-model-runtime.md](18-advisor-p4-p5-model-runtime.md)。
+完整合同见 [16-advisor-p0-foundation.md](16-advisor-p0-foundation.md)、[17-advisor-p1-p3-local-workbench.md](17-advisor-p1-p3-local-workbench.md) 和 [20-a-b-c-advisor-agent-sidecar.md](20-a-b-c-advisor-agent-sidecar.md)。

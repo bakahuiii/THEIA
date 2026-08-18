@@ -9,7 +9,12 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { matchTerm, TermSelector, type Term } from "../ui/app-shared";
-import { currentAcademicVacation, currentAcademicWeek, occursInWeek } from "../ui/calendar";
+import {
+  currentAcademicVacation,
+  currentAcademicWeek,
+  currentShanghaiWeekday,
+  occursInWeek,
+} from "../ui/calendar";
 import type { AcademicCalendar, ScheduleItem } from "../types";
 
 type SchedulePopover = {
@@ -50,6 +55,15 @@ type PopoverDragState = {
   offsetX: number;
   offsetY: number;
 };
+
+function firstScheduledTermId(items: ScheduleItem[], terms: Term[]) {
+  const knownTerms = new Set(
+    items
+      .map((item) => item.termId)
+      .filter((termId): termId is string => Boolean(termId)),
+  );
+  return terms.find((term) => knownTerms.has(term.id))?.id || terms[0]?.id || "";
+}
 
 function parsePeriodRange(period?: string | null) {
   const values = (String(period || "").match(/\d+/g) || [])
@@ -124,7 +138,7 @@ export function ScheduleView({
 }) {
   const days = DAY_LABELS;
   const [termFilter, setTermFilter] = useState(
-    () => terms[0]?.id.split("-")[0] || "",
+    () => firstScheduledTermId(items, terms),
   );
   const [weekMode, setWeekMode] = useState<"week" | "all">("week");
   const [weekNum, setWeekNum] = useState(1);
@@ -136,8 +150,8 @@ export function ScheduleView({
   const popoverDragRef = useRef<PopoverDragState | null>(null);
 
   useEffect(() => {
-    if (terms.length && !termFilter) setTermFilter(terms[0].id.split("-")[0]);
-  }, [terms, termFilter]);
+    if (terms.length && !termFilter) setTermFilter(firstScheduledTermId(items, terms));
+  }, [items, terms, termFilter]);
 
   const currentWeek = useMemo(() => currentAcademicWeek(calendar), [calendar]);
   useEffect(() => {
@@ -152,7 +166,7 @@ export function ScheduleView({
     const timeout = window.setTimeout(() => setTodayNotice(null), 4_000);
     return () => window.clearTimeout(timeout);
   }, [todayNotice]);
-  const todayWeekday = new Date().getDay() || 7;
+  const todayWeekday = currentShanghaiWeekday();
   const isShowingToday = Boolean(
     currentWeek
       && weekMode === "week"

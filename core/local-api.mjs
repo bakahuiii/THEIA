@@ -3,9 +3,13 @@ import { readFile, writeFile, rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { collectionCsv, counts, toTheiaFeed, toIcs } from './schema.mjs'
 import { cachedFitnessResult, fitnessCacheSummary, cachedSchoolScheduleResult, schoolScheduleCacheSummary } from './data-catalog.mjs'
+import { buildAcademicAnalysis } from './academic-model.mjs'
+import { JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES } from './jwglxt-extra.mjs'
+import { projectUserDataDomainSummary, projectUserDataOverview, projectUserDataRecords } from './user-data-view.mjs'
 
-const COLLECTIONS = new Set(['terms', 'courses', 'schedule', 'exams', 'grades', 'selectedCourses', 'assignments', 'workspaces', 'notices', 'emails'])
-const COLLECTION_ALIASES = new Map([['selected-courses', 'selectedCourses']])
+const COLLECTIONS = new Set(['terms', 'courses', 'schedule', 'exams', 'grades', 'selectedCourses', 'assignments', 'workspaces', 'notices', 'emails', 'academicExtras'])
+const COLLECTION_ALIASES = new Map([['selected-courses', 'selectedCourses'], ['academic-extras', 'academicExtras']])
+const ACADEMIC_EXTRA_DOMAIN_SET = new Set(JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES)
 
 function allowedOrigin(origin) {
   if (!origin) return null
@@ -14,7 +18,7 @@ function allowedOrigin(origin) {
   if (String(origin).toLowerCase() === 'null') return 'null'
   try {
     const url = new URL(origin)
-    if (url.protocol === 'theia:' || url.protocol === 'theia:') return origin
+    if (url.protocol === 'theia:') return origin
     if ((url.hostname === '127.0.0.1' || url.hostname === 'localhost') && ['http:', 'https:'].includes(url.protocol)) return origin
   } catch { /* no CORS for invalid origins */ }
   return null
@@ -55,6 +59,50 @@ function collectionResponse(state, collection, url) {
   }
 }
 
+function academicExtraColumns(records) {
+  const columns = []
+  const seen = new Set()
+  for (const record of records) {
+    const fields = Array.isArray(record?.fields) && record.fields.length
+      ? record.fields
+      : Object.entries(record || {}).map(([name, value]) => ({ name, label: name, value }))
+    for (const field of fields) {
+      const key = String(field?.name || '').trim()
+      if (!key || seen.has(key) || ['id', 'source', 'sourceUrl', 'routeCode', 'capturedAt'].includes(key)) continue
+      seen.add(key)
+      columns.push({ key, label: String(field?.label || key).slice(0, 160) })
+      if (columns.length >= 32) return columns
+    }
+  }
+  return columns
+}
+
+function academicExtraTableResponse(state, domain, url) {
+  if (!ACADEMIC_EXTRA_DOMAIN_SET.has(domain)) return null
+  const source = state.academicExtras?.domains?.[domain] || null
+  const allItems = Array.isArray(source?.records) ? source.records : []
+  const query = String(url.searchParams.get('q') || '').trim().toLocaleLowerCase()
+  const matched = query
+    ? allItems.filter((record) => JSON.stringify(record).toLocaleLowerCase().includes(query))
+    : allItems
+  const items = filtered(matched, url)
+  const requestedLimit = Number(url.searchParams.get('limit'))
+  const limit = Number.isInteger(requestedLimit) ? Math.max(1, Math.min(1_000, requestedLimit)) : 1_000
+  return {
+    schema: 'theia-jwglxt-extra-table/v1',
+    domain,
+    label: source?.label || domain,
+    updatedAt: state.updatedAt,
+    capturedAt: source?.capturedAt || null,
+    sourceUrl: source?.sourceUrl || null,
+    completeness: source?.completeness || 'unknown',
+    queryStats: source?.queryStats || { attempted: 0, succeeded: 0, failed: 0, capped: false },
+    columns: academicExtraColumns(items),
+    total: items.length,
+    items: items.slice(0, limit),
+  }
+}
+
 function unchangedSince(value, url) {
   const since = url.searchParams.get('since')
   if (!since) return false
@@ -89,13 +137,59 @@ export async function startLocalApi({ store, root, preferredPort = 8765, academi
     if (url.pathname === '/v1/collections') return send(response, 200, {
       schema: state.schema,
       updatedAt: state.updatedAt,
-      collections: [...COLLECTIONS].map((name) => ({ name, endpoint: `/v1/${name === 'selectedCourses' ? 'selected-courses' : name}`, count: state[name]?.length || 0 })),
+      collections: [...COLLECTIONS].map((name) => ({ name, endpoint: `/v1/${name === 'selectedCourses' ? 'selected-courses' : name === 'academicExtras' ? 'academic-extras' : name}`, count: name === 'academicExtras' ? Object.values(state[name]?.domains || {}).reduce((total, domain) => total + (domain.records?.length || 0), 0) : state[name]?.length || 0 })),
     }, undefined, origin, method)
     if (url.pathname === '/v1/profile') return send(response, 200, { schema: state.schema, updatedAt: state.updatedAt, item: state.profile }, undefined, origin, method)
     if (url.pathname === '/v1/sync') return send(response, 200, { schema: state.schema, updatedAt: state.updatedAt, item: state.sync }, undefined, origin, method)
+    if (url.pathname === '/v1/overview') {
+      const versioned = store.snapshotWithRevision ? store.snapshotWithRevision() : { state, revision: null }
+      return send(response, 200, projectUserDataOverview(versioned.state || state, { snapshotRevision: versioned.revision || null }), undefined, origin, method)
+    }
+    const domainSummaryMatch = url.pathname.match(/^\/v1\/domain-summary\/([^/]+)$/u)
+    if (domainSummaryMatch) {
+      let domain
+      try { domain = decodeURIComponent(domainSummaryMatch[1]) } catch { return send(response, 400, { error: 'domain_invalid' }, undefined, origin, method) }
+      const versioned = store.snapshotWithRevision ? store.snapshotWithRevision() : { state, revision: null }
+      const summary = projectUserDataDomainSummary(versioned.state || state, domain)
+      return summary
+        ? send(response, 200, { ...summary, snapshotRevision: versioned.revision || null }, undefined, origin, method)
+        : send(response, 404, { error: 'domain_not_found' }, undefined, origin, method)
+    }
+    const userRecordsMatch = url.pathname.match(/^\/v1\/records\/([^/]+)$/u)
+    if (userRecordsMatch) {
+      let domain
+      try { domain = decodeURIComponent(userRecordsMatch[1]) } catch { return send(response, 400, { error: 'domain_invalid' }, undefined, origin, method) }
+      const versioned = store.snapshotWithRevision ? store.snapshotWithRevision() : { state, revision: null }
+      const records = projectUserDataRecords(versioned.state || state, domain, {
+        query: url.searchParams.get('q') || '',
+        termId: url.searchParams.get('termId') || null,
+        status: url.searchParams.get('status') || null,
+        scope: url.searchParams.get('scope') === 'all' ? 'all' : 'current',
+        limit: url.searchParams.get('limit') || undefined,
+        cursor: url.searchParams.get('cursor') || '0',
+        recordType: url.searchParams.get('recordType') || null,
+      })
+      if (!records) return send(response, 404, { error: 'domain_not_found' }, undefined, origin, method)
+      return send(response, 200, { ...records, snapshotRevision: versioned.revision || null }, undefined, origin, method)
+    }
     if (url.pathname === '/v1/snapshot') return send(response, 200, state, undefined, origin, method)
     if (url.pathname === '/v1/data-manifest') return send(response, 200, store.storageSummary(), undefined, origin, method)
     if (url.pathname === '/v1/data-catalog') return send(response, 200, state.dataCatalog, undefined, origin, method)
+    if (url.pathname === '/v1/academic-plan-document') return send(response, 200, {
+      schema: 'theia-academic-plan-document-response/v1',
+      updatedAt: state.updatedAt,
+      item: state.academicPlanDocument,
+    }, undefined, origin, method)
+    if (url.pathname === '/v1/academic-extras') return send(response, 200, { schema: state.schema, updatedAt: state.updatedAt, item: state.academicExtras }, undefined, origin, method)
+    const academicExtraMatch = url.pathname.match(/^\/v1\/academic-extras\/([^/]+)$/u)
+    if (academicExtraMatch) {
+      let domain
+      try { domain = decodeURIComponent(academicExtraMatch[1]) } catch { return send(response, 400, { error: 'academic_extra_domain_invalid' }, undefined, origin, method) }
+      const table = academicExtraTableResponse(state, domain, url)
+      return table
+        ? send(response, 200, table, undefined, origin, method)
+        : send(response, 404, { error: 'academic_extra_domain_not_found' }, undefined, origin, method)
+    }
     if (url.pathname === '/v1/academic-calendar') {
       return send(response, 200, academicCalendarAssetsService?.snapshot() || {
         schema: 'theia-academic-calendar-assets/v1', updatedAt: null, assets: {}, root: null,
@@ -149,6 +243,23 @@ export async function startLocalApi({ store, root, preferredPort = 8765, academi
       const item = unchangedSince(state.academicProgress?.capturedAt || state.updatedAt, url) ? null : state.academicProgress
       return send(response, 200, { schema: state.schema, updatedAt: state.updatedAt, notModified: item === null && Boolean(state.academicProgress), item }, undefined, origin, method)
     }
+    if (url.pathname === '/v1/academic-analysis') {
+      const versioned = store.snapshotWithRevision ? store.snapshotWithRevision() : { state, revision: null }
+      const analysisState = versioned.state || state
+      const item = unchangedSince(analysisState.updatedAt, url) ? null : buildAcademicAnalysis({
+        grades: analysisState.grades,
+        courses: analysisState.courses,
+        progress: analysisState.academicProgress,
+        evaluatedAt: analysisState.updatedAt,
+      })
+      return send(response, 200, {
+        schema: 'theia-academic-analysis-response/v1',
+        updatedAt: analysisState.updatedAt,
+        snapshotRevision: versioned.revision || null,
+        notModified: item === null,
+        item,
+      }, undefined, origin, method)
+    }
     const csvMatch = url.pathname.match(/^\/v1\/(terms|courses|schedule|exams|grades|selected-courses|selectedCourses|assignments|workspaces|notices|emails)\.csv$/)
     const collectionPath = csvMatch?.[1] || url.pathname.match(/^\/v1\/(terms|courses|schedule|exams|grades|selected-courses|selectedCourses|assignments|workspaces|notices|emails)$/)?.[1]
     const collection = COLLECTION_ALIASES.get(collectionPath) || collectionPath
@@ -159,20 +270,25 @@ export async function startLocalApi({ store, root, preferredPort = 8765, academi
     return send(response, 404, { error: 'not_found' }, undefined, origin, method)
   })
 
-  let port = Number(preferredPort) || 8765
-  for (let offset = 0; offset < 10; offset += 1) {
+  const requestedPort = Number(preferredPort) || 8765
+  const candidates = [...Array.from({ length: 10 }, (_value, offset) => requestedPort + offset), 0]
+  let port = requestedPort
+  for (const [index, candidate] of candidates.entries()) {
     try {
       await new Promise((resolveListen, reject) => {
         const onError = (error) => { server.off('listening', onListen); reject(error) }
         const onListen = () => { server.off('error', onError); resolveListen() }
         server.once('error', onError)
         server.once('listening', onListen)
-        server.listen(port + offset, '127.0.0.1')
+        server.listen(candidate, '127.0.0.1')
       })
-      port += offset
+      const address = server.address()
+      if (!address || typeof address === 'string') throw new Error('Local API did not expose a TCP port')
+      port = address.port
       break
     } catch (error) {
-      if (error?.code !== 'EADDRINUSE' || offset === 9) throw error
+      const retryable = error?.code === 'EADDRINUSE' || error?.code === 'EACCES'
+      if (!retryable || index === candidates.length - 1) throw error
     }
   }
   const runtimePath = resolve(root, 'api-runtime.json')

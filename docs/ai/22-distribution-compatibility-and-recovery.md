@@ -25,9 +25,10 @@ so an AI maintainer can load it without reading the whole security design.
 - Idempotent GET/HEAD campus requests retry a small number of transient network
   failures, including Electron's temporary `Redirect was cancelled` condition.
   POST requests are never retried automatically.
-- If a configured advisor model repeatedly returns malformed output, THEIA
-  returns a deterministic local answer built only from the frozen,
-  evidence-verified catalog. It never accepts the invalid model text.
+- If a configured advisor model fails to produce a usable response, THEIA
+  returns a retryable error and does not synthesize a local answer. A configured
+  fallback model is used only for a retryable provider failure before visible
+  output or tool side effects.
 
 ## Strict mode and future hardening
 
@@ -36,7 +37,6 @@ Before a public release, test the strict profile with:
 
 ```powershell
 $env:THEIA_STRICT_IPC = '1'
-$env:THEIA_STRICT_ADVISOR = '1'
 npm test
 ```
 
@@ -46,10 +46,9 @@ rejects a blank startup URL. If a packaged build needs that tolerance, capture
 the actual sender/frame URL in the sanitized diagnostics and fix the startup
 ordering rather than permanently widening it.
 
-`THEIA_STRICT_ADVISOR=1` restores a hard error after a model's one constrained
-repair attempt fails. The default distribution profile instead uses the local
-verified fallback described above; provider output is still never accepted
-unless it passes the normal evidence and format verifier.
+An unusable advisor response follows the normal retryable error path and is not
+replaced with a locally generated answer. The only model fallback is the
+configured provider failover described above.
 
 Never widen these boundaries:
 
@@ -88,7 +87,7 @@ following useful events:
 - `auth.frame_poll_skipped`, `auth.background_timeout`;
 - `auth.recovery_failed`, `sync.auth_required`;
 - `source.request_retry`, `source.background_window_reset`;
-- `ipc.denied`, `advisor.local_fallback`, and `network.proxy_ready`.
+- `ipc.denied`, `advisor.provider_failover`, and `network.proxy_ready`.
 
 When reporting a distribution failure, include the event names, timestamps,
 source labels, and error codes, but remove account identifiers, URLs with query

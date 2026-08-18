@@ -1,4 +1,5 @@
 import { canonicalDigest, compareCanonicalText } from './advisor/canonical.mjs'
+import { JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES } from './jwglxt-extra.mjs'
 
 export const DOMAIN_PROVENANCE_SCHEMA = 'theia-domain-provenance/v1'
 export const DOMAIN_OUTCOME_SCHEMA = 'theia-domain-outcome/v1'
@@ -22,6 +23,7 @@ export const ADVISOR_DOMAIN_KEYS = Object.freeze([
   'school-schedule',
   'academic-calendar',
   'local-data-catalog',
+  ...JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES,
 ])
 
 export const SYNC_SOURCE_DOMAINS = Object.freeze({
@@ -35,6 +37,7 @@ export const SYNC_SOURCE_DOMAINS = Object.freeze({
     'selected-courses',
     'academic-progress',
     'notices',
+    ...JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES,
   ]),
   theol: Object.freeze(['courses', 'assignments', 'notices']),
 })
@@ -60,6 +63,7 @@ const FIELD_BY_DOMAIN = Object.freeze({
   workspaces: 'workspaces',
   notices: 'notices',
   mailbox: 'emails',
+  ...Object.fromEntries(JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES.map((domain) => [domain, 'academicExtras'])),
 })
 
 const STATUS_VALUES = new Set(['never', 'not-attempted', 'succeeded', 'failed', 'auth-required'])
@@ -90,6 +94,12 @@ function errorCodeOrNull(value) {
   return text && text !== '_' ? text : null
 }
 
+function recordCountOrNull(value) {
+  if (value === null || value === undefined || value === '') return null
+  const count = Number(value)
+  return Number.isSafeInteger(count) && count >= 0 ? count : null
+}
+
 export function canonicalDomainId(value) {
   const text = textOrNull(value, 100)
   if (!text) return null
@@ -99,12 +109,17 @@ export function canonicalDomainId(value) {
   if (text === 'academicCalendar' || text === 'calendar') return 'academic-calendar'
   if (text === 'emails') return 'mailbox'
   if (text === 'dataCatalog' || text === 'data-catalog' || text === 'localDataCatalog') return 'local-data-catalog'
+  if (text === 'academicExtras' || text === 'academic-extra' || text === 'academic-extras') return 'academic-extras'
   return text
 }
 
 export function domainPayload(state, domain) {
   const snapshot = objectOrEmpty(state)
-  switch (canonicalDomainId(domain)) {
+  const normalizedDomain = canonicalDomainId(domain)
+  if (JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES.includes(normalizedDomain)) {
+    return snapshot.academicExtras?.domains?.[normalizedDomain] || null
+  }
+  switch (normalizedDomain) {
     case 'profile': return snapshot.profile ?? null
     case 'terms': return Array.isArray(snapshot.terms) ? snapshot.terms : []
     case 'courses': return Array.isArray(snapshot.courses) ? snapshot.courses : []
@@ -137,7 +152,11 @@ export function domainPayload(state, domain) {
 export function domainPayloadExists(state, domain) {
   const snapshot = objectOrEmpty(state)
   const collections = objectOrEmpty(snapshot.dataCatalog?.collections)
-  switch (canonicalDomainId(domain)) {
+  const normalizedDomain = canonicalDomainId(domain)
+  if (JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES.includes(normalizedDomain)) {
+    return Boolean(snapshot.academicExtras?.domains?.[normalizedDomain])
+  }
+  switch (normalizedDomain) {
     case 'profile': return Object.hasOwn(snapshot, 'profile')
     case 'terms': return Object.hasOwn(snapshot, 'terms')
     case 'courses': return Object.hasOwn(snapshot, 'courses')
@@ -162,7 +181,17 @@ export function domainPayloadExists(state, domain) {
 
 export function domainRecordCount(state, domain) {
   const payload = domainPayload(state, domain)
-  switch (canonicalDomainId(domain)) {
+  const normalizedDomain = canonicalDomainId(domain)
+  if (JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES.includes(normalizedDomain)) {
+    // A read-only JWGLXT page can legitimately contain only a downloadable
+    // attachment (for example, the official cultivation-plan PDF). Treat
+    // those attachments as captured content so provenance does not report a
+    // successful PDF-only read as an empty domain.
+    const records = Array.isArray(payload?.records) ? payload.records.length : 0
+    const attachments = Array.isArray(payload?.attachments) ? payload.attachments.length : 0
+    return records + attachments
+  }
+  switch (normalizedDomain) {
     case 'profile':
     case 'academic-progress': return payload ? 1 : 0
     case 'academic': return payload.terms.length + payload.courses.length + payload.selectedCourses.length
@@ -199,6 +228,8 @@ export function sourceDomainOutcome({
   completeness = 'unknown',
   parserVersion = null,
   errorCode = null,
+  receivedRecordCount = null,
+  previousRecordCount = null,
   successfulTermIds = [],
   failedTermIds = [],
 } = {}) {
@@ -233,6 +264,8 @@ export function sourceDomainOutcome({
     completeness: normalizedCompleteness,
     parserVersion: textOrNull(parserVersion, 120),
     errorCode: errorCodeOrNull(errorCode),
+    receivedRecordCount: recordCountOrNull(receivedRecordCount),
+    previousRecordCount: recordCountOrNull(previousRecordCount),
     successfulTermIds: successfulTerms,
     failedTermIds: failedTerms,
   }

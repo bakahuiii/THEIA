@@ -11,6 +11,15 @@ test('settings marks a clean-looking log as an earlier result while synchronizat
   )
 })
 
+test('renderer reconciles a missed sync terminal event from persisted timestamps', async () => {
+  const source = await readFile(new URL('../src/hooks/useTheiaApp.ts', import.meta.url), 'utf8')
+
+  assert.match(source, /function syncSnapshotIsPending\(/)
+  assert.match(source, /syncSnapshotIsPending\(snapshot\.sync\)/)
+  assert.match(source, /setSyncing\(false\)/)
+  assert.match(source, /lastCompletedAt\)/)
+})
+
 test('settings exposes detailed domain outcomes, native logs, and the data directory action', async () => {
   const source = await readFile(new URL('../src/views/SettingsView.tsx', import.meta.url), 'utf8')
 
@@ -19,6 +28,10 @@ test('settings exposes detailed domain outcomes, native logs, and the data direc
     'THEOL 课程', '作业与测试', 'THEOL 通知', '校园邮箱',
   ]) assert.match(source, new RegExp(label))
   for (const state of ['成功', '部分成功', '失败', '未开始']) assert.match(source, new RegExp(state))
+  assert.doesNotMatch(source, /onDemand: true/)
+  assert.doesNotMatch(source, /不会随主同步读取/)
+  assert.doesNotMatch(source, /培养执行计划/)
+  assert.doesNotMatch(source, /全校课表/)
   assert.match(source, /entry\.raw/)
   assert.doesNotMatch(source, /activityEventLabel/)
   assert.match(source, /<h2>日志<\/h2>/)

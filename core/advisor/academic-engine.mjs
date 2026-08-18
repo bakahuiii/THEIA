@@ -1,4 +1,5 @@
-import { computeGpa, gpaEligibilityReason } from '../gpa.mjs'
+import { gpaEligibilityReason } from '../gpa.mjs'
+import { buildAcademicAnalysis } from '../academic-model.mjs'
 import { canonicalDigest, compareCanonicalText, normalizeText, shortDigest, uniqueSorted } from './canonical.mjs'
 import { normalizeAdvisorOptions, normalizeVersionedSnapshot } from './contracts.mjs'
 
@@ -726,7 +727,16 @@ function evaluateGpa(state, { registry, dataQuality, rulesVersion, claims, risks
   }
 
   const grades = arrayValue(state.grades)
-  const local = computeGpa(grades)
+  const academicAnalysis = buildAcademicAnalysis({
+    grades,
+    courses: state.courses,
+    progress: state.academicProgress,
+  })
+  const local = {
+    gpa: academicAnalysis.gpa.computedValue,
+    credits: academicAnalysis.gpa.credits,
+    included: academicAnalysis.gpa.includedCourses,
+  }
   const boundary = gpaBoundary(grades)
   const localValue = validGpa(local.gpa)
   let localEvidence = null

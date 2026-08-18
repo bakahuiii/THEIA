@@ -25,7 +25,6 @@ const navigationBlocks = []
 const pageFailures = []
 const bridgeDiagnostics = []
 const advisorThreads = new Map()
-const advisorPrepared = new Map()
 const advisorActive = new Map()
 let advisorSequence = 0
 let vite = null
@@ -127,7 +126,6 @@ function advisorId(prefix) {
 
 function resetAdvisorFixture() {
   advisorThreads.clear()
-  advisorPrepared.clear()
   advisorActive.clear()
   advisorSequence = 0
 }
@@ -146,7 +144,8 @@ function visualAdvisorAnswer(prepared) {
     schema: 'theia-advisor-answer/v1',
     requestId: prepared.requestId,
     threadId: prepared.threadId,
-    intent: prepared.intent,
+    intent: prepared.intent || 'general',
+    rawText: explanation,
     snapshotRevision: fixture.versioned.revision,
     stale: false,
     narrative: {
@@ -175,13 +174,14 @@ function visualAdvisorAnswer(prepared) {
     uncertainties: [],
     questionsForUser: [],
     model: { serviceIdentity: 'https://models.fixture.invalid/v1', modelId: 'visual-advisor-model' },
-    usage: { inputBytes: 4096, outputBytes: 512 },
+    usage: { inputTokens: 1024, outputTokens: 128, estimated: false, inputBytes: 4096, outputBytes: 512 },
   }
 }
 
 function registerBridge() {
   const handle = (name, callback) => ipcMain.handle(`theia-visual:${name}`, callback)
   handle('get-snapshot', () => clone(fixture.state))
+  handle('get-renderer-snapshot', () => clone(fixture.state))
   handle('get-advisor-overview', () => clone(fixture.overview))
   handle('get-advisor-academic-what-if', (_event, request) => {
     if (request?.snapshotRevision !== fixture.versioned.revision) throw new Error('视觉夹具快照已过期')
@@ -224,55 +224,15 @@ function registerBridge() {
     advisorThreads.set(thread.id, thread)
     return publicAdvisorThread(thread)
   })
-  handle('prepare-advisor-request', (_event, request) => {
-    const thread = advisorThreads.get(request?.threadId)
-    if (!thread) throw new Error('视觉夹具顾问线程不存在')
-    const requestId = advisorId('request')
-    const prepared = {
-      schema: 'theia-advisor-prepared-request/v1',
-      requestId,
-      threadId: thread.id,
-      intent: request?.intent || 'general',
-      question: String(request?.question || '').slice(0, 4_000),
-      expiresAt: '2026-08-14T01:05:00.000Z',
-      disclosure: {
-        schema: 'theia-advisor-disclosure/v1',
-        providerProfileId: 'default',
-        serviceIdentity: 'https://models.fixture.invalid/v1',
-        modelId: 'visual-advisor-model',
-        intent: request?.intent || 'general',
-        scopes: request?.intent === 'daily' ? ['assignments', 'exams'] : [],
-        recordCounts: request?.intent === 'daily' ? { assignments: fixture.state.assignments.length, exams: fixture.state.exams.length } : {},
-        containsMailBody: false,
-        containsProfileIdentity: false,
-        containsFitness: false,
-        containsAttachmentText: false,
-        estimatedInputUnits: 6,
-        snapshotRevision: fixture.versioned.revision,
-        contextDigest: 'a'.repeat(64),
-      },
-      consentChallenge: {
-        schema: 'theia-advisor-consent-challenge/v1',
-        requestId,
-        threadId: thread.id,
-        serviceIdentity: 'https://models.fixture.invalid/v1',
-        purpose: 'visual-advisor-fixture',
-        intent: request?.intent || 'general',
-        domains: request?.intent === 'daily' ? ['assignments', 'exams'] : [],
-        entityDigests: [],
-        contextDigest: 'a'.repeat(64),
-        requiredScopes: [],
-      },
-    }
-    advisorPrepared.set(requestId, prepared)
-    return clone(prepared)
-  })
   handle('send-advisor-request', async (_event, request) => {
-    const prepared = advisorPrepared.get(request?.requestId)
-    if (!prepared || request?.approved !== true) throw new Error('视觉夹具披露计划无效')
+    const prepared = {
+      requestId: advisorId('request'),
+      threadId: request?.threadId,
+      intent: 'general',
+      question: String(request?.question || '').slice(0, 4_000),
+    }
     const thread = advisorThreads.get(prepared.threadId)
     if (!thread) throw new Error('视觉夹具顾问线程不存在')
-    advisorPrepared.delete(prepared.requestId)
     const active = { cancelled: false }
     advisorActive.set(prepared.requestId, active)
     thread.activeRequestId = prepared.requestId
@@ -288,12 +248,14 @@ function registerBridge() {
     return clone(response)
   })
   handle('cancel-advisor-request', (_event, request) => {
-    const active = advisorActive.get(request?.requestId)
-    if (!active) return { cancelled: false, requestId: request?.requestId || null }
+    const requestedThread = request?.threadId && advisorThreads.get(request.threadId)
+    const requestId = request?.requestId || requestedThread?.activeRequestId || null
+    const active = advisorActive.get(requestId)
+    if (!active) return { cancelled: false, requestId }
     active.cancelled = true
-    const prepared = [...advisorThreads.values()].find((thread) => thread.activeRequestId === request.requestId)
-    if (prepared) prepared.activeRequestId = null
-    return { cancelled: true, requestId: request.requestId }
+    const thread = [...advisorThreads.values()].find((entry) => entry.activeRequestId === requestId)
+    if (thread) thread.activeRequestId = null
+    return { cancelled: true, requestId }
   })
   handle('delete-advisor-thread', (_event, threadId) => ({ deleted: advisorThreads.delete(threadId), threadId }))
   handle('get-activity-log', () => [])
@@ -317,7 +279,16 @@ function registerBridge() {
   })
   handle('get-cached-school-schedule', () => null)
   handle('get-academic-calendar-assets', () => ({ schema: 'theia-academic-calendar-assets/v1', updatedAt: null, root: '', assets: {}, calendar: null, analysis: null }))
-  handle('get-model-status', () => ({ configured: false, baseUrl: '', model: '', apiKeySaved: false, encryptionAvailable: true }))
+  handle('get-model-status', () => ({
+    configured: true,
+    baseUrl: 'https://models.fixture.invalid/v1',
+    provider: 'openai-compatible',
+    model: 'visual-advisor-model',
+    apiKeySaved: true,
+    encryptionAvailable: true,
+    serviceIdentity: 'https://models.fixture.invalid/v1',
+    advisorConfig: clone(fixture.state.settings.advisorConfig),
+  }))
   handle('get-api-status', () => ({ baseUrl: '', host: '127.0.0.1', port: 0, academicCalendarAssets: {} }))
   handle('get-appearance-presets', () => ({ exists: true, updatedAt: null, presets: [] }))
   ipcMain.on('theia-visual:renderer-error', (_event, detail) => rendererErrors.push(detail))
@@ -579,46 +550,64 @@ async function runViewport(viewport, index) {
   const scenarios = []
   try {
     await clickByAria(window, '学业顾问')
-    await waitFor(window, `document.body.innerText.includes('本地确定性顾问') && document.querySelector('[data-quality-state="stale"]') && document.querySelector('[data-quality-state="partial"]') && document.querySelector('[data-quality-state="failed"]')`, '顾问及质量状态')
-    scenarios.push(await screenshot(window, viewport, 'advisor', '本地确定性顾问'))
+    await waitFor(window, `document.body.innerText.includes('学业顾问') && document.body.innerText.includes('THEIA Agent') && document.querySelector('.advisor-workbench-v2') && document.querySelector('.advisor-v2-main')`, '顾问主界面')
+    scenarios.push(await screenshot(window, viewport, 'advisor', 'THEIA Agent'))
+
+    await clickByAria(window, '学业概览')
+    await waitFor(window, `document.body.innerText.includes('学业仪表盘') && document.querySelector('.advisor-insights-dialog') && document.querySelector('[data-quality-state="stale"]') && document.querySelector('[data-quality-state="partial"]') && document.querySelector('[data-quality-state="failed"]')`, '学业仪表盘及质量状态')
+    scenarios.push(await screenshot(window, viewport, 'advisor-dashboard', '学业仪表盘'))
+
+    await clickByAria(window, '查看作业与测试数据质量')
+    await waitFor(window, `(() => {
+      const sheet = document.querySelector('.advisor-diagnostic-sheet')
+      if (!sheet || sheet.getAttribute('data-state') !== 'open') return false
+      const rect = sheet.getBoundingClientRect()
+      const style = getComputedStyle(sheet)
+      const foreground = document.elementFromPoint(Math.max(rect.left + 24, rect.right - 24), Math.min(rect.bottom - 24, rect.top + 80))
+      return rect.width > 300 && rect.right >= innerWidth - 2 && rect.left < innerWidth && style.visibility !== 'hidden' && Number(style.opacity || '1') > 0.9 && sheet.contains(foreground) && document.body.innerText.includes('同步前本地数据') && document.body.innerText.includes('本次可确认返回')
+    })()`, '数据诊断')
+    scenarios.push(await screenshot(window, viewport, 'advisor-diagnostic', '数据诊断'))
+    await clickByAria(window, '关闭数据诊断')
 
     await clickByText(window, '查看证据')
-    await waitFor(window, `document.querySelector('[aria-label="关闭证据详情"]') && document.body.innerText.includes('条证据')`, '证据抽屉')
+    await waitFor(window, `(() => {
+      const close = document.querySelector('[aria-label="关闭证据详情"]')
+      const sheet = close?.closest('[data-slot="sheet-content"]')
+      if (!sheet || sheet.getAttribute('data-state') !== 'open') return false
+      const rect = sheet.getBoundingClientRect()
+      const foreground = document.elementFromPoint(Math.max(rect.left + 24, rect.right - 24), Math.min(rect.bottom - 24, rect.top + 80))
+      return rect.width > 300 && rect.right >= innerWidth - 2 && sheet.contains(foreground) && document.body.innerText.includes('条证据')
+    })()`, '证据抽屉')
     scenarios.push(await screenshot(window, viewport, 'advisor-evidence', '条证据'))
     await clickByAria(window, '关闭证据详情')
 
     await evalIn(window, `
-      document.getElementById('advisor-model-title')?.closest('section')?.scrollIntoView({ block: 'start' });
+      document.querySelector('.advisor-insights-dialog [data-slot="dialog-close"]')?.click();
       return true;
     `)
+    await waitFor(window, `!document.querySelector('.advisor-insights-dialog')`, '关闭学业仪表盘')
 
     await evalIn(window, `
-      const input = document.querySelector('textarea[placeholder="问 THEIA"]');
+      const input = document.querySelector('textarea[aria-label="输入顾问问题"]');
       if (!input) throw new Error('未找到顾问输入框');
       const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
       setter.call(input, '今天应该先处理什么？');
       input.dispatchEvent(new Event('input', { bubbles: true }));
       return true;
     `)
-    await clickByText(window, '检查并发送')
-    await waitFor(window, `document.body.innerText.includes('发送前确认')`, '披露确认')
-    scenarios.push(await screenshot(window, viewport, 'advisor-disclosure', '发送前确认'))
-    await clickByText(window, '允许并发送')
-    await waitFor(window, `document.body.innerText.includes('取消生成')`, '顾问生成中')
-    scenarios.push(await screenshot(window, viewport, 'advisor-generating', '取消生成'))
-    await clickByText(window, '取消生成')
-    await waitFor(window, `!document.body.innerText.includes('取消生成')`, '顾问取消完成')
+    await clickByAria(window, '发送消息')
+    await waitFor(window, `document.body.innerText.includes('停止生成') || document.querySelector('[aria-label="停止生成"]')`, '顾问生成中')
+    await clickByAria(window, '停止生成')
+    await waitFor(window, `!document.querySelector('[aria-label="停止生成"]')`, '顾问取消完成')
 
     await evalIn(window, `
-      const input = document.querySelector('textarea[placeholder="问 THEIA"]');
+      const input = document.querySelector('textarea[aria-label="输入顾问问题"]');
       const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
       setter.call(input, '请解释当前最重要的本地结论。');
       input.dispatchEvent(new Event('input', { bubbles: true }));
       return true;
     `)
-    await clickByText(window, '检查并发送')
-    await waitFor(window, `document.body.innerText.includes('发送前确认')`, '第二次披露确认')
-    await clickByText(window, '允许并发送')
+    await clickByAria(window, '发送消息')
     await waitFor(window, `document.body.innerText.includes('关键事实、等级和证据仍由 THEIA 在本机渲染')`, '已验证回答')
     await evalIn(window, `
       const node = [...document.querySelectorAll('p')]
@@ -628,6 +617,8 @@ async function runViewport(viewport, index) {
     `)
     scenarios.push(await screenshot(window, viewport, 'advisor-answer', '关键事实'))
 
+    await clickByAria(window, '学业概览')
+    await waitFor(window, `document.querySelector('.advisor-insights-dialog') && document.querySelector('input[type="number"][max="500"]')`, '学业仪表盘情景区')
     await evalIn(window, `
       const input = document.querySelector('input[type="number"][max="500"]');
       if (!input) throw new Error('未找到 What-if 学分输入');

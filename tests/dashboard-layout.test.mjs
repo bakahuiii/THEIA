@@ -67,3 +67,14 @@ test('overview assignment links use the application error-handling action', () =
   assert.match(dashboardSource, /onOpenSource: \(assignmentId: string\) => void/)
   assert.match(dashboardSource, /<AssignmentRow[^>]*onOpenSource=\{onOpenSource\}/s)
 })
+
+test('overview uses Shanghai calendar semantics and bounded, newest-first previews', () => {
+  assert.match(dashboardSource, /currentShanghaiWeekday\(\)/)
+  assert.match(dashboardSource, /currentAcademicVacation\(calendar\)/)
+  assert.match(dashboardSource, /当前不在教学周/)
+  assert.match(dashboardSource, /const pendingPreview = pending\.slice\(0, DASHBOARD_PREVIEW_LIMIT\)/)
+  assert.match(dashboardSource, /const notices = \[\.\.\.state\.notices\]\.sort\(/)
+  assert.match(dashboardSource, /const noticePreview = notices\.slice\(0, DASHBOARD_PREVIEW_LIMIT\)/)
+  assert.match(dashboardSource, /pendingPreview\.map\(/)
+  assert.match(dashboardSource, /noticePreview\.map\(/)
+})

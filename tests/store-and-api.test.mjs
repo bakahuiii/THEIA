@@ -44,7 +44,7 @@ test('store persists an atomic normalized snapshot and THEIA feed', async () => 
     const reloaded = new CampusStore(root)
     const state = await reloaded.load()
     assert.equal(state.courses[0].title, '测试课程')
-    assert.deepEqual(counts(state), { courses: 1, schedule: 0, exams: 0, grades: 0, selectedCourses: 0, assignments: 0, notices: 0, emails: 0 })
+    assert.deepEqual(counts(state), { courses: 1, schedule: 0, exams: 0, grades: 0, selectedCourses: 0, assignments: 0, notices: 0, emails: 0, academicExtras: 0 })
     const feed = toTheiaFeed(state)
     assert.equal(feed.schema, 'theia-campus-feed/v1')
     assert.equal(feed.producer.name, 'THEIA')
@@ -54,6 +54,66 @@ test('store persists an atomic normalized snapshot and THEIA feed', async () => 
     assert.equal(manifest.schema, 'theia-sharded-store/v1')
     assert.ok(manifest.fragments['academic/courses'])
   } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('normalizing email state removes legacy or unsafe rich HTML before every data-flow projection', async () => {
+  const root = await mkdtemp(resolve(tmpdir(), 'theia-mail-flow-'))
+  let api
+  try {
+    const store = new CampusStore(root)
+    await store.load()
+    await store.update((state) => ({
+      ...state,
+      emails: [
+        {
+          id: 'mail-legacy',
+          subject: '旧缓存',
+          body: '验证码 123456',
+          bodyHtml: '<p>旧正文</p><img src="https://tracker.invalid/open">',
+          bodyHtmlVersion: 3,
+        },
+        {
+          id: 'mail-safe',
+          subject: '安全正文',
+          bodyHtml: '<p>保留的已净化正文</p>',
+          bodyHtmlVersion: 4,
+        },
+        {
+          id: 'mail-forged',
+          subject: '伪造版本',
+          bodyHtml: '<p>看似版本 4</p><img src="https://tracker.invalid/forged">',
+          bodyHtmlVersion: 4,
+        },
+      ],
+    }))
+    const snapshot = store.snapshot()
+    assert.equal(snapshot.emails[0].body, '验证码 123456')
+    assert.equal(snapshot.emails[0].bodyHtml, null)
+    assert.equal(snapshot.emails[0].bodyHtmlVersion, null)
+    assert.equal(snapshot.emails[1].bodyHtml, '<p>保留的已净化正文</p>')
+    assert.equal(snapshot.emails[1].bodyHtmlVersion, 4)
+    assert.equal(snapshot.emails[2].bodyHtml, null)
+    assert.equal(snapshot.emails[2].bodyHtmlVersion, null)
+
+    const directFeed = JSON.stringify(toTheiaFeed(snapshot))
+    assert.doesNotMatch(directFeed, /tracker\.invalid/)
+    assert.match(directFeed, /保留的已净化正文/)
+
+    api = await startLocalApi({ store, root, preferredPort: 19875 })
+    const [collection, csv, fullSnapshot, feed] = await Promise.all([
+      fetch(`${api.baseUrl}/v1/emails`).then((response) => response.json()),
+      fetch(`${api.baseUrl}/v1/emails.csv`).then((response) => response.text()),
+      fetch(`${api.baseUrl}/v1/snapshot`).then((response) => response.json()),
+      fetch(`${api.baseUrl}/v1/feed`).then((response) => response.json()),
+    ])
+    for (const value of [collection, csv, fullSnapshot, feed]) assert.doesNotMatch(JSON.stringify(value), /tracker\.invalid/)
+    assert.equal(collection.items[0].bodyHtml, null)
+    assert.equal(fullSnapshot.emails[1].bodyHtmlVersion, 4)
+    assert.equal(feed.localData.mail.messages[2].bodyHtml, null)
+  } finally {
+    await api?.close()
     await rm(root, { recursive: true, force: true })
   }
 })
@@ -153,6 +213,28 @@ test('store migrates a legacy snapshot and updates only affected fragments', asy
   }
 })
 
+test('store restores a positioned legacy timetable when the active shard contains only course-list rows', async () => {
+  const root = await mkdtemp(resolve(tmpdir(), 'theia-schedule-repair-'))
+  try {
+    await writeFile(resolve(root, 'buct-data.json'), JSON.stringify({
+      schedule: [{ id: 'positioned', termId: '2025-3', title: 'Positioned course', weekday: 1, period: '1-2', weeks: '1-16周' }],
+    }), 'utf8')
+    const seeded = new CampusStore(root)
+    await seeded.load()
+    await seeded.update((state) => ({
+      ...state,
+      schedule: [{ id: 'course-list-row', termId: '2025-3', title: 'Unpositioned row', weekday: null, period: null, weeks: null }],
+    }))
+
+    const recovered = new CampusStore(root)
+    const state = await recovered.load()
+    assert.deepEqual(state.schedule.map((item) => item.id), ['positioned'])
+    assert.equal(recovered.storageSummary().recovery.source, 'legacy-positioned-schedule')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('versioned snapshots bind state, revision, commit time, and stable domain digests', async () => {
   const root = await mkdtemp(resolve(tmpdir(), 'theia-versioned-snapshot-'))
   try {
@@ -187,6 +269,25 @@ test('versioned snapshots bind state, revision, commit time, and stable domain d
 test('versioned snapshots reject an uncommitted cold store instead of inventing a revision', () => {
   const store = new CampusStore(resolve(tmpdir(), 'theia-unloaded-versioned-snapshot'))
   assert.throws(() => store.snapshotWithRevision(), /must be loaded/i)
+})
+
+test('store opens a pre-academic-extras manifest and supplies the new empty fragment', async () => {
+  const root = await mkdtemp(resolve(tmpdir(), 'theia-optional-extras-fragment-'))
+  try {
+    const store = new CampusStore(root)
+    await store.load()
+    const manifestPath = resolve(root, 'data', 'manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+    delete manifest.fragments['academic/extras']
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+
+    const reloaded = new CampusStore(root)
+    const state = await reloaded.load()
+    assert.deepEqual(state.academicExtras.domains, {})
+    assert.equal(reloaded.snapshotWithRevision().state.academicExtras.schema, 'theia-jwglxt-extras/v1')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 test('store falls back to the previous manifest when the newest manifest is damaged', async () => {
@@ -573,6 +674,27 @@ test('loopback API exposes read-only collections and THEIA feed', async () => {
       emails: [{ id: 'mail-1', subject: '校园邮箱测试', from: '教务处', receivedAt: '2026-08-11T01:00:00.000Z', source: 'imap' }],
       selectedCourses: [{ id: 'sc1', title: '已选课程', source: 'jwglxt' }],
       academicProgress: { gpa: 3.2, categories: [] },
+      academicExtras: {
+        ...state.academicExtras,
+        domains: {
+          ...state.academicExtras.domains,
+          'academic-plan': {
+            label: '培养方案与教学执行计划',
+            routeCodes: ['N153540'],
+            sourceUrl: 'https://jwglxt.buct.edu.cn/jwglxt/jxzxjhgl/jxzxjhck_cxJxzxjhckIndex.html',
+            capturedAt: '2026-08-11T01:00:00.000Z',
+            completeness: 'complete',
+            queryStats: { attempted: 1, succeeded: 1, failed: 0, capped: false },
+            records: [{
+              id: 'extra-1', title: '高等数学 A', courseCode: 'MAT13904T',
+              fields: [{ name: 'courseCode', label: '课程代码', value: 'MAT13904T' }],
+              source: 'jwglxt', sourceUrl: 'https://jwglxt.buct.edu.cn/jwglxt/design/viewFunc.html',
+              routeCode: 'N219933', capturedAt: '2026-08-11T01:00:00.000Z',
+            }],
+            attachments: [], filters: [], messages: [],
+          },
+        },
+      },
       dataCatalog: cacheFitnessResults(state.dataCatalog, {
         yearKey: '2025-2026_1',
         vitality: 4684,
@@ -627,9 +749,14 @@ test('loopback API exposes read-only collections and THEIA feed', async () => {
       const workspaces = await fetch(`${api.baseUrl}/v1/workspaces`).then((response) => response.json())
       const selectedCourses = await fetch(`${api.baseUrl}/v1/selected-courses`).then((response) => response.json())
       const academicProgress = await fetch(`${api.baseUrl}/v1/academic-progress`).then((response) => response.json())
+      const academicAnalysis = await fetch(`${api.baseUrl}/v1/academic-analysis`).then((response) => response.json())
       const feed = await fetch(`${api.baseUrl}/v1/feed`).then((response) => response.json())
       const fitness = await fetch(`${api.baseUrl}/v1/fitness?year=2025-2026_1`).then((response) => response.json())
       const schoolSchedule = await fetch(`${api.baseUrl}/v1/school-schedule?termId=2026-3&keyword=${encodeURIComponent('高等数学')}`).then((response) => response.json())
+      const academicExtras = await fetch(`${api.baseUrl}/v1/academic-extras/academic-plan?q=${encodeURIComponent('高等数学')}&limit=1`).then((response) => response.json())
+      const ignoredAcademicExtra = await fetch(`${api.baseUrl}/v1/academic-extras/academic-warning`)
+      const removedAcademicExtra = await fetch(`${api.baseUrl}/v1/academic-extras/jwglxt-school-schedule`)
+      const missingAcademicExtra = await fetch(`${api.baseUrl}/v1/academic-extras/not-a-domain`)
       const clientFeed = await fetchTheiaFeed({ baseUrl: api.baseUrl })
       assert.equal(health.ok, true)
       assert.equal(dataManifest.schema, 'theia-sharded-store/v1')
@@ -644,6 +771,9 @@ test('loopback API exposes read-only collections and THEIA feed', async () => {
       assert.deepEqual(workspaces.items, [])
       assert.equal(selectedCourses.items[0].title, '已选课程')
       assert.equal(academicProgress.item.gpa, 3.2)
+      assert.equal(academicAnalysis.schema, 'theia-academic-analysis-response/v1')
+      assert.equal(academicAnalysis.item.schema, 'theia-academic-analysis/v1')
+      assert.equal(academicAnalysis.item.gpa.value, 3.2)
       assert.equal(feed.academic.selectedCourses.length, 1)
       assert.equal(feed.schema, 'theia-campus-feed/v1')
       assert.equal(feed.localData.collections.fitness.records['2025-2026_1'].normalized.vitality, 4684)
@@ -653,6 +783,11 @@ test('loopback API exposes read-only collections and THEIA feed', async () => {
       assert.equal(schoolSchedule.item.items[0].classId, 'JXB-01')
       assert.equal(schoolSchedule.item.items[0].className, '高分子 01')
       assert.equal(schoolSchedule.item.items[0].combinedClassInfo, '高材 2401、高材 2402')
+      assert.equal(academicExtras.schema, 'theia-jwglxt-extra-table/v1')
+      assert.equal(academicExtras.total, 0)
+      assert.equal(ignoredAcademicExtra.status, 404)
+      assert.equal(removedAcademicExtra.status, 404)
+      assert.equal(missingAcademicExtra.status, 404)
       assert.equal(clientFeed.schema, 'theia-campus-feed/v1')
       const write = await fetch(`${api.baseUrl}/v1/snapshot`, { method: 'POST' })
       assert.equal(write.status, 405)
@@ -699,5 +834,5 @@ test('loopback API streams locally cached academic-calendar assets', async () =>
   }
 })
 test('normalizing an older snapshot reports the current application version', () => {
-  assert.equal(normalizeState({ appVersion: '0.1.0' }).appVersion, '0.4.2')
+  assert.equal(normalizeState({ appVersion: '0.1.0' }).appVersion, '0.5.0')
 })

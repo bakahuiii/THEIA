@@ -23,7 +23,11 @@ import { modelServiceOrigin, normalizeModelServiceBaseUrl } from '../core/model-
 import { normalizeState } from '../core/schema.mjs'
 
 function response(content) {
-  return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content } }] }) }
+  return { ok: true, status: 200, text: async () => JSON.stringify({ output_text: content }) }
+}
+
+function failedResponse(status, message = 'Endpoint unavailable') {
+  return { ok: false, status, text: async () => JSON.stringify({ error: { message } }) }
 }
 
 function byteResponse(chunks, { contentLength = null, ok = true, status = 200 } = {}) {
@@ -171,7 +175,7 @@ test('model service saves a local markdown assignment draft without exposing its
   const context = await setup('assignment')
   try {
     const service = new ModelService({ ...modelNetwork(), vault: fakeVault(), courseWork: context.courseWork, fetchFn: async (url, request) => {
-      assert.equal(url, 'https://model.example/v1/chat/completions')
+      assert.equal(url, 'https://model.example/v1/responses')
       assert.equal(request.headers.Authorization, 'Bearer test-key')
       return response('# Draft\n\nA complete local answer.')
     } })
@@ -209,6 +213,296 @@ test('model service discovers OpenAI-compatible models and selects a useful defa
   const discovered = await service.discover({ baseUrl: 'https://model.example', apiKey: 'test-key' })
   assert.deepEqual(discovered.models, ['gpt-4.1-mini', 'text-utility'])
   assert.equal(discovered.selectedModel, 'gpt-4.1-mini')
+})
+
+test('model service normalizes an OpenAI-compatible service root to Responses', async () => {
+  const service = new ModelService({ ...modelNetwork(), vault: fakeVault(), courseWork: {}, fetchFn: async (url, request) => {
+    assert.equal(url, 'https://model.example/v1/responses')
+    assert.deepEqual(JSON.parse(request.body), {
+      model: 'test-model',
+      input: [
+        { role: 'system', content: [{ type: 'input_text', text: 'system instruction' }] },
+        { role: 'user', content: [{ type: 'input_text', text: 'question' }] },
+      ],
+      max_output_tokens: 321,
+      stream: false,
+    })
+    return { ok: true, status: 200, text: async () => JSON.stringify({ output_text: 'Responses answer' }) }
+  } })
+
+  assert.equal(await service.request(
+    { modelBaseUrl: 'https://model.example', modelName: 'test-model' },
+    [{ role: 'system', content: 'system instruction' }, { role: 'user', content: 'question' }],
+    { temperature: 0.3, maxTokens: 321 },
+  ), 'Responses answer')
+})
+
+test('model service sends the standard Responses cache key without relay-specific fields', async () => {
+  const service = new ModelService({ ...modelNetwork(), vault: fakeVault(), courseWork: {}, fetchFn: async (url, request) => {
+    assert.equal(url, 'https://model.example/v1/responses')
+    const body = JSON.parse(request.body)
+    assert.deepEqual(body.input, [
+       { role: 'system', content: [{ type: 'input_text', text: 'stable cached prefix', prompt_cache_breakpoint: { mode: 'explicit' } }] },
+       { role: 'system', content: [{ type: 'input_text', text: 'request-specific style' }] },
+       { role: 'user', content: [{ type: 'input_text', text: 'the user question' }] },
+     ])
+    assert.equal(body.prompt_cache_key, 'theia-advisor-agent-v1-abc123')
+    assert.deepEqual(body.prompt_cache_options, { mode: 'explicit' })
+    assert.equal(Object.hasOwn(body, 'instructions'), false)
+    return response('Responses answer')
+  } })
+
+  assert.equal(await service.request(
+    { modelBaseUrl: 'https://model.example/v1', modelName: 'gpt-5.6-test' },
+    [
+      { role: 'system', content: 'stable cached prefix' },
+      { role: 'system', content: 'request-specific style' },
+      { role: 'user', content: 'the user question' },
+    ],
+    { promptCacheKey: 'theia-advisor-agent-v1-abc123' },
+  ), 'Responses answer')
+})
+
+test('model service keeps the standard cache key for compatible model aliases', async () => {
+  const service = new ModelService({ ...modelNetwork(), vault: fakeVault(), courseWork: {}, fetchFn: async (_url, request) => {
+    const body = JSON.parse(request.body)
+     assert.equal(body.prompt_cache_key, 'theia-advisor-agent-v1-abc123')
+    assert.equal(Object.hasOwn(body, 'prompt_cache_options'), false)
+    assert.equal(Object.hasOwn(body.input[0].content[0], 'prompt_cache_breakpoint'), false)
+    return response('Responses answer')
+  } })
+
+  assert.equal(await service.request(
+    { modelBaseUrl: 'https://model.example/v1', modelName: 'gpt-5.5' },
+    [{ role: 'system', content: 'system instruction' }, { role: 'user', content: 'question' }],
+    { promptCacheKey: 'theia-advisor-agent-v1-abc123' },
+  ), 'Responses answer')
+})
+
+test('model service keeps the standard cache key when explicit breakpoints are unsupported', async () => {
+  const requests = []
+  const service = new ModelService({ ...modelNetwork(), vault: fakeVault(), courseWork: {}, fetchFn: async (_url, request) => {
+    const body = JSON.parse(request.body)
+    requests.push(body)
+    if (requests.length === 1) return failedResponse(400, 'prompt_cache_breakpoint is not supported on this model')
+    assert.equal(body.prompt_cache_key, 'theia-advisor-agent-v1-abc123')
+    assert.equal(Object.hasOwn(body, 'prompt_cache_options'), false)
+    assert.equal(Object.hasOwn(body.input[0].content[0], 'prompt_cache_breakpoint'), false)
+    return response('Responses answer')
+  } })
+
+  assert.equal(await service.request(
+    { modelBaseUrl: 'https://model.example/v1', modelName: 'gpt-5.6-relay' },
+    [{ role: 'system', content: 'stable prefix' }, { role: 'user', content: 'question' }],
+    { promptCacheKey: 'theia-advisor-agent-v1-abc123' },
+  ), 'Responses answer')
+  assert.equal(requests.length, 2)
+  assert.equal(Object.hasOwn(requests[0], 'prompt_cache_options'), true)
+  assert.equal(Object.hasOwn(requests[0].input[0].content[0], 'prompt_cache_breakpoint'), true)
+})
+
+test('model service retries without prompt caching when a compatible server rejects the cache extension', async () => {
+  const requests = []
+  const service = new ModelService({ ...modelNetwork(), vault: fakeVault(), courseWork: {}, fetchFn: async (_url, request) => {
+    const body = JSON.parse(request.body)
+    requests.push(body)
+    if (requests.length === 1) return failedResponse(400, 'prompt_cache_key is not supported on this model')
+    return response('Responses answer')
+  } })
+
+  assert.equal(await service.request(
+    { modelBaseUrl: 'https://model.example/v1', modelName: 'gpt-5.6-compatible' },
+    [{ role: 'system', content: 'stable prefix' }, { role: 'user', content: 'question' }],
+    { promptCacheKey: 'theia-advisor-agent-v1-abc123' },
+  ), 'Responses answer')
+  assert.equal(Object.hasOwn(requests[0], 'prompt_cache_key'), true)
+  assert.equal(Object.hasOwn(requests[1], 'prompt_cache_key'), false)
+
+  await service.request(
+    { modelBaseUrl: 'https://model.example/v1', modelName: 'gpt-5.6-compatible' },
+    [{ role: 'system', content: 'stable prefix' }, { role: 'user', content: 'second question' }],
+    { promptCacheKey: 'theia-advisor-agent-v1-abc123' },
+  )
+  assert.equal(requests.length, 3)
+  assert.equal(Object.hasOwn(requests[2], 'prompt_cache_key'), false)
+})
+
+test('streaming model requests retry cache-extension rejection without duplicating deltas', async () => {
+  const requests = []
+  const deltas = []
+  const service = new ModelService({ ...modelNetwork(), vault: fakeVault(), courseWork: {}, fetchFn: async (_url, request) => {
+    const body = JSON.parse(request.body)
+    requests.push(body)
+    if (requests.length === 1) return byteResponse([JSON.stringify({ error: { message: 'prompt_cache_key is unsupported' } })], { ok: false, status: 400 })
+    return byteResponse(['data: {"type":"response.output_text.delta","delta":"ok"}\n', 'data: [DONE]\n'])
+  } })
+
+  assert.equal(await service.requestStream(
+    { modelBaseUrl: 'https://model.example/v1', modelName: 'gpt-5.6-compatible' },
+    [{ role: 'system', content: 'stable prefix' }, { role: 'user', content: 'question' }],
+    { promptCacheKey: 'theia-advisor-agent-v1-abc123', onDelta: (delta) => deltas.push(delta) },
+  ), 'ok')
+  assert.deepEqual(deltas, ['ok'])
+  assert.equal(Object.hasOwn(requests[0], 'prompt_cache_key'), true)
+  assert.equal(Object.hasOwn(requests[1], 'prompt_cache_key'), false)
+})
+
+test('model service encodes prior assistant turns as Responses output text', async () => {
+  const service = new ModelService({ ...modelNetwork(), vault: fakeVault(), courseWork: {}, fetchFn: async (url, request) => {
+    assert.equal(url, 'https://model.example/v1/responses')
+    const body = JSON.parse(request.body)
+    assert.deepEqual(body.input, [
+      { role: 'user', content: [{ type: 'input_text', text: 'question' }] },
+      { role: 'assistant', content: [{ type: 'output_text', text: '{"schema":"theia-advisor-tool-call/v1"}' }] },
+      { role: 'user', content: [{ type: 'input_text', text: '{"schema":"theia-advisor-tool-observation/v1"}' }] },
+    ])
+    assert.deepEqual(body.reasoning, { effort: 'high' })
+    return { ok: true, status: 200, text: async () => JSON.stringify({ output_text: 'answer' }) }
+  } })
+  assert.equal(await service.request(
+    { modelBaseUrl: 'https://model.example', modelName: 'test-model' },
+    [
+      { role: 'user', content: 'question' },
+      { role: 'assistant', content: '{"schema":"theia-advisor-tool-call/v1"}' },
+      { role: 'user', content: '{"schema":"theia-advisor-tool-observation/v1"}' },
+    ],
+    { reasoningEffort: 'high' },
+  ), 'answer')
+})
+
+test('model service preserves extended Responses reasoning effort values', async () => {
+  const efforts = []
+  const service = new ModelService({ ...modelNetwork(), vault: fakeVault(), courseWork: {}, fetchFn: async (_url, request) => {
+    const body = JSON.parse(request.body)
+    efforts.push(body.reasoning?.effort)
+    return { ok: true, status: 200, text: async () => JSON.stringify({ output_text: 'answer' }) }
+  } })
+  for (const effort of ['xhigh', 'max']) {
+    await service.request(
+      { modelBaseUrl: 'https://model.example/v1', modelName: 'test-model' },
+      [{ role: 'user', content: 'question' }],
+      { reasoningEffort: effort },
+    )
+  }
+  assert.deepEqual(efforts, ['xhigh', 'max'])
+})
+
+test('model service does not fall back to Chat Completions when OpenAI Responses is unavailable', async () => {
+  const requests = []
+  const service = new ModelService({ ...modelNetwork(), vault: fakeVault(), courseWork: {}, fetchFn: async (url, request) => {
+    requests.push({ url, body: JSON.parse(request.body) })
+    return failedResponse(400, 'temperature is not supported for this model')
+  } })
+
+  await assert.rejects(service.request(
+    { modelBaseUrl: 'https://model.example/v1/responses', modelName: 'test-model' },
+    [{ role: 'user', content: 'question' }],
+  ), /HTTP 400: temperature is not supported for this model/)
+  assert.deepEqual(requests.map((request) => request.url), ['https://model.example/v1/responses'])
+})
+
+test('model service does not mask Responses authentication failures with Chat fallback', async () => {
+  let requests = 0
+  const service = new ModelService({ ...modelNetwork(), vault: fakeVault(), courseWork: {}, fetchFn: async () => {
+    requests += 1
+    return failedResponse(401, 'Invalid API key')
+  } })
+
+  await assert.rejects(service.request(
+    { modelBaseUrl: 'https://model.example/v1/responses', modelName: 'test-model' },
+    [{ role: 'user', content: 'question' }],
+  ), /HTTP 401/)
+  assert.equal(requests, 1)
+})
+
+test('model service streams OpenAI Responses deltas without a Chat fallback', async (t) => {
+  await t.test('responses stream', async () => {
+    const deltas = []
+    const service = new ModelService({ ...modelNetwork(), vault: fakeVault(), courseWork: {}, fetchFn: async (url, request) => {
+      assert.equal(url, 'https://model.example/v1/responses')
+      assert.equal(JSON.parse(request.body).stream, true)
+      return byteResponse([
+        'data: {"type":"response.output_text.delta","delta":"hello "}\n\n',
+        'data: {"type":"response.output_text.delta","delta":"world"}\n\n',
+      ])
+    } })
+    assert.equal(await service.requestStream(
+      { modelBaseUrl: 'https://model.example/v1/responses', modelName: 'test-model' },
+      [{ role: 'user', content: 'question' }],
+      { onDelta: (delta) => deltas.push(delta) },
+    ), 'hello world')
+    assert.deepEqual(deltas, ['hello ', 'world'])
+  })
+
+  await t.test('unavailable Responses stream fails without a fallback', async () => {
+    const urls = []
+    const service = new ModelService({ ...modelNetwork(), vault: fakeVault(), courseWork: {}, fetchFn: async (url) => {
+      urls.push(url)
+      return failedResponse(405)
+    } })
+    await assert.rejects(service.requestStream(
+      { modelBaseUrl: 'https://model.example/v1/responses', modelName: 'test-model' },
+      [{ role: 'user', content: 'question' }],
+    ), /HTTP 405/)
+    assert.deepEqual(urls, ['https://model.example/v1/responses'])
+  })
+})
+
+test('model service preserves Responses completion usage and cached input metadata', async () => {
+  const metadata = []
+  const service = new ModelService({ ...modelNetwork(), vault: fakeVault(), courseWork: {}, fetchFn: async () => byteResponse([
+    'data: {"type":"response.output_text.delta","delta":"ok"}\n\n',
+    'data: {"type":"response.completed","response":{"id":"resp_cache_1","usage":{"input_tokens":1500,"input_tokens_details":{"cached_tokens":1024,"cache_write_tokens":400},"output_tokens":12}}}\n\n',
+    'data: [DONE]\n\n',
+  ]) })
+
+  assert.equal(await service.requestStream(
+    { modelBaseUrl: 'https://model.example/v1', modelName: 'gpt-5.6-luna' },
+    [{ role: 'system', content: 'stable prefix' }, { role: 'user', content: 'question' }],
+    { onMetadata: (value) => metadata.push(value) },
+  ), 'ok')
+  assert.deepEqual(metadata.at(-1), {
+    requestId: 'resp_cache_1',
+    usage: {
+      inputTokens: 1500,
+      outputTokens: 12,
+      cachedInputTokens: 1024,
+      cacheWriteInputTokens: 400,
+      cacheStatus: 'hit',
+    },
+  })
+})
+
+test('model service fails closed on streamed Responses error and incomplete events', async (t) => {
+  for (const terminal of [
+    { type: 'error', payload: { type: 'error', error: { message: 'relay stream failed' } }, expected: /returned error/i },
+    { type: 'incomplete', payload: { type: 'response.incomplete', response: { status_details: { reason: 'max_output_tokens' } } }, expected: /returned incomplete/i },
+  ]) {
+    await t.test(terminal.type, async () => {
+      const deltas = []
+      const service = new ModelService({ ...modelNetwork(), vault: fakeVault(), courseWork: {}, fetchFn: async () => byteResponse([
+        'data: {"type":"response.output_text.delta","delta":"partial"}\n\n',
+        `data: ${JSON.stringify(terminal.payload)}\n\n`,
+      ]) })
+      await assert.rejects(service.requestStream(
+        { modelBaseUrl: 'https://model.example/v1', modelName: 'gpt-5.6-test' },
+        [{ role: 'user', content: 'question' }],
+        { onDelta: (delta) => deltas.push(delta) },
+      ), terminal.expected)
+      assert.deepEqual(deltas, ['partial'])
+    })
+  }
+})
+
+test('model discovery derives the model list endpoint from an OpenAI Responses URL', async () => {
+  const service = new ModelService({ ...modelNetwork(), vault: fakeVault(), courseWork: {}, fetchFn: async (url) => {
+    assert.equal(url, 'https://model.example/v1/models')
+    return { ok: true, status: 200, text: async () => JSON.stringify({ data: [{ id: 'response-model' }] }) }
+  } })
+  assert.deepEqual(await service.discover({ baseUrl: 'https://model.example/v1/responses', apiKey: 'test-key' }), {
+    models: ['response-model'],
+    selectedModel: 'response-model',
+  })
 })
 
 test('model service maps Anthropic, Gemini, and Ollama requests to their explicit protocols', async (t) => {
@@ -293,6 +587,69 @@ test('model service decodes Anthropic and Gemini SSE plus Ollama NDJSON streams'
         { role: 'user', content: 'question' },
       ], { onDelta: (delta) => deltas.push(delta) }), 'hello world')
       assert.deepEqual(deltas, ['hello ', 'world'])
+    })
+  }
+})
+
+test('protocol streaming keeps its pinned dispatcher open until the body is consumed', async (t) => {
+  const cases = [
+    {
+      provider: 'anthropic-messages',
+      baseUrl: 'https://api.example',
+      model: 'claude-test',
+      chunks: [
+        'data: {"type":"content_block_delta","delta":{"text":"hello "}}\n\n',
+        'data: {"type":"content_block_delta","delta":{"text":"world"}}\n\n',
+      ],
+    },
+    {
+      provider: 'ollama-chat',
+      baseUrl: 'http://localhost:11434',
+      model: 'qwen-test',
+      vault: { async status() { return { saved: false, bound: false } }, async readApiKey() { return '' } },
+      network: { resolver: async () => [{ address: '127.0.0.1', family: 4 }], dispatcherFactory: fakeDispatcherFactory },
+      chunks: [
+        '{"message":{"content":"hello "}}\n',
+        '{"message":{"content":"world"},"done":true}\n',
+      ],
+    },
+  ]
+  for (const item of cases) {
+    await t.test(item.provider, async () => {
+      let dispatcher
+      const values = item.chunks.map((chunk) => new TextEncoder().encode(chunk))
+      let index = 0
+      const service = new ModelService({
+        ...(item.network || modelNetwork()),
+        vault: item.vault || fakeVault(),
+        courseWork: {},
+        dispatcherFactory: (options) => {
+          dispatcher = fakeDispatcherFactory(options)
+          return dispatcher
+        },
+        fetchFn: async () => ({
+          ok: true,
+          status: 200,
+          body: {
+            getReader() {
+              return {
+                async read() {
+                  if (index >= values.length) return { done: true, value: undefined }
+                  const value = values[index]
+                  index += 1
+                  if (index === values.length) assert.equal(dispatcher.closed, false)
+                  return { done: false, value }
+                },
+                releaseLock() {},
+              }
+            },
+          },
+        }),
+      })
+      assert.equal(await service.requestStream({ modelProvider: item.provider, modelBaseUrl: item.baseUrl, modelName: item.model }, [
+        { role: 'user', content: 'question' },
+      ]), 'hello world')
+      assert.equal(dispatcher.closed, true)
     })
   }
 })
@@ -409,7 +766,7 @@ test('model service audits every DNS result and pins the approved set for fetch'
       return dispatcher
     },
     fetchFn: async (url, request) => {
-      assert.equal(url, 'https://model.example/v1/chat/completions')
+      assert.equal(url, 'https://model.example/v1/responses')
       assert.equal(request.redirect, 'error')
       assert.equal(request.dispatcher, dispatcher)
       assert.equal(dispatcher.hostname, 'model.example')
@@ -437,7 +794,7 @@ test('real Undici dispatcher pins localhost to the approved loopback address and
     observedHost = request.headers.host
     observedPath = request.url
     serverResponse.writeHead(200, { 'Content-Type': 'application/json' })
-    serverResponse.end(JSON.stringify({ choices: [{ message: { content: 'PINNED_OK' } }] }))
+    serverResponse.end(JSON.stringify({ output_text: 'PINNED_OK' }))
   })
   const dispatchers = []
   try {
@@ -456,7 +813,7 @@ test('real Undici dispatcher pins localhost to the approved loopback address and
       [{ role: 'user', content: 'hello' }],
     ), 'PINNED_OK')
     assert.equal(observedHost, `localhost:${listener.port}`)
-    assert.equal(observedPath, '/v1/chat/completions')
+    assert.equal(observedPath, '/v1/responses')
     assert.equal(dispatchers.length, 1)
     assert.equal(dispatchers[0].hostname, 'localhost')
     assert.ok(dispatchers[0].lookupCalls >= 1)
@@ -702,6 +1059,14 @@ test('model configuration transaction rolls back both settings and vault ciphert
         courseworkModel: null,
         fallbackModel: null,
       },
+      advisorConfig: {
+        budgetLevel: 'high',
+        permissionMode: 'read-only',
+        reasoningEffort: 'medium',
+        responseStyle: 'balanced',
+        responseLength: 'adaptive',
+        temperature: 1,
+      },
     })
     assert.equal(vaultFile, 'OLD-CIPHERTEXT\n')
     assert.equal(published.length, 1)
@@ -943,6 +1308,24 @@ test('model service applies a caller-specific completion response limit while st
     { maxResponseBytes: 1_024 },
   ), /exceeds the 1024-byte limit/i)
   assert.equal(oversized.cancelled, true)
+})
+
+test('model service honors a caller-provided request timeout', async () => {
+  let aborted = false
+  const service = new ModelService({ ...modelNetwork(), vault: fakeVault(), courseWork: {}, fetchFn: async (_url, request) => new Promise((_resolve, reject) => {
+    request.signal.addEventListener('abort', () => {
+      aborted = true
+      const error = new Error('request aborted')
+      error.name = 'AbortError'
+      reject(error)
+    }, { once: true })
+  }) })
+  await assert.rejects(service.request(
+    { modelBaseUrl: 'https://model.example/v1', modelName: 'test-model' },
+    [{ role: 'user', content: 'hello' }],
+    { timeoutMs: 20 },
+  ), /timed out after 20 milliseconds/i)
+  assert.equal(aborted, true)
 })
 
 test('model discovery rejects a streamed response that grows beyond its byte limit', async () => {

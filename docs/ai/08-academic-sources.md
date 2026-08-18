@@ -5,7 +5,7 @@
 1. 浏览器统一认证：`JwglxtAdapter` 使用 Electron session，适用于没有 API 凭据的用户。
 2. 教务 API：`AcademicApiFirstAdapter` 使用教务独立账号密码与 `AcademicApiClient`。
 
-API 启用且已保存凭据时，教务数据优先使用 API；API 未启用或未配置凭据时使用浏览器通道。已启用 API 的本次请求失败时保留旧数据并报告错误，不在同一轮同步中静默切换通道。THEOL 仍独立同步。
+API 启用且已保存凭据时，教务数据优先使用 API；API 未启用或未配置凭据时使用浏览器通道。API 失败的来源域会尝试一次浏览器 SSO 回退，成功的 API 域继续保留；浏览器认证也失败时保留旧数据并报告认证错误。THEOL 仍独立同步。
 
 ## 关键文件
 

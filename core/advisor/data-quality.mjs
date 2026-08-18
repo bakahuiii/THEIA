@@ -33,6 +33,11 @@ export const DOMAIN_FRESHNESS_POLICY = Object.freeze({
   'school-schedule': 24 * 60 * 60 * 1000,
   'academic-calendar': 7 * 24 * 60 * 60 * 1000,
   'local-data-catalog': 24 * 60 * 60 * 1000,
+  'academic-plan': 7 * 24 * 60 * 60 * 1000,
+  'graduation-audit': 7 * 24 * 60 * 60 * 1000,
+  'grade-details': 72 * 60 * 60 * 1000,
+  'exam-extra': 24 * 60 * 60 * 1000,
+  'free-classroom': 6 * 60 * 60 * 1000,
   default: 24 * 60 * 60 * 1000,
 })
 
@@ -52,11 +57,48 @@ function normalizeOutcome(raw) {
     errorCode: typeof raw.errorCode === 'string' && raw.errorCode.trim() ? raw.errorCode.trim() : null,
     completeness: COMPLETENESS_VALUES.includes(raw.completeness) ? raw.completeness : 'unknown',
     parserVersion: typeof raw.parserVersion === 'string' && raw.parserVersion.trim() ? raw.parserVersion.trim() : null,
+    receivedRecordCount: Number.isSafeInteger(Number(raw.receivedRecordCount)) && Number(raw.receivedRecordCount) >= 0
+      ? Number(raw.receivedRecordCount)
+      : null,
+    previousRecordCount: Number.isSafeInteger(Number(raw.previousRecordCount)) && Number(raw.previousRecordCount) >= 0
+      ? Number(raw.previousRecordCount)
+      : null,
+    successfulTermIds: Array.isArray(raw.successfulTermIds)
+      ? uniqueSorted(raw.successfulTermIds.map(String)).slice(0, 64)
+      : [],
+    failedTermIds: Array.isArray(raw.failedTermIds)
+      ? uniqueSorted(raw.failedTermIds.map(String)).slice(0, 64)
+      : [],
     source: Array.isArray(raw.source)
       ? uniqueSorted(raw.source.map(String))
       : (typeof raw.source === 'string' && raw.source.trim() ? [raw.source.trim().normalize('NFC')] : []),
     runId: typeof raw.runId === 'string' && raw.runId.trim() ? raw.runId.trim() : null,
   }
+}
+
+function sourceAttempts(rawOutcome) {
+  const nested = rawOutcome?.outcomes && typeof rawOutcome.outcomes === 'object' && !Array.isArray(rawOutcome.outcomes)
+    ? Object.values(rawOutcome.outcomes)
+    : []
+  // Older locally saved provenance records have an empty outcomes map and put
+  // their latest result directly on the domain. Keep that result explainable.
+  const rawAttempts = nested.length ? nested : rawOutcome ? [rawOutcome] : []
+  return rawAttempts.map(normalizeOutcome).filter(Boolean).map((outcome) => ({
+    source: outcome.source,
+    attemptedAt: outcome.attemptedAt,
+    completedAt: outcome.completedAt,
+    capturedAt: outcome.capturedAt,
+    sourceSucceededAt: outcome.sourceSucceededAt,
+    status: attemptStatus(outcome),
+    completeness: outcome.completeness,
+    retainedPrevious: outcome.retainedPrevious,
+    errorCode: outcome.errorCode,
+    parserVersion: outcome.parserVersion,
+    receivedRecordCount: outcome.receivedRecordCount,
+    previousRecordCount: outcome.previousRecordCount,
+    successfulTermIds: outcome.successfulTermIds,
+    failedTermIds: outcome.failedTermIds,
+  })).sort((left, right) => compareCanonicalText(left.source.join(','), right.source.join(',')))
 }
 
 function attemptStatus(outcome) {
@@ -156,6 +198,10 @@ export function evaluateDataQuality(versionedSnapshot, options) {
       parserVersion: outcome?.parserVersion || null,
       recordCount,
       contentDigest: digest,
+      sourceAttempts: sourceAttempts(rawOutcome),
+      derivedFrom: Array.isArray(rawOutcome?.derivedFrom)
+        ? uniqueSorted(rawOutcome.derivedFrom.map(String)).slice(0, 32)
+        : [],
       lastAttempt: {
         runId: outcome?.runId || null,
         attemptedAt: matchingRunTime(state.sync, outcome, 'attemptedAt'),

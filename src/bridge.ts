@@ -10,7 +10,17 @@ import type {
   TheiaBridge,
   CampusState,
   AdvisorOverview,
+  UserDataDomainSummary,
+  UserDataOverview,
+  UserDataRecordsOptions,
+  UserDataRecordsPage,
 } from "./types";
+import {
+  projectBrowserRendererSnapshot,
+  projectBrowserUserDataDomainSummary,
+  projectBrowserUserDataOverview,
+  projectBrowserUserDataRecords,
+} from "./user-data-view";
 
 const listeners = new Set<(state: CampusState) => void>();
 let webState = structuredClone(demoState);
@@ -45,6 +55,20 @@ if (!demo) webState = blankState;
 const webBridge: TheiaBridge = {
   async getSnapshot() {
     return structuredClone(webState);
+  },
+  async getRendererSnapshot() {
+    return structuredClone(projectBrowserRendererSnapshot(webState));
+  },
+  async getUserDataOverview(): Promise<UserDataOverview> {
+    return projectBrowserUserDataOverview(webState);
+  },
+  async getUserDataDomainSummary(domain: string): Promise<UserDataDomainSummary | null> {
+    return projectBrowserUserDataDomainSummary(webState, domain);
+  },
+  async getUserDataRecords(domain: string, options?: UserDataRecordsOptions): Promise<UserDataRecordsPage> {
+    const page = projectBrowserUserDataRecords(webState, domain, options);
+    if (!page) throw new Error("资料域不存在");
+    return page;
   },
   async getAdvisorOverview(): Promise<AdvisorOverview> {
     throw new Error("顾问概览仅在桌面客户端中可用");
@@ -141,6 +165,9 @@ const webBridge: TheiaBridge = {
   async retrySyncDomain() {
     throw new Error("单项数据获取仅在桌面客户端中可用");
   },
+  async queryFreeClassrooms() {
+    throw new Error("空闲教室查询仅在桌面客户端中可用");
+  },
   async getCourseSelection() {
     return { active: null, updatedAt: new Date().toISOString() };
   },
@@ -181,6 +208,9 @@ const webBridge: TheiaBridge = {
     window.open(url, "_blank", "noopener,noreferrer");
     return true;
   },
+  async openAcademicAttachment() {
+    return { cached: false };
+  },
   async openAssignmentSource() {
     throw new Error("Assignment source pages are available only in the desktop client");
   },
@@ -188,6 +218,18 @@ const webBridge: TheiaBridge = {
     throw new Error(
       "Schedule PDF output is available only in the desktop client",
     );
+  },
+  async getCourseWorkQueue() {
+    return { schema: "theia-course-work-queue/v1", enabled: false, updatedAt: new Date().toISOString(), jobs: [] };
+  },
+  async setCourseWorkQueueEnabled() {
+    throw new Error("课程任务后台队列仅在桌面客户端中可用");
+  },
+  async enqueueCourseWork() {
+    throw new Error("课程任务后台队列仅在桌面客户端中可用");
+  },
+  async cancelCourseWorkJob() {
+    throw new Error("课程任务后台队列仅在桌面客户端中可用");
   },
   async prepareCourseWork() {
     throw new Error("课程工作包仅在桌面客户端中可用");
@@ -262,7 +304,7 @@ const webBridge: TheiaBridge = {
     throw new Error("PDF 渲染仅在桌面客户端中可用");
   },
   async getApiStatus() {
-    return { baseUrl: "", host: "", port: 0, academicCalendarAssets: {} };
+    return { baseUrl: "", host: "", port: 0, academicCalendarAssets: {}, academicPlanAssetBaseUrl: "" };
   },
   async getFitnessScore(): Promise<FitnessScoreResult> {
     throw new Error("体测成绩导入仅在桌面客户端中可用");
@@ -318,6 +360,9 @@ const webBridge: TheiaBridge = {
   onCourseSelection() {
     return () => undefined;
   },
+  onCourseWorkQueue() {
+    return () => undefined;
+  },
   onNewMail() {
     return () => undefined;
   },
@@ -331,5 +376,8 @@ export const bridge: TheiaBridge = resolveRuntimeBridge({
 export const isDesktop = Boolean(window.theia);
 
 export function disconnectedStatus(): AuthStatus {
-  return { jwglxt: { connected: false }, theol: { connected: false } };
+  return {
+    jwglxt: { connected: false, unchecked: true },
+    theol: { connected: false, unchecked: true },
+  };
 }

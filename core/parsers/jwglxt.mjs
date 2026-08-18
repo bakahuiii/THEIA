@@ -6,18 +6,34 @@ const PAYLOAD_ARRAY_KEYS = new Set([
   'datalist', 'gradelist', 'courselist', 'courses', 'kblist', 'sjklist', 'jxhjkclist',
 ])
 
+const PAYLOAD_ARRAY_PRIORITY = [
+  'kblist', 'items', 'rows', 'data', 'result', 'list', 'aadata', 'records',
+  'recordlist', 'datalist', 'gradelist', 'courselist', 'sjklist', 'jxhjkclist',
+]
+
 function findPayloadArray(payload, depth = 0, seen = new Set()) {
   if (Array.isArray(payload)) return { found: true, value: payload }
   if (!payload || typeof payload !== 'object' || depth > 5 || seen.has(payload)) return { found: false, value: [] }
   seen.add(payload)
   const entries = Object.entries(payload)
-  for (const [key, value] of entries) {
+  const ordered = [...entries].sort(([left], [right]) => {
+    const leftRank = PAYLOAD_ARRAY_PRIORITY.indexOf(String(left).toLowerCase())
+    const rightRank = PAYLOAD_ARRAY_PRIORITY.indexOf(String(right).toLowerCase())
+    return (leftRank < 0 ? Number.MAX_SAFE_INTEGER : leftRank) - (rightRank < 0 ? Number.MAX_SAFE_INTEGER : rightRank)
+  })
+  let firstEmpty = null
+  for (const [key, value] of ordered) {
     if (!PAYLOAD_ARRAY_KEYS.has(String(key).toLowerCase())) continue
-    if (Array.isArray(value)) return { found: true, value }
+    if (Array.isArray(value)) {
+      if (value.length) return { found: true, value }
+      firstEmpty ||= { found: true, value }
+      continue
+    }
     const nested = findPayloadArray(value, depth + 1, seen)
-    if (nested.found) return nested
+    if (nested.found && nested.value.length) return nested
+    if (nested.found) firstEmpty ||= nested
   }
-  return { found: false, value: [] }
+  return firstEmpty || { found: false, value: [] }
 }
 
 function payloadItems(payload) {
@@ -120,10 +136,11 @@ export function parseJwHomepage(html, baseUrl) {
 export function parseJwQueryForm(html, baseUrl, selector = 'form') {
   const $ = cheerio.load(html)
   const form = $(selector).first()
-  if (!form.length) return { action: baseUrl, values: {}, term: null }
+  if (!form.length) return { action: baseUrl, values: {}, options: {}, term: null }
 
   const values = {}
   const labels = {}
+  const options = {}
   form.find('input[name], select[name], textarea[name]').each((_index, node) => {
     const field = $(node)
     const name = field.attr('name')
@@ -134,6 +151,10 @@ export function parseJwQueryForm(html, baseUrl, selector = 'form') {
       const option = field.find('option:selected').first()
       values[name] = option.attr('value') ?? ''
       labels[name] = normalizeText(option.text())
+      options[name] = field.find('option').map((_optionIndex, optionNode) => ({
+        value: String($(optionNode).attr('value') ?? ''),
+        label: normalizeText($(optionNode).text()),
+      })).get()
       return
     }
     values[name] = field.val?.() ?? field.attr('value') ?? ''
@@ -146,6 +167,7 @@ export function parseJwQueryForm(html, baseUrl, selector = 'form') {
   return {
     action: absoluteUrl(form.attr('action'), baseUrl) || baseUrl,
     values,
+    options,
     term: parseAcademicTerm(year, semester, `${yearLabel} ${semesterLabel}`),
   }
 }
@@ -343,6 +365,69 @@ function value(item, ...keys) {
   return null
 }
 
+function scheduleWeekday(value) {
+  const raw = normalizeText(value)
+  const numeric = parseNumber(raw)
+  if (Number.isInteger(numeric) && numeric >= 1 && numeric <= 7) return numeric
+  const chinese = {
+    '一': 1,
+    '二': 2,
+    '三': 3,
+    '四': 4,
+    '五': 5,
+    '六': 6,
+    '日': 7,
+    '天': 7,
+  }
+  const match = raw.match(/(?:周|星期)\s*([一二三四五六日天])/u)
+  return match ? chinese[match[1]] || null : null
+}
+
+function schedulePeriod(value) {
+  if (Array.isArray(value)) {
+    const periods = value.map((item) => Number.parseInt(String(item), 10))
+      .filter((period) => Number.isInteger(period) && period >= 1 && period <= 16)
+    if (periods.length) return `${periods[0]}-${periods.at(-1)}`
+  }
+  const raw = normalizeText(value)
+  if (!raw) return null
+  // BUCT's direct Zhengfang endpoint uses `jc` and encodes consecutive
+  // periods as pairs such as 0102. The timetable renderer needs 1-2.
+  if (/^(?:\d{2}){2,8}$/u.test(raw)) {
+    const periods = raw.match(/\d{2}/g)?.map(Number).filter((period) => period >= 1 && period <= 16) || []
+    if (periods.length) return `${periods[0]}-${periods.at(-1)}`
+  }
+  return raw
+}
+
+const SCHEDULE_DIAGNOSTIC_FIELDS = [
+  'xqj', 'xqjmc', 'weekday', 'dayOfWeek',
+  'jcs', 'jc', 'jcor', 'sessions', 'list_sessions',
+  'zcd', 'weeks', 'list_weeks',
+  'cdmc', 'place', 'room', 'location',
+  'kcmc', 'title', 'kch', 'kch_id', 'course_id',
+]
+
+// Keep troubleshooting useful without recording course names, locations,
+// teachers, cookies, or complete school responses in the diagnostics file.
+export function describeJwSchedulePayload(body) {
+  const records = recordsFromBody(body)
+  const fieldNames = [...new Set(records.flatMap((record) => (
+    record && typeof record === 'object' && !Array.isArray(record) ? Object.keys(record) : []
+  )))]
+    .sort()
+    .slice(0, 120)
+  const hasValue = (key) => records.some((record) => {
+    const value = record?.[key]
+    return value !== undefined && value !== null && String(value).trim() !== ''
+  })
+  return {
+    recordCount: records.length,
+    fieldNames,
+    presence: Object.fromEntries(SCHEDULE_DIAGNOSTIC_FIELDS.map((key) => [key, hasValue(key)])),
+  }
+}
+
 function isInternalCourseId(value) {
   const text = normalizeText(value)
   return Boolean(text) && /^[0-9A-F]{16,}$/i.test(text)
@@ -402,11 +487,11 @@ export function parseJwSchedule(body, { term, sourceUrl, capturedAt = new Date()
     const itemTerm = recordTerm(record, term)
     const title = normalizeText(value(record, 'kcmc', '课程名称', 'courseName', 'title', '课程'))
     if (!title) continue
-    const courseCode = courseCodeFrom(record, ['kch', 'courseCode', '课程代码', 'kch_id'])
-    const weekday = parseNumber(value(record, 'xqj', '星期', 'weekday'))
-    const period = normalizeText(value(record, 'jcs', '节次', 'period', 'classTime')) || null
-    const weeks = normalizeText(value(record, 'zcd', '周次', 'weeks')) || null
-    const room = normalizeText(value(record, 'cdmc', '教室', 'room', '地点')) || null
+    const courseCode = courseCodeFrom(record, ['kch', 'courseCode', '课程代码', 'kch_id', 'course_id'])
+    const weekday = scheduleWeekday(value(record, 'xqj', '星期', 'weekday', 'weekDay', 'dayOfWeek', 'day_of_week'))
+    const period = schedulePeriod(value(record, 'jcs', 'jc', 'jcor', 'sessions', 'list_sessions', '节次', 'period', 'classTime', 'class_time'))
+    const weeks = normalizeText(value(record, 'zcd', '周次', 'weeks', 'list_weeks')) || null
+    const room = normalizeText(value(record, 'cdmc', 'place', '教室', 'room', 'location', '地点')) || null
     const teacher = normalizeText(value(record, 'xm', 'jsxm', '教师', 'teacher')) || null
     items.push({
       id: stableId('schedule', itemTerm?.id, courseCode, title, weekday, period, weeks, room),
@@ -427,6 +512,44 @@ export function parseJwSchedule(body, { term, sourceUrl, capturedAt = new Date()
     })
   }
   return items
+}
+
+function findStudentIdentity(value, depth = 0, seen = new Set()) {
+  if (!value || typeof value !== 'object' || depth > 5 || seen.has(value)) return null
+  seen.add(value)
+  if (!Array.isArray(value)) {
+    const keys = Object.keys(value).map((key) => String(key).toLowerCase())
+    if (keys.some((key) => ['zyh_id', 'zymc', 'njdm_id', 'bjmc'].includes(key))) return value
+    for (const [key, nested] of Object.entries(value)) {
+      if (String(key).toLowerCase() === 'xsxx' && nested && typeof nested === 'object') return nested
+      const found = findStudentIdentity(nested, depth + 1, seen)
+      if (found) return found
+    }
+  } else {
+    for (const nested of value) {
+      const found = findStudentIdentity(nested, depth + 1, seen)
+      if (found) return found
+    }
+  }
+  return null
+}
+
+export function parseJwStudentIdentity(body) {
+  const source = findStudentIdentity(parseMaybeJson(body))
+  if (!source) return null
+  const identity = {
+    majorId: normalizeText(value(source, 'ZYH_ID', 'zyh_id', 'majorId', 'majorCode')),
+    majorName: normalizeText(value(source, 'ZYMC', 'zymc', 'majorName', 'major')),
+    grade: normalizeText(value(source, 'NJDM_ID', 'njdm_id', 'grade')),
+    className: normalizeText(value(source, 'BJMC', 'bjmc', 'className', 'class')),
+  }
+  return Object.values(identity).some(Boolean) ? identity : null
+}
+
+export function isRenderableScheduleItem(item) {
+  const weekday = Number(item?.weekday)
+  const period = normalizeText(item?.period)
+  return Number.isInteger(weekday) && weekday >= 1 && weekday <= 7 && Boolean(period)
 }
 
 export function parseJwGrades(body, { term, sourceUrl, capturedAt = new Date().toISOString() } = {}) {

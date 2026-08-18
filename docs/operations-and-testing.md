@@ -50,11 +50,13 @@ npm run lint
 npm run build
 ```
 
+顾问性能基线使用固定、脱敏的 `theia-advisor-benchmark-corpus/v1`，通过 `npm run benchmark:advisor` 运行。默认规模为 2,000 门课程、10,000 条成绩、10,000 条课表项和 5,000 条通知；报告同时给出 overview 冷运行（复制快照后求值）和热运行（同一已提交快照重复求值）的 p50/p95、峰值额外 RSS、Node/平台信息及四种 Provider 的协议兼容矩阵。脚本只使用本地合成数据，不连接学校或模型服务；报告中的门槛是待目标机器复测的发布指标，不是自动生成的发布承诺。
+
 这三项分别覆盖纯核心/服务行为、静态质量和 TypeScript/Vite 构建。完成后按改动风险增加验证：
 
 | 改动范围 | 额外验证 |
 | --- | --- |
-| 数据模型、存储、导出、API | `npm run cli -- status --json`，并用隔离数据根检查 JSON/Feed/CSV/ICS 的 schema、字段和敏感字段缺失；涉及 AI 包时运行 `node --test tests/ai-export.test.mjs` 和 CLI AI 导出。 |
+| 数据模型、存储、导出、API | `npm run cli -- status --json`，并用隔离数据根检查 JSON/Feed/CSV/ICS 的 schema、字段和敏感字段缺失；涉及 AI 包时运行 `node --test --test-concurrency=4 tests/ai-export.test.mjs` 和 CLI AI 导出。 |
 | Electron IPC 或桌面菜单 | 桌面模式中实际调用一次，检查 renderer 没有 preload error、错误反馈清晰。 |
 | 登录、同步、来源 adapter | 用受控测试账号或 fake client 验证认证失效、部分来源失败与旧数据保留；不在日志中复制秘密。 |
 | 作业/模型 | 准备测试工作区，验证上下文限制、输出文件、答案 JSON 校验与人工最终提交边界。 |
@@ -189,7 +191,7 @@ npm run dist:installer
 npm run smoke:packaged
 ```
 
-P0 顾问底座的最小最终门槛依次为 `npm test`、`npm run lint`、`npm run build`、`npm run dist:unpacked`、`npm run smoke:packaged`。packaged smoke 必须使用隔离临时数据、保持学校与模型网络为零，并实际穿过 preload bridge 检查 advisor overview schema、snapshot revision 及 DataQuality revision 一致。
+P0 顾问底座的最小最终门槛依次为 `npm test`、`npm run lint`、`npm run build`、`npm run dist:unpacked`、`npm run smoke:packaged`。packaged smoke 必须使用隔离临时数据、保持学校与模型网络为零，并实际穿过 preload bridge 检查 advisor overview schema、snapshot revision 及 DataQuality revision 一致。`smoke:packaged` 只接受显式的 `THEIA.exe` 产物，等待子进程 `close`、拒绝超时/非零退出，并把未处理异常和拒绝写入作为失败；未先重新执行 `dist:unpacked` 的旧产物不能视为当前版本验收。
 
 `dist:unpacked` 用于检查未安装产物；`dist:source` 通过白名单生成 `THEIA-<version>-source.zip`，其中包含源码、构建配置、锁文件、测试、文档、运行时视觉资产与逐文件 SHA-256 清单，不包含依赖、构建输出、凭据提取器、本机辅助脚本、缓存或现场数据；`dist:installer` 生成 x64 NSIS 安装器后会自动运行 `dist:source`；`smoke:packaged` 用于已打包应用的基本启动检查，并会实际加载离线校历 OCR worker、WASM core 与简体中文模型。打包前确认版本、图标、构建产物目录和现有用户数据策略。安装器配置为不在卸载时删除 app data，但发布验证仍要确认升级/卸载不会意外移除 `%APPDATA%\THEIA`。
 

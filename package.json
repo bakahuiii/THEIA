@@ -1,7 +1,7 @@
 {
   "name": "theia-campus-client",
   "private": true,
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "THEIA, a local-first desktop workspace for Beijing University of Chemical Technology campus services.",
   "author": "bakahuiii",
   "license": "MIT",
@@ -20,12 +20,14 @@
     "desktop": "node scripts/dev.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "test": "node --test tests/*.test.mjs",
+    "test": "node --test --test-concurrency=4 tests/*.test.mjs",
     "cli": "node cli/theia-cli.mjs",
+    "mcp:theia": "node integration/theia-mcp.mjs",
     "dist:unpacked": "npm run build && electron-builder --win dir --x64",
     "dist:source": "node scripts/package-source.mjs",
     "dist:installer": "npm run build && electron-builder --win nsis --x64 && npm run dist:source",
     "smoke:packaged": "node scripts/smoke-packaged.mjs",
+    "benchmark:advisor": "node scripts/benchmark-advisor.mjs",
     "visual:advisor": "node scripts/visual-advisor.mjs"
   },
   "dependencies": {
@@ -88,6 +90,7 @@
       "core/**/*",
       "cli/**/*",
       "integration/**/*",
+      "!local-docs{,/**/*}",
       "!{dist,electron,core,cli,integration}/**/*.{log,sqlite,sqlite3,db,db-wal,db-shm,tmp,pyc}",
       "!{dist,electron,core,cli,integration}/**/{__pycache__,.cache,cache,caches,logs,.references}{,/**/*}",
       "!{dist,electron,core,cli,integration}/**/{auth-diagnostics.ndjson,api-runtime.json,buct-data.json,model-config-transaction.v1.json,theia-feed.json}",

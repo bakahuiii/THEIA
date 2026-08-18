@@ -19,7 +19,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { bridge } from "../bridge";
 import { EvidenceDrawer } from "../components/advisor/EvidenceDrawer";
-import { EmptyState, formatDate, localDateTimeValue, type Term } from "../ui/app-shared";
+import { EmptyState, formatClock, formatDate, localDateTimeInstant, localDateTimeValue, parseLocalDateTime, type Term } from "../ui/app-shared";
 import type {
   AdvisorCourseDecision,
   AdvisorEvidence,
@@ -97,16 +97,7 @@ function schoolTermLabel(term: string) {
 }
 
 function schoolScheduleUpdatedAt(value?: string | null) {
-  if (!value) return "更新时间未知";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "更新时间未知";
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  return value ? formatDate(value) : "更新时间未知";
 }
 
 function paginationPages(current: number, total: number) {
@@ -294,7 +285,7 @@ export function CourseSelectionView({
   const [blockId, setBlockId] = useState("");
   const [candidateId, setCandidateId] = useState("");
   const [startAt, setStartAt] = useState(() => localDateTimeValue());
-  const [endAt, setEndAt] = useState(() => new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString().slice(0, 16));
+  const [endAt, setEndAt] = useState(() => localDateTimeValue(new Date(Date.now() + 2 * 60 * 60 * 1000)));
   const [intervalMs, setIntervalMs] = useState(1500);
   const [maxAttempts, setMaxAttempts] = useState(120);
   const [concurrency, setConcurrency] = useState(2);
@@ -390,8 +381,8 @@ export function CourseSelectionView({
     setEndAt(localDateTimeValue(sentinel.endAt));
   }, [sentinel.endAt, sentinel.startAt]);
   const persistSelectionWindow = useCallback((nextStart = startAt, nextEnd = endAt) => {
-    const start = new Date(nextStart || '').getTime();
-    const end = new Date(nextEnd || '').getTime();
+    const start = parseLocalDateTime(nextStart);
+    const end = parseLocalDateTime(nextEnd);
     if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return;
     onSetSentinel({
       enabled: sentinel.enabled,
@@ -664,7 +655,7 @@ export function CourseSelectionView({
             </button>
             <button
               className="primary-button selection-queue-start"
-              onClick={() => onStart({ targets: persistedSchoolTargets, startAt: startAt ? new Date(startAt).toISOString() : null, endAt: endAt ? new Date(endAt).toISOString() : null, intervalMs, maxAttempts, concurrency })}
+              onClick={() => onStart({ targets: persistedSchoolTargets, startAt: localDateTimeInstant(startAt), endAt: localDateTimeInstant(endAt), intervalMs, maxAttempts, concurrency })}
               disabled={!persistedSchoolTargets.length || loading || activeJob}
             >
               <Play size={16} /> {activeJob ? "抢课任务执行中" : `开始抢课（${persistedSchoolTargets.length}）`}
@@ -673,8 +664,8 @@ export function CourseSelectionView({
               className={`secondary-button selection-sentinel-button ${sentinel.enabled ? "active" : ""}`}
               onClick={() => onSetSentinel(sentinel.enabled ? { enabled: false } : {
                 enabled: true,
-                startAt: startAt ? new Date(startAt).toISOString() : null,
-                endAt: endAt ? new Date(endAt).toISOString() : null,
+                startAt: localDateTimeInstant(startAt),
+                endAt: localDateTimeInstant(endAt),
                 intervalMs,
                 concurrency,
               })}
@@ -740,7 +731,7 @@ export function CourseSelectionView({
           <aside className="selection-live-log" aria-live="polite" aria-label="实时抢课日志">
             <div className="selection-live-log-head"><span>实时抢课日志</span><small>{taskLogs.length ? `${taskLogs.length} 条` : "等待任务启动"}</small></div>
             <div className="selection-live-log-list">
-              {taskLogs.length ? taskLogs.map((entry) => <div key={entry.id} className={`selection-live-log-entry ${entry.level}`}><time>{new Date(entry.at).toLocaleTimeString("zh-CN", { hour12: false })}</time><div><strong>{entry.course}</strong><span>{entry.message}</span></div></div>) : <div className="selection-live-log-empty">开始任务后，这里会显示实际 API 调用结果。</div>}
+              {taskLogs.length ? taskLogs.map((entry) => <div key={entry.id} className={`selection-live-log-entry ${entry.level}`}><time>{formatClock(entry.at, true)}</time><div><strong>{entry.course}</strong><span>{entry.message}</span></div></div>) : <div className="selection-live-log-empty">开始任务后，这里会显示实际 API 调用结果。</div>}
             </div>
           </aside>
         </div>
@@ -946,7 +937,7 @@ export function CourseSelectionView({
                   </div>
                   <button
                     className="primary-button selection-start"
-                    onClick={() => onStart({ targets: persistedSchoolTargets, startAt: startAt ? new Date(startAt).toISOString() : null, endAt: endAt ? new Date(endAt).toISOString() : null, intervalMs, maxAttempts, concurrency })}
+                    onClick={() => onStart({ targets: persistedSchoolTargets, startAt: localDateTimeInstant(startAt), endAt: localDateTimeInstant(endAt), intervalMs, maxAttempts, concurrency })}
                     disabled={!persistedSchoolTargets.length || loading}
                   >
                     <Play size={16} /> 开始抢课

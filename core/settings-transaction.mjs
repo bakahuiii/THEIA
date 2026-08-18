@@ -2,6 +2,31 @@ function clampNumber(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, Math.trunc(Number(value))))
 }
 
+function mergeAdvisorConfig(current, input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return current
+  return {
+    ...current,
+    ...(typeof input.budgetLevel === 'string' && ['high', 'xhigh', 'max', 'ultra'].includes(input.budgetLevel)
+      ? { budgetLevel: input.budgetLevel }
+      : {}),
+    ...(typeof input.permissionMode === 'string' && ['read-only', 'full-access'].includes(input.permissionMode)
+      ? { permissionMode: input.permissionMode }
+      : {}),
+    ...(typeof input.reasoningEffort === 'string' && ['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(input.reasoningEffort)
+      ? { reasoningEffort: input.reasoningEffort }
+      : {}),
+    ...(typeof input.responseStyle === 'string' && ['direct', 'balanced', 'detailed'].includes(input.responseStyle)
+      ? { responseStyle: input.responseStyle }
+      : {}),
+    ...(typeof input.responseLength === 'string' && ['adaptive', 'short', 'standard', 'detailed'].includes(input.responseLength)
+      ? { responseLength: input.responseLength }
+      : {}),
+    ...(typeof input.temperature === 'number' && Number.isFinite(input.temperature)
+      ? { temperature: Math.max(0, Math.min(2, input.temperature)) }
+      : {}),
+  }
+}
+
 export function mergeAllowedSettings(current, input) {
   const allowed = input && typeof input === 'object' ? input : {}
   return {
@@ -26,6 +51,9 @@ export function mergeAllowedSettings(current, input) {
           ? { pollIntervalMinutes: clampNumber(allowed.mail.pollIntervalMinutes, 1, 60) }
           : {}),
       },
+    } : {}),
+    ...(allowed.advisorConfig && typeof allowed.advisorConfig === 'object' && !Array.isArray(allowed.advisorConfig) ? {
+      advisorConfig: mergeAdvisorConfig(current.advisorConfig, allowed.advisorConfig),
     } : {}),
   }
 }
