@@ -592,4 +592,9 @@ export class CampusStore {
   async loadIfNeeded() {
     if (!this.loaded) await this.load()
   }
+
+
+  async drain() {
+    await this.operationQueue.catch(() => {})
+  }
 }

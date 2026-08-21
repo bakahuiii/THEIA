@@ -5057,6 +5057,7 @@ async function shutdownServices() {
       courseWorkQueue?.close({ cancelRunning: true }),
       feedWrite,
       diagnosticWrite,
+      store?.drain(),
       localApi?.close(),
       viteServer?.close(),
     ])
