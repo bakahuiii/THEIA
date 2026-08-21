@@ -593,10 +593,6 @@ export class CampusStore {
     if (!this.loaded) await this.load()
   }
 
-<<<<<<< Updated upstream
-
-=======
->>>>>>> Stashed changes
   async drain() {
     await this.operationQueue.catch(() => {})
   }
