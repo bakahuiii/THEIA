@@ -380,6 +380,7 @@ const NO_ARGUMENT_CHANNELS = [
   'theia:validate-model-connection', 'theia:summarize-notices',
   'theia:stop-course-selection', 'theia:cancel-model-requests',
   'theia:advisor:get-overview', 'theia:open-data-directory',
+  'theia:install-mcp-clients',
   'theia:advisor:list-threads', 'theia:advisor:create-thread',
   'theia:get-course-work-queue',
 ]
@@ -480,6 +481,19 @@ THEIA_IPC_SCHEMAS.set('theia:appearance-presets:save', (channel, args) => {
   if (!Array.isArray(args[0]) || args[0].length > 16) fail(channel, 'appearance presets must be an array with at most 16 items')
 })
 THEIA_IPC_SCHEMAS.set('theia:get-cached-school-schedule', (channel, args) => objectArg(channel, args, { optional: true, nullable: true }))
+THEIA_IPC_SCHEMAS.set('theia:get-motion-venue-catalog', (channel, args) => noArgs(channel, args))
+THEIA_IPC_SCHEMAS.set('theia:refresh-motion-venue-catalog', (channel, args) => noArgs(channel, args))
+THEIA_IPC_SCHEMAS.set('theia:query-motion-venue-status', (channel, args) => {
+  argCount(channel, args, 1)
+  objectValue(channel, args[0], 'MOTION venue query')
+  allowedFields(channel, args[0], ['detailUrl', 'date', 'venue'])
+  stringValue(channel, args[0].detailUrl, 'detailUrl', 2_048)
+  stringValue(channel, args[0].date, 'date', 10, { optional: true })
+  if (args[0].date !== undefined && args[0].date !== null && args[0].date !== '' && !/^\d{4}-\d{2}-\d{2}$/u.test(args[0].date)) {
+    fail(channel, 'date must use YYYY-MM-DD')
+  }
+  stringValue(channel, args[0].venue, 'venue', 160, { optional: true })
+})
 THEIA_IPC_SCHEMAS.set('theia:save-course-selection-target', (channel, args) => objectArg(channel, args, { nullable: true }))
 THEIA_IPC_SCHEMAS.set('theia:refresh-academic-calendar-assets', (channel, args) => objectArg(channel, args, { optional: true }))
 THEIA_IPC_SCHEMAS.set('theia:open-source', (channel, args) => {

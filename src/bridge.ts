@@ -7,6 +7,8 @@ import type {
   ActivityLogEntry,
   AuthStatus,
   FitnessScoreResult,
+  MotionVenueCatalog,
+  MotionVenueStatus,
   TheiaBridge,
   CampusState,
   AdvisorOverview,
@@ -51,6 +53,75 @@ const blankState: CampusState = {
 };
 
 if (!demo) webState = blankState;
+
+function demoMotionCatalog(): MotionVenueCatalog {
+  const source = webState.dataCatalog.collections.venueReservations;
+  return {
+    source: source.source,
+    parserVersion: source.parserVersion,
+    lastRefreshedAt: source.lastRefreshedAt,
+    campuses: structuredClone(source.campuses),
+    venues: structuredClone(source.venues),
+  };
+}
+
+function motionDemoStatusKey(detailUrl: string, date: string, venue: string) {
+  return [detailUrl, date, venue].map((value) => encodeURIComponent(value)).join("|");
+}
+
+function publishWebSnapshot() {
+  const snapshot = structuredClone(webState);
+  listeners.forEach((listener) => listener(snapshot));
+}
+
+function demoMotionStatus(query: { detailUrl?: string | null; date?: string | null; venue?: string | null }): MotionVenueStatus | null {
+  const detailUrl = String(query.detailUrl || "").trim();
+  if (!detailUrl) return null;
+  const source = webState.dataCatalog.collections.venueReservations;
+  const records = Object.values(source.statuses);
+  const exact = records.find((record) => (
+    record.scope.detailUrl === detailUrl
+    && (!query.date || record.scope.date === query.date)
+    && (!query.venue || record.scope.venue === query.venue)
+  ));
+  const base = exact || records.find((record) => record.scope.detailUrl === detailUrl);
+  if (!base) return null;
+
+  const selectedVenue = source.venues.find((item) => item.detailUrl === detailUrl && (!query.venue || item.label === query.venue));
+  const result = structuredClone(base.result);
+  result.capturedAt = new Date().toISOString();
+  result.query = {
+    ...result.query,
+    detailUrl,
+    date: String(query.date || result.query.date),
+    venue: String(query.venue || result.query.venue),
+    campus: selectedVenue
+      ? { id: selectedVenue.campusId, label: selectedVenue.campusLabel }
+      : result.query.campus,
+    activity: selectedVenue?.activity || result.query.activity,
+    availableDates: [...result.query.availableDates],
+    availableVenues: [...result.query.availableVenues],
+  };
+  return result;
+}
+
+function cacheDemoMotionStatus(result: MotionVenueStatus) {
+  const capturedAt = result.capturedAt || new Date().toISOString();
+  const source = webState.dataCatalog.collections.venueReservations;
+  const key = motionDemoStatusKey(result.query.detailUrl, result.query.date, result.query.venue);
+  source.statuses[key] = {
+    id: `motion-status:${key}`,
+    scope: { detailUrl: result.query.detailUrl, date: result.query.date, venue: result.query.venue },
+    capturedAt,
+    source: source.source,
+    parserVersion: source.parserVersion,
+    result: structuredClone(result),
+  };
+  source.lastRefreshedAt = capturedAt;
+  webState.dataCatalog.updatedAt = capturedAt;
+  webState.updatedAt = capturedAt;
+  publishWebSnapshot();
+}
 
 const webBridge: TheiaBridge = {
   async getSnapshot() {
@@ -183,6 +254,25 @@ const webBridge: TheiaBridge = {
   async getCachedSchoolSchedule() {
     return null;
   },
+  async getMotionVenueCatalog() {
+    return demoMotionCatalog();
+  },
+  async refreshMotionVenueCatalog() {
+    if (!demo) throw new Error("MOTION 场馆目录仅在桌面客户端中可用");
+    const capturedAt = new Date().toISOString();
+    webState.dataCatalog.collections.venueReservations.lastRefreshedAt = capturedAt;
+    webState.dataCatalog.updatedAt = capturedAt;
+    webState.updatedAt = capturedAt;
+    publishWebSnapshot();
+    return demoMotionCatalog();
+  },
+  async queryMotionVenueStatus(query) {
+    if (!demo) throw new Error("MOTION 场馆状态查询仅在桌面客户端中可用");
+    const result = demoMotionStatus(query || {});
+    if (!result) throw new Error("演示数据中没有对应的 MOTION 场馆状态");
+    cacheDemoMotionStatus(result);
+    return structuredClone(result);
+  },
   async saveCourseSelectionTarget() {
     throw new Error("Course selection is available only in the desktop client");
   },
@@ -312,6 +402,9 @@ const webBridge: TheiaBridge = {
   async updateSettings(settings) {
     void settings;
     throw new Error("应用设置仅在桌面客户端中可用");
+  },
+  async installMcpClients() {
+    throw new Error("MCP 配置仅在桌面客户端中可用");
   },
   async chooseAppBackground() {
     return new Promise((resolve) => {

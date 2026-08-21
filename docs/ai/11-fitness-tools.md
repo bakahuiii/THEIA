@@ -11,7 +11,7 @@
 ## UI 工具
 
 - `FitnessCalc.tsx`：读取归档并允许计算用局部输入；导入原始结果不能直接篡改。
-- `InnovationCalc.tsx`：创新学分缺口。
+- `InnovationCalc.tsx`：创新创业教育学分缺口估算与 2023 手册规则参考。课程 2 + 实践 2 + 合计 4 的门槛、实践项目分值、项目状态和潜在分值都只存在 renderer 当前会话；页面不声称学校正式认定，也不替代教务系统入账。
 - `SecondClassCalc.tsx`：第二课堂维度积分。
 - `WarningCalc.tsx`：学业预警计算。
 

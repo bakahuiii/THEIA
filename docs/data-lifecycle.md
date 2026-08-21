@@ -74,6 +74,7 @@ preferences: settings
 | 校历 | `academic-calendar-assets.mjs`、`academic-calendar-*.mjs` | `dataCatalog.collections.academicCalendar` 与单独资产目录。 |
 | 邮箱 | `imap-mail-service.mjs` | `emails`，正文/附件按需获取。 |
 | 全校开课课表 | `course-selection.mjs` + `data-catalog.mjs` | `dataCatalog.collections.schoolSchedule`。 |
+| MOTION 公开场馆 | `adapters/motion.mjs` + `data-catalog.mjs` | `dataCatalog.collections.venueReservations`；匿名 GET、目录和按日期/场馆组键控的状态缓存。 |
 
 ### 4.3 同步合并规则
 

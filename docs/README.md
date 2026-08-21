@@ -10,6 +10,7 @@ THEIA 是面向北京化工大学学习生活的 Windows 本地优先桌面客�
 | --- | --- | --- |
 | 第一次认识 THEIA | [新生第一次用 THEIA](guides/FRESHMAN_START.md) | 看懂统一身份认证、教务和北化在线THEOL，再按事情找到正确入口。 |
 | 登录、同步、查看校园信息 | [用户指南](guides/USER_GUIDE.md) | 桌面客户端的日常流程、功能边界和排障入口。 |
+| 查询 MOTION 场馆状态 | [MOTION 场馆状态](guides/MOTION_VENUE_STATUS.md) | “学习工具”中的公开场馆查询、只读边界、本地 API 和耗时基准。 |
 | 理解整个产品如何工作 | [系统架构](architecture.md) | 进程、模块、信任边界与核心服务的鸟瞰图。 |
 | 维护或扩展代码 | [开发者指南](developer-guide.md) | 环境、目录、改动路径、质量门槛和扩展原则。 |
 | 理解本地数据如何产生、保存和恢复 | [数据生命周期](data-lifecycle.md) | 同步、规范化、分片存储、Feed、导出和迁移。 |
@@ -28,6 +29,7 @@ docs/
   README.md                         本文档中心与阅读路线
   guides/FRESHMAN_START.md          新生快速开始
   guides/USER_GUIDE.md               用户手册
+  guides/MOTION_VENUE_STATUS.md     MOTION 场馆状态查询说明
   architecture.md                   系统架构和模块边界
   developer-guide.md                开发者入门和扩展约定
   data-lifecycle.md                 数据采集、持久化、导出和恢复

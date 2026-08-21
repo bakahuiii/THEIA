@@ -15,7 +15,7 @@ THEIA 把教务系统、北化在线 THEOL、校园邮箱和本地学习工具�
 - **学业顾问 Agent**：针对当前问题按需读取本地校园数据，给出带证据的回答、风险提示和下一步行动。没有配置模型服务时，页面会明确提示 Agent 不可用并引导前往设置。
 - **课程与抢课**：读取教学班和全校课表，保存明确选择的目标，并在用户启动的时间窗口内执行有限尝试。不会自动退课、评教或提交其它学校业务。
 - **通知与邮箱**：集中查看教务通知、THEOL 通知和校园邮箱；邮件正文按需读取，附件仍由用户决定是否打开。
-- **学习工具**：校历与教学进程、官方培养计划、空闲教室、体测评分、学业预警、创新学分、第二课堂和昌平校区地图。
+- **学习工具**：校历与教学进程、官方培养计划、空闲教室、体测评分、MOTION 场馆状态、学业预警、创新学分、第二课堂和昌平校区地图。
 - **外观**：主题、缩放、3D 背景、动效、色板和渐变映射都可以在“设置与接入”中调整并保存在本机。
 
 ## 第一次使用
@@ -76,6 +76,8 @@ GET /v1/assignments
 GET /v1/notices
 GET /v1/emails
 GET /v1/calendar.ics
+GET /v1/venue-catalog
+GET /v1/venue-status?detailUrl=<详情页>&date=YYYY-MM-DD&venue=<场馆组>
 ```
 
 仓库还提供标准 MCP stdio 桥接 [integration/theia-mcp.mjs](integration/theia-mcp.mjs)。它复用 Agent 的脱敏和工具白名单，只暴露当前快照的只读投影，不暴露凭据、Cookie、浏览器会话、任意网络或学校侧写入。完整配置见[本地数据接口](integration/README.md)。
@@ -126,6 +128,7 @@ npm run cli -- work show <assignment-id>
 ## 文档
 
 - [用户指南](docs/guides/USER_GUIDE.md)：按登录、同步、页面和排障顺序说明桌面端用法。
+- [MOTION 场馆状态](docs/guides/MOTION_VENUE_STATUS.md)：场馆状态查询的用户用法、只读边界、API 和耗时基准。
 - [文档总索引](docs/README.md)：用户、开发、数据和运维文档入口。
 - [系统架构](docs/architecture.md)：进程、模块、信任边界和主要数据流。
 - [API 与 IPC 参考](docs/reference/api-and-ipc.md)：桌面桥接和本地接口契约。

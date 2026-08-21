@@ -18,6 +18,8 @@ GET /v1/feed
 GET /v1/data-catalog
 GET /v1/fitness?year=2025-2026_1
 GET /v1/school-schedule?termId=2025-3&keyword=MAT13904T
+GET /v1/venue-catalog
+GET /v1/venue-status?detailUrl=...&date=YYYY-MM-DD&venue=...
 GET /v1/academic-progress
 GET /v1/academic-analysis
 GET /v1/academic-extras/{domain}?q=...&limit=...
@@ -28,7 +30,7 @@ GET /v1/calendar.ics
 
 `/v1/data-manifest` exposes storage layout metadata and fragment names only. It does not expose arbitrary file reads. Collection endpoints may accept `?since=<ISO timestamp>`.
 
-Use `/v1/feed` for a normalized full-data view, `/v1/academic-analysis` for GPA/credit/degree-plan reasoning, `/v1/academic-extras/{domain}` for one JWGLXT extension table, collection endpoints for selective reads, and `/v1/school-schedule` for local term-cache queries. The extension table supports `q`, `limit` and `since`, and returns `columns`, `completeness` and `queryStats` alongside `items`. All return normalized data; none should expose credentials, raw pages, session state or private binary attachments. The academic analysis is derived per snapshot and is not a write-back format.
+Use `/v1/feed` for a normalized full-data view, `/v1/academic-analysis` for GPA/credit/degree-plan reasoning, `/v1/academic-extras/{domain}` for one JWGLXT extension table, collection endpoints for selective reads, `/v1/school-schedule` for local term-cache queries, and `/v1/venue-catalog` / `/v1/venue-status` for cached public MOTION venue data. The extension table supports `q`, `limit` and `since`, and returns `columns`, `completeness` and `queryStats` alongside `items`. All return normalized data; none should expose credentials, raw pages, session state or private binary attachments. MOTION status is read-only anonymous GET data and never triggers a booking request. The academic analysis is derived per snapshot and is not a write-back format.
 
 ## CLI
 

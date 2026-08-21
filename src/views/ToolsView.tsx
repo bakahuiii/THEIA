@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Activity, AlertTriangle, CalendarDays, FileText, Lightbulb, Search, Star } from "lucide-react";
+import { Activity, AlertTriangle, CalendarDays, FileText, Lightbulb, Search, Star, MapPinned } from "lucide-react";
 import { AcademicCalendar } from "./tools/AcademicCalendar";
 import { AcademicPlanView } from "./tools/AcademicPlanView";
 import { FreeClassroomView } from "./tools/FreeClassroomView";
@@ -7,14 +7,16 @@ import { FitnessCalc } from "./tools/FitnessCalc";
 import { WarningCalc } from "./tools/WarningCalc";
 import { InnovationCalc } from "./tools/InnovationCalc";
 import { SecondClassCalc } from "./tools/SecondClassCalc";
+import { VenueStatusView } from "./tools/VenueStatusView";
 import type { CampusState, LocalDataCatalog, SyncRetryDomain } from "../types";
 
-type Tab = "documents" | "free-classroom" | "fitness" | "warning" | "innovation" | "second";
+type Tab = "documents" | "free-classroom" | "fitness" | "venue-status" | "warning" | "innovation" | "second";
 
 const TABS: Array<{ id: Tab; label: string; icon: typeof Activity }> = [
   { id: "documents", label: "文档", icon: FileText },
   { id: "free-classroom", label: "空闲教室", icon: Search },
   { id: "fitness", label: "体测评分", icon: Activity },
+  { id: "venue-status", label: "场馆状态", icon: MapPinned },
   { id: "warning", label: "学业预警", icon: AlertTriangle },
   { id: "innovation", label: "创新学分", icon: Lightbulb },
   { id: "second", label: "第二课堂", icon: Star },
@@ -64,6 +66,7 @@ export function ToolsView({
       </div>
       <div className="tools-content">
         {tab === "fitness" && <FitnessCalc dataCatalog={dataCatalog} />}
+        {tab === "venue-status" && <VenueStatusView dataCatalog={dataCatalog} />}
         {tab === "documents" && (
           <div className="tools-document-view">
             <div className="tools-subtab-bar" role="tablist" aria-label="文档">

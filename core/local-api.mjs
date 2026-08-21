@@ -2,10 +2,19 @@ import { createServer } from 'node:http'
 import { readFile, writeFile, rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { collectionCsv, counts, toTheiaFeed, toIcs } from './schema.mjs'
-import { cachedFitnessResult, fitnessCacheSummary, cachedSchoolScheduleResult, schoolScheduleCacheSummary } from './data-catalog.mjs'
+import {
+  cachedFitnessResult,
+  fitnessCacheSummary,
+  cachedSchoolScheduleResult,
+  schoolScheduleCacheSummary,
+  cachedMotionVenueCatalog,
+  cachedMotionVenueStatus,
+  motionVenueCacheSummary,
+} from './data-catalog.mjs'
 import { buildAcademicAnalysis } from './academic-model.mjs'
 import { JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES } from './jwglxt-extra.mjs'
 import { projectUserDataDomainSummary, projectUserDataOverview, projectUserDataRecords } from './user-data-view.mjs'
+import { PUBLIC_DATA_DOMAINS, projectTheiaDataDomain, toTheiaDataOutput } from './data-output-contract.mjs'
 
 const COLLECTIONS = new Set(['terms', 'courses', 'schedule', 'exams', 'grades', 'selectedCourses', 'assignments', 'workspaces', 'notices', 'emails', 'academicExtras'])
 const COLLECTION_ALIASES = new Map([['selected-courses', 'selectedCourses'], ['academic-extras', 'academicExtras']])
@@ -174,6 +183,24 @@ export async function startLocalApi({ store, root, preferredPort = 8765, academi
     }
     if (url.pathname === '/v1/snapshot') return send(response, 200, state, undefined, origin, method)
     if (url.pathname === '/v1/data-manifest') return send(response, 200, store.storageSummary(), undefined, origin, method)
+    if (url.pathname === '/v1/data-output') {
+      const versioned = store.snapshotWithRevision ? store.snapshotWithRevision() : { state, revision: null }
+      const requested = url.searchParams.getAll('domain')
+      return send(response, 200, toTheiaDataOutput(versioned.state || state, {
+        snapshotRevision: versioned.revision || null,
+        domains: requested.length ? requested : null,
+      }), undefined, origin, method)
+    }
+    const dataOutputMatch = url.pathname.match(/^\/v1\/data-output\/([^/]+)$/u)
+    if (dataOutputMatch) {
+      let domain
+      try { domain = decodeURIComponent(dataOutputMatch[1]) } catch { return send(response, 400, { error: 'domain_invalid' }, undefined, origin, method) }
+      if (!PUBLIC_DATA_DOMAINS.includes(domain)) return send(response, 404, { error: 'domain_not_found' }, undefined, origin, method)
+      const versioned = store.snapshotWithRevision ? store.snapshotWithRevision() : { state, revision: null }
+      return send(response, 200, projectTheiaDataDomain(versioned.state || state, domain, {
+        snapshotRevision: versioned.revision || null,
+      }), undefined, origin, method)
+    }
     if (url.pathname === '/v1/data-catalog') return send(response, 200, state.dataCatalog, undefined, origin, method)
     if (url.pathname === '/v1/academic-plan-document') return send(response, 200, {
       schema: 'theia-academic-plan-document-response/v1',
@@ -235,6 +262,24 @@ export async function startLocalApi({ store, root, preferredPort = 8765, academi
         updatedAt: state.dataCatalog?.updatedAt || null,
         summary: schoolScheduleCacheSummary(state.dataCatalog),
         item: cachedSchoolScheduleResult(state.dataCatalog, scope.termId ? scope : null),
+      }, undefined, origin, method)
+    }
+    if (url.pathname === '/v1/venue-catalog') {
+      return send(response, 200, {
+        schema: state.dataCatalog?.schema || 'theia-local-data/v1',
+        updatedAt: state.dataCatalog?.updatedAt || null,
+        item: cachedMotionVenueCatalog(state.dataCatalog),
+      }, undefined, origin, method)
+    }
+    if (url.pathname === '/v1/venue-status') {
+      const detailUrl = url.searchParams.get('detailUrl') || null
+      const date = url.searchParams.get('date') || null
+      const venue = url.searchParams.get('venue') || null
+      return send(response, 200, {
+        schema: state.dataCatalog?.schema || 'theia-local-data/v1',
+        updatedAt: state.dataCatalog?.updatedAt || null,
+        summary: motionVenueCacheSummary(state.dataCatalog),
+        item: cachedMotionVenueStatus(state.dataCatalog, { detailUrl, date, venue }),
       }, undefined, origin, method)
     }
     if (url.pathname === '/v1/feed' || url.pathname === '/v1/theia') return send(response, 200, toTheiaFeed(state), undefined, origin, method)

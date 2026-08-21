@@ -33,6 +33,7 @@ THEIA 的功能跨越校园来源、Electron 特权能力、纯业务核心、�
 | `collections.fitness` | 一个体测学年 `YYYY-YYYY_N` | 首次发现可归档多年度；按年切换仅读缓存；缺失或 `refresh` 时才访问学校 | `id`、`scope.yearKey`、`capturedAt`、`source`、`parserVersion`、`refreshState`、`normalized` | 原始页面、登录信息、无限制历史响应。 |
 | `collections.schoolSchedule` | 一个完整教务学期 | 搜索、排序、分页在本地完整集合上进行；只在采集完成时设置 `complete: true` | `scope`、`capturedAt`、`total`、`complete`、`source`、`parserVersion`、items | 不完整服务器分页被伪装成完整课程表。 |
 | `collections.academicCalendar` | 当前官方校历资产和结构化分析 | 二进制文件在 `academic-calendar/assets`；资料库仅镜像安全结构化摘要 | `assets`、`lastRefreshedAt`、`calendar`、`analysis`、错误字段、版本 | PDF 原文文本、无边界的 OCR 输出、秘密或 session。 |
+| `collections.venueReservations` | MOTION 公开校区、项目、场馆和状态查询 | 只允许白名单匿名 `GET`；目录与状态成功后写入本地缓存，状态按 `detailUrl + date + venue` 键控 | `source`、`parserVersion`、`lastRefreshedAt`、目录记录、状态 `capturedAt`/`safety`/`timing` | 预约人信息、Cookie、原始 HTML、动态 slot ID、预约表单值或任何写入动作。 |
 
 ## 进程边界矩阵
 

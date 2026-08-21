@@ -12,12 +12,20 @@ import { AcademicApiFirstAdapter } from '../core/academic-api-adapter.mjs'
 import { AcademicApiClient } from '../core/academic-api-client.mjs'
 import { TheolAdapter, THEOL_URLS } from '../core/adapters/theol.mjs'
 import { TyglAdapter, upgradeTyglRedirectUrl } from '../core/adapters/tygl.mjs'
+import { MotionVenueAdapter } from '../core/adapters/motion.mjs'
 import { SyncService } from '../core/sync-service.mjs'
 import { startLocalApi } from '../core/local-api.mjs'
 import { AcademicCalendarAssetsService } from '../core/academic-calendar-assets.mjs'
 import { probeAcademicCalendarOcrRuntime } from '../core/academic-calendar-ocr.mjs'
 import { collectionCsv, toTheiaFeed, toIcs } from '../core/schema.mjs'
-import { cachedFitnessResult, cachedSchoolScheduleResult, SCHOOL_SCHEDULE_PARSER_VERSION } from '../core/data-catalog.mjs'
+import {
+  cachedFitnessResult,
+  cachedSchoolScheduleResult,
+  SCHOOL_SCHEDULE_PARSER_VERSION,
+  cachedMotionVenueCatalog,
+  cacheMotionVenueCatalog,
+  cacheMotionVenueStatus,
+} from '../core/data-catalog.mjs'
 import {
   failAcademicCalendarCatalog,
   failFitnessCatalog,
@@ -69,6 +77,8 @@ import {
   registerCourseSelectionIpc,
   registerCourseWorkQueueIpc,
   registerMailboxIpc,
+  registerMotionVenueIpc,
+  registerMcpIntegrationIpc,
   registerModelRuntimeIpc,
   registerWindowIpc,
   registerUserDataIpc,
@@ -172,6 +182,7 @@ let viteServer
 let localApi
 let store
 let syncService
+let motionVenueAdapter
 let sessionClient
 let academicSessionClient
 let schoolSession
@@ -3828,6 +3839,7 @@ async function startServices() {
   store = new CampusStore(app.getPath('userData'))
   const storeStartedAt = Date.now()
   await store.load()
+  motionVenueAdapter = new MotionVenueAdapter()
   try {
     const workspaceMigration = await rebaseLegacyWorkspacePaths(store.snapshot(), {
       currentRoot: app.getPath('userData'),
@@ -4261,6 +4273,22 @@ async function startServices() {
     sendSnapshot,
   })
   registerUserDataIpc({ ipcMain, store })
+  registerMotionVenueIpc({
+    ipcMain,
+    adapter: motionVenueAdapter,
+    store,
+    cachedMotionVenueCatalog,
+    cacheMotionVenueCatalog,
+    cacheMotionVenueStatus,
+    sendSnapshot,
+    writeDiagnostic,
+  })
+  registerMcpIntegrationIpc({
+    ipcMain,
+    root,
+    homeDirectory: app.getPath('home'),
+    writeDiagnostic,
+  })
   registerCourseWorkQueueIpc({ ipcMain, queue: courseWorkQueue })
 
   ipcMain.handle('theia:get-snapshot', () => {
@@ -5058,8 +5086,11 @@ async function shutdownServices() {
       feedWrite,
       diagnosticWrite,
       store?.drain(),
+<<<<<<< Updated upstream
       localApi?.close(),
       viteServer?.close(),
+=======
+>>>>>>> Stashed changes
     ])
     shutdownComplete = true
   })()

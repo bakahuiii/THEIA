@@ -429,9 +429,9 @@ THEIA 是本地优先应用。`CampusStore` 持有的 `CampusState` 是 renderer
 
 ## 4. `LocalDataCatalog`：可离线资料的证据模型
 
-fitness、schoolSchedule 与 academicCalendar 不只保留 catalog 元数据，也在同一个 `CampusStore.update()` 中写入正式的 `sync.domains` provenance。启动时加载已有本地校历只会标为 `not-attempted`，不会冒充一次远端刷新；刷新失败保留既有内容、水位和已确认空结论。三者共同派生 `local-data-catalog` 领域。
+fitness、schoolSchedule 与 academicCalendar 不只保留 catalog 元数据，也在同一个 `CampusStore.update()` 中写入正式的 `sync.domains` provenance。启动时加载已有本地校历只会标为 `not-attempted`，不会冒充一次远端刷新；刷新失败保留既有内容、水位和已确认空结论。MOTION 场馆目录/状态是独立的只读缓存集合，不参与 `local-data-catalog` 三项聚合完整性计算。
 
-`dataCatalog.schema` 固定为 `theia-local-data/v1`。它不是杂项 JSON 桶，而是带来源、范围、采集时间、解析版本和刷新状态的可复用资料目录。当前有三类集合：
+`dataCatalog.schema` 固定为 `theia-local-data/v1`。它不是杂项 JSON 桶，而是带来源、范围、采集时间、解析版本和刷新状态的可复用资料目录。当前有四类集合：
 
 ```json
 {
@@ -440,7 +440,8 @@ fitness、schoolSchedule 与 academicCalendar 不只保留 catalog 元数据，�
   "collections": {
     "fitness": {},
     "schoolSchedule": {},
-    "academicCalendar": {}
+    "academicCalendar": {},
+    "venueReservations": {}
   }
 }
 ```

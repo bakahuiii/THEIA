@@ -4,6 +4,52 @@ function isoAfter(hours: number) {
   return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
 }
 
+const demoMotionCapturedAt = new Date().toISOString();
+const demoMotionDate = demoMotionCapturedAt.slice(0, 10);
+const demoMotionDetailUrl = "https://motion.buct.edu.cn/changguanyuyue1/detail.php?xm=%E7%BE%BD%E6%AF%9B%E7%90%83&xq=0";
+const demoMotionVenue = "体育馆比赛馆";
+const demoMotionStatusKey = [demoMotionDetailUrl, demoMotionDate, demoMotionVenue]
+  .map((value) => encodeURIComponent(value))
+  .join("|");
+
+const demoMotionStatus = {
+  schema: "theia-motion-venue-status/v1",
+  parserVersion: "motion-venue/v1",
+  capturedAt: demoMotionCapturedAt,
+  source: {
+    platform: "MOTION",
+    accessMode: "public-anonymous-get",
+    url: demoMotionDetailUrl,
+    queryUrl: demoMotionDetailUrl,
+    method: "GET",
+  },
+  query: {
+    activity: "羽毛球",
+    campus: { id: "changping", label: "昌平校区" },
+    detailUrl: demoMotionDetailUrl,
+    date: demoMotionDate,
+    venue: demoMotionVenue,
+    availableDates: [demoMotionDate, "2026-08-20", "2026-08-21"],
+    availableVenues: [demoMotionVenue, "体育馆训练馆"],
+  },
+  availability: {
+    tables: [{
+      index: 0,
+      headers: ["时间\\场地", "羽01", "羽02", "羽03"],
+      slots: [
+        { time: "08:00-09:00", courts: [{ court: "羽01", status: "可预约", state: "available" }, { court: "羽02", status: "已占用", state: "occupied" }, { court: "羽03", status: "可预约", state: "available" }] },
+        { time: "09:00-10:00", courts: [{ court: "羽01", status: "可预约", state: "available" }, { court: "羽02", status: "已占用", state: "occupied" }, { court: "羽03", status: "闭馆", state: "closed" }] },
+        { time: "10:00-11:00", courts: [{ court: "羽01", status: "已过期", state: "expired" }, { court: "羽02", status: "可预约", state: "available" }, { court: "羽03", status: "可预约", state: "available" }] },
+        { time: "11:00-12:00", courts: [{ court: "羽01", status: "可预约", state: "available" }, { court: "羽02", status: "已选定", state: "selected" }, { court: "羽03", status: "可预约", state: "available" }] },
+      ],
+      summary: { timeSlots: 4, courtStatusCells: 12 },
+    }],
+    summary: { timeSlots: 4, courtStatusCells: 12, byState: { available: 7, occupied: 2, closed: 1, expired: 1, selected: 1 } },
+  },
+  safety: { onlyRead: true, requestedMethods: ["GET"], submittedForms: 0, executedBookingActions: 0, credentialsOrCookiesSupplied: false, rawBodyPersisted: false },
+  timing: { totalMs: 245.5, initialRequestMs: 112.3, selectedRequestMs: 131.7, selectedPageFetched: true },
+};
+
 export const demoState: CampusState = {
   schema: "theia-campus-data/v1",
   appVersion: "0.4.4",
@@ -322,6 +368,26 @@ export const demoState: CampusState = {
         calendarError: null,
         analysis: null,
         analysisError: null,
+      },
+      venueReservations: {
+        source: "https://motion.buct.edu.cn/changguanyuyue1/",
+        parserVersion: "motion-venue/v1",
+        lastRefreshedAt: demoMotionCapturedAt,
+        campuses: [{ id: "changping", label: "昌平校区", venueIds: ["motion-venue-badminton-changping", "motion-venue-badminton-training"] }],
+        venues: [
+          { id: "motion-venue-badminton-changping", campusId: "changping", campusLabel: "昌平校区", activity: "羽毛球", label: demoMotionVenue, detailUrl: demoMotionDetailUrl },
+          { id: "motion-venue-badminton-training", campusId: "changping", campusLabel: "昌平校区", activity: "羽毛球", label: "体育馆训练馆", detailUrl: demoMotionDetailUrl },
+        ],
+        statuses: {
+          [demoMotionStatusKey]: {
+            id: `motion-status:${demoMotionStatusKey}`,
+            scope: { detailUrl: demoMotionDetailUrl, date: demoMotionDate, venue: demoMotionVenue },
+            capturedAt: demoMotionCapturedAt,
+            source: "https://motion.buct.edu.cn/changguanyuyue1/",
+            parserVersion: "motion-venue/v1",
+            result: demoMotionStatus,
+          },
+        },
       },
     },
   },

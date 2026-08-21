@@ -1373,6 +1373,52 @@ export interface FitnessScoreResult {
   refreshState?: 'ready' | 'empty' | null;
 }
 
+export interface MotionVenueRecord {
+  id: string;
+  campusId: string;
+  campusLabel: string;
+  activity: string;
+  label: string;
+  detailUrl: string;
+}
+
+export interface MotionVenueCatalog {
+  source: string;
+  parserVersion: string;
+  lastRefreshedAt: string | null;
+  campuses: Array<{ id: string; label: string; venueIds: string[] }>;
+  venues: MotionVenueRecord[];
+}
+
+export interface MotionVenueStatus {
+  schema: string;
+  parserVersion?: string;
+  capturedAt?: string | null;
+  source?: Record<string, unknown>;
+  query: {
+    activity?: string | null;
+    campus?: { id: string; label: string } | null;
+    detailUrl: string;
+    date: string;
+    venue: string;
+    availableDates: string[];
+    availableVenues: string[];
+  };
+  availability: {
+    tables: Array<{
+      index: number;
+      headers: string[];
+      slots: Array<{ time: string; courts: Array<{ court: string; status: string; state: string }> }>;
+      summary?: Record<string, unknown> | null;
+    }>;
+    summary?: Record<string, unknown> | null;
+  };
+  safety: Record<string, unknown>;
+  timing?: Record<string, unknown>;
+  cachedAt?: string | null;
+  fromCache?: boolean;
+}
+
 export interface FitnessDataRecord {
   id: string;
   scope: { yearKey: string };
@@ -1417,6 +1463,9 @@ export interface LocalDataCatalog {
       calendarError: string | null;
       analysis: AcademicCalendarPdfAnalysis | null;
       analysisError: string | null;
+    };
+    venueReservations: MotionVenueCatalog & {
+      statuses: Record<string, { id: string; scope: { detailUrl: string; date: string; venue: string }; capturedAt: string | null; source: string; parserVersion: string; result: MotionVenueStatus }>;
     };
   };
 }
@@ -1490,6 +1539,9 @@ export interface TheiaBridge {
   } & CourseSelectionCatalogPage>;
   searchSchoolSchedule(query: SchoolScheduleQuery): Promise<SchoolScheduleResult>;
   getCachedSchoolSchedule(scope?: Partial<SchoolScheduleQuery> | null): Promise<SchoolScheduleResult | null>;
+  getMotionVenueCatalog(): Promise<MotionVenueCatalog>;
+  refreshMotionVenueCatalog(): Promise<MotionVenueCatalog>;
+  queryMotionVenueStatus(query: { detailUrl: string; date?: string | null; venue?: string | null }): Promise<MotionVenueStatus>;
   saveCourseSelectionTarget(target: CourseSelectionTarget | null): Promise<CourseSelectionSnapshot>;
   removeCourseSelectionTarget(id: string): Promise<CourseSelectionSnapshot>;
   setCourseSelectionSentinel(config: Partial<CourseSelectionSentinel>): Promise<CourseSelectionSnapshot>;
@@ -1588,6 +1640,17 @@ export interface TheiaBridge {
     collection?: string,
   ): Promise<{ canceled: boolean; filePath?: string; files?: number }>;
   openDataDirectory(): Promise<{ opened: boolean; path: string }>;
+  installMcpClients(): Promise<{
+    schema: 'theia-mcp-client-setup/v1';
+    server: 'theia';
+    pluginAvailable: boolean;
+    clients: Array<{
+      client: 'codex' | 'claude-code';
+      status: 'installed' | 'updated' | 'already-configured' | 'not-found' | 'plugin-missing' | 'failed';
+      changed: boolean;
+      backupCreated: boolean;
+    }>;
+  }>;
   getApiStatus(): Promise<{
     baseUrl: string;
     host: string;

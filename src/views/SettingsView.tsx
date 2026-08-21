@@ -35,6 +35,7 @@ import { AdvancedModelSettings } from "./settings/AdvancedModelSettings";
 import { AppearanceSettings } from "./settings/AppearanceSettings";
 import { CredentialForm } from "./settings/Credentials";
 import { MailboxSettings } from "./settings/MailboxSettings";
+import { McpIntegrationSettings } from "./settings/McpIntegrationSettings";
 import { formatAcademicTermId } from "../ui/term-label";
 export type SettingsSection =
   | "appearance"
@@ -721,6 +722,8 @@ export function SettingsView({
                     <span>考试与作业日历</span>
                   </div>
                 </section>
+
+                <McpIntegrationSettings onMessage={onMessage} />
 
                 <section className="settings-section">
                   <div className="settings-title">

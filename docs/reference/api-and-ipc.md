@@ -69,6 +69,8 @@ const feed = await fetchTheiaFeed({ timeoutMs: 5_000 })
 | `GET /v1/academic-calendar/weekly-calendar` | PDF | 当前校历周历 PDF。 |
 | `GET /v1/fitness?year=YYYY-YYYY_N` | `{ schema, updatedAt, summary, item }` | 仅读本地体测缓存；无相应缓存时 `item: null`。 |
 | `GET /v1/school-schedule?...` | `{ schema, updatedAt, summary, item }` | 仅读本地全校排课缓存，详见下文。 |
+| `GET /v1/venue-catalog` | `{ schema, updatedAt, item }` | 仅读本地 MOTION 公开校区、项目和场馆目录。 |
+| `GET /v1/venue-status?detailUrl=...&date=...&venue=...` | `{ schema, updatedAt, summary, item }` | 仅读本地 MOTION 状态缓存；没有匹配的日期/场馆组时 `item: null`。 |
 | `GET /v1/academic-progress` | `{ schema, updatedAt, notModified, item }` | 培养方案 / 学分进度树。 |
 | `GET /v1/calendar.ics` | `text/calendar` | 考试和作业截止日的 ICS。 |
 | `GET /v1/{collection}` | 集合包装对象 | 支持的 `collection` 见 2.4。 |
@@ -138,6 +140,10 @@ const feed = await fetchTheiaFeed({ timeoutMs: 5_000 })
 `/v1/school-schedule` 可接受 `termId`、`keyword`、`teacher`、`department`、`category`、`nature`、`format`、`affiliation`。其中 `termId` 需要形如 `2025-3`、`2025-12` 或 `2025-16`。响应中的 `summary` 描述所有本地缓存记录，`item` 是与请求匹配的一个本地 term 记录或 `null`。
 
 该端点绝不因一次读取而重新抓取学校系统，也不恢复服务端分页。缓存以“一个学期的完整本地集合”为单位；`item.items` 是在本地对完整 term 集合筛选后的结果。`item.complete === true` 仅能由完整爬取流程断言；`false` 或缺失时，AI 必须声明数据可能不完整，不能据此说“没有这门课”。
+
+#### MOTION 场馆缓存
+
+`/v1/venue-catalog` 返回 `dataCatalog.collections.venueReservations` 的目录投影。`/v1/venue-status` 使用 `detailUrl`、`date` 和 `venue` 对最近成功状态做精确键控；它不会因为 API 查询而重新请求学校页面。MOTION 适配器只使用匿名 `GET` 和白名单页面，不读取 Cookie，不提交预约表单；完整边界与耗时基准见 [MOTION 场馆状态](../guides/MOTION_VENUE_STATUS.md)。
 
 #### CSV 与 ICS
 

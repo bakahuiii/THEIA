@@ -12,6 +12,21 @@ import {
   projectUserDataRecords,
   projectRendererSnapshot,
 } from '../core/user-data-view.mjs'
+import { installTheiaMcpClients } from './mcp-client-setup.mjs'
+
+export function registerMcpIntegrationIpc({ ipcMain, root, homeDirectory, writeDiagnostic = () => {} }) {
+  ipcMain.handle('theia:install-mcp-clients', async () => {
+    const result = await installTheiaMcpClients({
+      homeDirectory,
+      pluginPath: resolve(root, '..', 'theia-buct-advisor', 'scripts', 'lite-mcp.mjs'),
+    })
+    void writeDiagnostic('mcp.client_setup_finished', {
+      pluginAvailable: result.pluginAvailable,
+      clients: result.clients.map((client) => ({ client: client.client, status: client.status, changed: client.changed })),
+    })
+    return result
+  })
+}
 
 export function registerUserDataIpc({ ipcMain, store }) {
   const committed = () => store.snapshotWithRevision
@@ -283,6 +298,48 @@ export function registerCourseSelectionIpc({
   ipcMain.handle('theia:stop-course-selection', () => {
     courseSelectionService.stop()
     return courseSelectionSnapshot()
+  })
+}
+
+export function registerMotionVenueIpc({
+  ipcMain,
+  adapter,
+  store,
+  cachedMotionVenueCatalog,
+  cacheMotionVenueCatalog,
+  cacheMotionVenueStatus,
+  sendSnapshot,
+  writeDiagnostic = () => {},
+}) {
+  ipcMain.handle('theia:get-motion-venue-catalog', () => cachedMotionVenueCatalog(store.snapshot().dataCatalog))
+  ipcMain.handle('theia:refresh-motion-venue-catalog', async () => {
+    const result = await adapter.discover()
+    await store.update((state) => ({
+      ...state,
+      dataCatalog: cacheMotionVenueCatalog(state.dataCatalog, result, result.capturedAt),
+    }))
+    sendSnapshot()
+    void writeDiagnostic('motion.venue_catalog_refreshed', {
+      pages: result.counts?.pages || 0,
+      venues: result.counts?.venues || 0,
+      errors: result.errors?.length || 0,
+    })
+    return cachedMotionVenueCatalog(store.snapshot().dataCatalog)
+  })
+  ipcMain.handle('theia:query-motion-venue-status', async (_event, query) => {
+    const result = await adapter.queryStatus(query || {})
+    await store.update((state) => ({
+      ...state,
+      dataCatalog: cacheMotionVenueStatus(state.dataCatalog, result, result.capturedAt),
+    }))
+    sendSnapshot()
+    void writeDiagnostic('motion.venue_status_queried', {
+      date: result.query?.date || null,
+      venue: result.query?.venue || null,
+      requestedPageCount: result.safety?.requestedPageCount || 0,
+      totalMs: result.timing?.totalMs || null,
+    })
+    return result
   })
 }
 

@@ -72,4 +72,8 @@ API 未启用或未配置凭据时使用浏览器通道。API 已启用且配置
 
 ## 发布判断
 
+### 发布包体约束
+
+所有 Windows 发布包都遵循 `package.json` 中的构建配置：仅保留 `zh-CN` Electron 语言包，排除第三方 `.map` 调试映射；仅在 React/Vite 渲染层使用的 `react`、`react-dom`、`lucide-react`、`radix-ui`、`class-variance-authority`、`clsx` 与 `tailwind-merge` 必须保持在 `devDependencies`，不得重新进入桌面运行时依赖。新增主进程、preload 或 `core/` 运行时依赖时，再按实际引用将其列入 `dependencies`。
+
 构建成功不等于发布完成。发布前至少完成测试、lint、build、安装器与源码包生成和打包版 smoke，并核对版本、图标、启动、preload、本机 API、旧数据读取以及两类产物未混入开发缓存或真实用户数据。源码包使用显式白名单并包含 `SOURCE-MANIFEST.json`；实际产物名称、大小和 SHA-256 应从本次构建结果读取，不沿用旧文档数字。

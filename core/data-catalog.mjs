@@ -4,6 +4,7 @@ export const LOCAL_DATA_SCHEMA = 'theia-local-data/v1'
 export const FITNESS_PARSER_VERSION = 'tygl-fitness/v1'
 export const SCHOOL_SCHEDULE_PARSER_VERSION = 'jwglxt-school-schedule/v8'
 export const ACADEMIC_CALENDAR_ASSETS_PARSER_VERSION = 'academic-calendar-assets/v1'
+export const MOTION_VENUE_PARSER_VERSION = 'motion-venue/v1'
 
 const FITNESS_YEAR = /^20\d{2}-20\d{2}_\d+$/
 const TERM_ID = /^20\d{2}-(?:3|12|16)$/
@@ -11,6 +12,9 @@ const FITNESS_FIELDS = [
   'vitality', 'run50', 'flex', 'jump', 'strength', 'endureSecs', 'heightCm', 'weightKg',
 ]
 const SCHOOL_SCHEDULE_ITEM_LIMIT = 10_000
+const MOTION_VENUE_LIMIT = 500
+const MOTION_STATUS_CELL_LIMIT = 20_000
+const MOTION_BASE_URL = 'https://motion.buct.edu.cn/changguanyuyue1/'
 
 function iso(value) {
   const time = new Date(value || '').getTime()
@@ -90,6 +94,117 @@ function schoolScheduleKey(scope) {
   return [scope.termId, scope.keyword, scope.teacher, scope.department, scope.category, scope.nature, scope.format, scope.affiliation]
     .map((value) => encodeURIComponent(value || ''))
     .join('|')
+}
+
+function motionVenueText(value, maximum = 240) {
+  return value === null || value === undefined ? null : String(value).replace(/\s+/gu, ' ').trim().slice(0, maximum) || null
+}
+
+function motionCampus(value) {
+  if (!value || typeof value !== 'object') return null
+  const id = ['changping', 'east', 'unknown'].includes(String(value.id)) ? String(value.id) : null
+  const label = motionVenueText(value.label, 80)
+  return id && label ? { id, label } : null
+}
+
+function motionVenue(value) {
+  if (!value || typeof value !== 'object') return null
+  const id = motionVenueText(value.id, 160)
+  const detailUrl = motionVenueText(value.detailUrl, 800)
+  const campus = motionCampus({ id: value.campusId, label: value.campusLabel })
+  const activity = motionVenueText(value.activity, 120)
+  if (!id || !detailUrl || !campus || !activity) return null
+  return {
+    id,
+    campusId: campus.id,
+    campusLabel: campus.label,
+    activity,
+    label: motionVenueText(value.label, 120) || activity,
+    detailUrl,
+  }
+}
+
+function motionStatus(value) {
+  if (!value || typeof value !== 'object') return null
+  const query = value.query && typeof value.query === 'object' ? value.query : {}
+  const detailUrl = motionVenueText(query.detailUrl, 800)
+  const date = motionVenueText(query.date, 32)
+  const venue = motionVenueText(query.venue, 120)
+  if (!detailUrl || !date || !venue) return null
+  const tables = (Array.isArray(value.availability?.tables) ? value.availability.tables : [])
+    .slice(0, 200)
+    .map((table, index) => {
+      const slots = (Array.isArray(table?.slots) ? table.slots : []).slice(0, 500).map((slot) => {
+        const time = motionVenueText(slot?.time, 40)
+        const courts = (Array.isArray(slot?.courts) ? slot.courts : []).slice(0, MOTION_STATUS_CELL_LIMIT).map((cell) => {
+          const court = motionVenueText(cell?.court, 120)
+          const status = motionVenueText(cell?.status, 500)
+          const state = ['available', 'occupied', 'closed', 'expired', 'selected', 'unknown'].includes(cell?.state) ? cell.state : 'unknown'
+          return court && status ? { court, status, state } : null
+        }).filter(Boolean)
+        return time && courts.length ? { time, courts } : null
+      }).filter(Boolean)
+      if (!slots.length) return null
+      const rawHeaders = (Array.isArray(table?.headers) ? table.headers : [])
+        .map((header) => motionVenueText(header, 120))
+        .filter(Boolean)
+      const slotTimes = new Set(slots.map((slot) => slot.time))
+      const slotStatuses = new Set(slots.flatMap((slot) => slot.courts.map((cell) => cell.status)))
+      const firstHeader = rawHeaders[0] && !slotTimes.has(rawHeaders[0]) && !slotStatuses.has(rawHeaders[0])
+        ? rawHeaders[0]
+        : '时间\\场地'
+      const courtHeaders = [...new Set(slots.flatMap((slot) => slot.courts.map((cell) => cell.court)))]
+      return {
+        index: Number.isInteger(table?.index) ? table.index : index,
+        headers: [firstHeader, ...(courtHeaders.length ? courtHeaders : rawHeaders.slice(1).filter((header) => !slotTimes.has(header) && !slotStatuses.has(header)))].slice(0, 500),
+        slots,
+        summary: table.summary && typeof table.summary === 'object' ? table.summary : null,
+      }
+    }).filter(Boolean)
+  return {
+    schema: 'theia-motion-venue-status/v1',
+    parserVersion: MOTION_VENUE_PARSER_VERSION,
+    capturedAt: iso(value.capturedAt),
+    source: {
+      platform: 'MOTION',
+      accessMode: 'public-anonymous-get',
+      url: motionVenueText(value.source?.url, 800),
+      queryUrl: motionVenueText(value.source?.queryUrl, 800),
+      method: 'GET',
+    },
+    query: {
+      activity: motionVenueText(query.activity, 120),
+      campus: motionCampus(query.campus),
+      detailUrl,
+      date,
+      venue,
+      availableDates: (Array.isArray(query.availableDates) ? query.availableDates : []).map((item) => motionVenueText(item, 32)).filter(Boolean).slice(0, 100),
+      availableVenues: (Array.isArray(query.availableVenues) ? query.availableVenues : []).map((item) => motionVenueText(item, 120)).filter(Boolean).slice(0, MOTION_VENUE_LIMIT),
+    },
+    availability: {
+      tables,
+      summary: value.availability?.summary && typeof value.availability.summary === 'object' ? value.availability.summary : null,
+    },
+    safety: {
+      onlyRead: true,
+      requestedMethods: ['GET'],
+      requestedPageCount: value.safety?.requestedPageCount === 2 ? 2 : 1,
+      submittedForms: 0,
+      executedBookingActions: 0,
+      credentialsOrCookiesSupplied: false,
+      rawBodyPersisted: false,
+    },
+    timing: {
+      totalMs: Number.isFinite(value.timing?.totalMs) ? Math.max(0, Number(value.timing.totalMs)) : null,
+      initialRequestMs: Number.isFinite(value.timing?.initialRequestMs) ? Math.max(0, Number(value.timing.initialRequestMs)) : null,
+      selectedRequestMs: Number.isFinite(value.timing?.selectedRequestMs) ? Math.max(0, Number(value.timing.selectedRequestMs)) : null,
+      selectedPageFetched: value.timing?.selectedPageFetched === true,
+    },
+  }
+}
+
+function motionStatusKey(query) {
+  return [query?.detailUrl, query?.date, query?.venue].map((value) => encodeURIComponent(String(value || ''))).join('|')
 }
 
 // A term is the cache boundary. Search conditions are deliberately not part of
@@ -178,6 +293,14 @@ export function emptyDataCatalog() {
         analysis: null,
         analysisError: null,
       },
+      venueReservations: {
+        source: MOTION_BASE_URL,
+        parserVersion: MOTION_VENUE_PARSER_VERSION,
+        lastRefreshedAt: null,
+        campuses: [],
+        venues: [],
+        statuses: {},
+      },
     },
   }
 }
@@ -204,6 +327,7 @@ export function normalizeDataCatalog(value) {
   const fitnessSource = source.collections?.fitness
   const schoolScheduleSource = source.collections?.schoolSchedule
   const academicCalendarSource = source.collections?.academicCalendar
+  const venueSource = source.collections?.venueReservations
 
   const availableYears = [...new Map(
     (Array.isArray(fitnessSource?.availableYears) ? fitnessSource.availableYears : [])
@@ -265,6 +389,36 @@ export function normalizeDataCatalog(value) {
     }
   }
 
+  const venueCampuses = [...new Map(
+    (Array.isArray(venueSource?.campuses) ? venueSource.campuses : [])
+      .map(motionCampus)
+      .filter(Boolean)
+      .map((campus) => [campus.id, { ...campus, venueIds: [] }]),
+  ).values()]
+  const venueList = (Array.isArray(venueSource?.venues) ? venueSource.venues : [])
+    .map(motionVenue)
+    .filter(Boolean)
+    .slice(0, MOTION_VENUE_LIMIT)
+  const campusById = new Map(venueCampuses.map((campus) => [campus.id, campus]))
+  for (const venue of venueList) {
+    const campus = campusById.get(venue.campusId)
+    if (campus && !campus.venueIds.includes(venue.id)) campus.venueIds.push(venue.id)
+  }
+  const venueStatuses = {}
+  for (const entry of Object.values(venueSource?.statuses || {})) {
+    const normalized = motionStatus(entry?.result || entry)
+    if (!normalized) continue
+    const key = motionStatusKey(normalized.query)
+    venueStatuses[key] = {
+      id: `motion-status:${key}`,
+      scope: { detailUrl: normalized.query.detailUrl, date: normalized.query.date, venue: normalized.query.venue },
+      capturedAt: normalized.capturedAt,
+      source: MOTION_BASE_URL,
+      parserVersion: MOTION_VENUE_PARSER_VERSION,
+      result: normalized,
+    }
+  }
+
   return {
     schema: LOCAL_DATA_SCHEMA,
     updatedAt: iso(source.updatedAt),
@@ -291,6 +445,14 @@ export function normalizeDataCatalog(value) {
         calendarError: catalogText(academicCalendarSource?.calendarError, 300),
         analysis: catalogAnalysis(academicCalendarSource?.analysis),
         analysisError: catalogText(academicCalendarSource?.analysisError, 300),
+      },
+      venueReservations: {
+        source: MOTION_BASE_URL,
+        parserVersion: MOTION_VENUE_PARSER_VERSION,
+        lastRefreshedAt: iso(venueSource?.lastRefreshedAt),
+        campuses: venueCampuses,
+        venues: venueList,
+        statuses: venueStatuses,
       },
     },
   }
@@ -450,5 +612,86 @@ export function schoolScheduleCacheSummary(catalog) {
     records: Object.values(schedule.records)
       .sort((left, right) => String(right.capturedAt || '').localeCompare(String(left.capturedAt || '')))
       .map((record) => ({ id: record.id, scope: record.scope, capturedAt: record.capturedAt, total: record.total, count: record.items.length, complete: record.complete === true })),
+  }
+}
+
+export function cacheMotionVenueCatalog(catalog, value, capturedAt = value?.capturedAt || new Date().toISOString()) {
+  const next = normalizeDataCatalog(catalog)
+  const source = value && typeof value === 'object' ? value : {}
+  const campuses = [...new Map(
+    (Array.isArray(source.campuses) ? source.campuses : []).map(motionCampus).filter(Boolean).map((campus) => [campus.id, { ...campus, venueIds: [] }]),
+  ).values()]
+  const venues = (Array.isArray(source.venues) ? source.venues : []).map(motionVenue).filter(Boolean).slice(0, MOTION_VENUE_LIMIT)
+  const campusById = new Map(campuses.map((campus) => [campus.id, campus]))
+  for (const venue of venues) {
+    const campus = campusById.get(venue.campusId)
+    if (campus && !campus.venueIds.includes(venue.id)) campus.venueIds.push(venue.id)
+  }
+  const timestamp = iso(capturedAt) || new Date().toISOString()
+  next.collections.venueReservations = {
+    ...next.collections.venueReservations,
+    source: MOTION_BASE_URL,
+    parserVersion: MOTION_VENUE_PARSER_VERSION,
+    lastRefreshedAt: timestamp,
+    campuses,
+    venues,
+  }
+  next.updatedAt = timestamp
+  return next
+}
+
+export function cacheMotionVenueStatus(catalog, value, capturedAt = value?.capturedAt || new Date().toISOString()) {
+  const next = normalizeDataCatalog(catalog)
+  const result = motionStatus(value)
+  if (!result) return next
+  const timestamp = iso(capturedAt) || result.capturedAt || new Date().toISOString()
+  const key = motionStatusKey(result.query)
+  next.collections.venueReservations.statuses[key] = {
+    id: `motion-status:${key}`,
+    scope: { detailUrl: result.query.detailUrl, date: result.query.date, venue: result.query.venue },
+    capturedAt: timestamp,
+    source: MOTION_BASE_URL,
+    parserVersion: MOTION_VENUE_PARSER_VERSION,
+    result: { ...result, capturedAt: timestamp },
+  }
+  const statuses = Object.entries(next.collections.venueReservations.statuses)
+    .sort(([, left], [, right]) => String(right.capturedAt || '').localeCompare(String(left.capturedAt || '')))
+    .slice(0, MOTION_VENUE_LIMIT)
+  next.collections.venueReservations.statuses = Object.fromEntries(statuses)
+  next.collections.venueReservations.lastRefreshedAt = timestamp
+  next.updatedAt = timestamp
+  return next
+}
+
+export function cachedMotionVenueCatalog(catalog) {
+  const source = normalizeDataCatalog(catalog).collections.venueReservations
+  return {
+    source: source.source,
+    parserVersion: source.parserVersion,
+    lastRefreshedAt: source.lastRefreshedAt,
+    campuses: source.campuses,
+    venues: source.venues,
+  }
+}
+
+export function cachedMotionVenueStatus(catalog, query = {}) {
+  const source = normalizeDataCatalog(catalog).collections.venueReservations
+  const detailUrl = motionVenueText(query.detailUrl, 800)
+  const date = motionVenueText(query.date, 32)
+  const venue = motionVenueText(query.venue, 120)
+  const key = detailUrl && date && venue ? motionStatusKey({ detailUrl, date, venue }) : null
+  const record = key ? source.statuses[key] : Object.values(source.statuses)[0]
+  return record ? { ...record.result, cachedAt: record.capturedAt, fromCache: true } : null
+}
+
+export function motionVenueCacheSummary(catalog) {
+  const source = normalizeDataCatalog(catalog).collections.venueReservations
+  return {
+    source: source.source,
+    parserVersion: source.parserVersion,
+    lastRefreshedAt: source.lastRefreshedAt,
+    campuses: source.campuses.length,
+    venues: source.venues.length,
+    statuses: Object.keys(source.statuses).length,
   }
 }

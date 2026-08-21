@@ -44,13 +44,15 @@ fallback 只接受 `theia-campus-data/v1`，输出会标记 `mode: "lite-fallbac
 
 修改客户端 MCP 配置后请重启 Codex 或 Claude Code；THEIA 的 API 端口是动态发现的，不要把当前 `8765/8766` 端口写死到客户端配置中。
 
+THEIA 桌面端也可以在“设置 -> 数据与接口 -> Codex 与 Claude Code”点击“一键添加 MCP”。它会优先更新当前 Windows 用户的标准 Codex 配置和 Claude Code 用户配置，只改名为 `theia` 的服务器项，并在改写已有配置前创建同目录备份。未检测到客户端或轻量插件目录时不会写入配置。
+
 规范化校园 Feed 位于 `GET /v1/feed`，使用 `theia-campus-feed/v1` Schema。`GET /v1/snapshot` 提供完整本地状态，但排除凭据与浏览器会话。
 
 只读 API 表面有意保持精简和稳定：
 
 - `GET /v1/health`、`/v1/profile`、`/v1/sync` 和 `/v1/collections`
 - `GET /v1/terms`、`/v1/courses`、`/v1/schedule`、`/v1/exams`、`/v1/grades`、`/v1/selected-courses`、`/v1/assignments`、`/v1/workspaces`、`/v1/notices` 和 `/v1/emails`
-- `GET /v1/academic-progress`、`/v1/academic-analysis`、`/v1/fitness?year=...`、`/v1/school-schedule?termId=...&keyword=...` 和 `/v1/data-catalog`
+- `GET /v1/academic-progress`、`/v1/academic-analysis`、`/v1/fitness?year=...`、`/v1/school-schedule?termId=...&keyword=...`、`/v1/venue-catalog`、`/v1/venue-status?...` 和 `/v1/data-catalog`
 - `GET /v1/academic-extras/{domain}` 返回单个 JWGLXT 扩展域的表格响应（列定义、完整性、查询统计和记录）；可追加 `?q=关键词&limit=...&since=...`。`/v1/academic-extras` 仍保留为兼容的全域元数据入口。
 - 用于互操作导出的 `GET /v1/{collection}.csv` 和 `/v1/calendar.ics`
 

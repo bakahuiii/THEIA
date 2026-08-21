@@ -13,7 +13,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import campusMap from "../assets/theia-changping-campus-map.jpg";
-import satelliteMap from "../assets/theia-changping-campus-satellite-mercator.png";
+import satelliteMap from "../assets/theia-changping-campus-satellite-mercator.webp";
 
 type MapLayer = "campus" | "satellite";
 type MapPosition = { x: number; y: number };
