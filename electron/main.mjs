@@ -5091,8 +5091,26 @@ if (theolMobileDiagnosticOutput) {
   })
 } else {
   const lock = app.requestSingleInstanceLock()
-  if (!lock) app.quit()
-  else migrateFromLegacyDir().then(() => app.whenReady()).then(async () => {
+  if (!lock) {
+    console.error('[THEIA] Single instance lock failed - another instance is already running')
+    app.whenReady().then(() => {
+      dialog.showErrorBoxSync(
+        'THEIA 已在运行',
+        'THEIA 的另一个实例正在运行。\n\n' +
+        '如果您确认没有打开其他 THEIA 窗口，可能是进程残留导致的。\n\n' +
+        '解决方法：\n' +
+        '1. 打开任务管理器（Ctrl+Shift+Esc）\n' +
+        '2. 在"进程"选项卡中找到并结束所有 THEIA 进程\n' +
+        '3. 重新启动 THEIA\n\n' +
+        '或运行安装目录下的 fix-theia-startup.bat 自动修复。'
+      )
+      app.quit()
+    })
+
+  }
+  
+  console.log('[THEIA] Single instance lock acquired, starting application...')
+  migrateFromLegacyDir().then(() => app.whenReady()).then(async () => {
     Menu.setApplicationMenu(null)
     registerLocalProtocols()
     if (liveCaptureOutput) {
@@ -5115,7 +5133,17 @@ if (theolMobileDiagnosticOutput) {
     app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) void createMainWindow() })
   }).catch((error) => {
     console.error('[THEIA] startup failed', error)
-    app.quit()
+    app.whenReady().then(() => {
+      dialog.showErrorBoxSync(
+        'THEIA 启动失败',
+        `启动时发生错误：\n\n${error.message || error}\n\n` +
+        '请尝试：\n' +
+        '1. 运行 fix-theia-startup.bat 清理残留文件\n' +
+        '2. 检查 %APPDATA%\\THEIA 目录权限\n' +
+        '3. 查看该目录下的日志文件获取详细信息'
+      )
+      app.quit()
+    }).catch(() => app.quit())
   })
 }
 
