@@ -1,10 +1,10 @@
 # THEIA
 
-> THEIA v0.5.0 是面向北京化工大学学生的本地优先 Windows 校园工作台。
+> THEIA v0.5.1 是面向北京化工大学学生的本地优先 Windows 校园工作台。
 
 THEIA 把教务系统、北化在线 THEOL、校园邮箱和本地学习工具放到同一个桌面应用中。它负责读取、整理、计算、提醒和准备操作；学校系统中的最终提交、选课决定和成绩认定仍由用户确认。
 
-[下载 Windows x64 v0.5.0](https://github.com/bakahuiii/THEIA/releases/tag/v0.5.0) · [用户指南](docs/guides/USER_GUIDE.md) · [发行说明](docs/releases/v0.5.0.md)
+[下载 Windows x64 v0.5.1](https://github.com/bakahuiii/THEIA/releases/tag/v0.5.1) · [用户指南](docs/guides/USER_GUIDE.md) · [发行说明](docs/releases/v0.5.1.md)
 
 ## 你可以用它做什么
 
@@ -16,13 +16,16 @@ THEIA 把教务系统、北化在线 THEOL、校园邮箱和本地学习工具�
 - **课程与抢课**：读取教学班和全校课表，保存明确选择的目标，并在用户启动的时间窗口内执行有限尝试。不会自动退课、评教或提交其它学校业务。
 - **通知与邮箱**：集中查看教务通知、THEOL 通知和校园邮箱；邮件正文按需读取，附件仍由用户决定是否打开。
 - **学习工具**：校历与教学进程、官方培养计划、空闲教室、体测评分、MOTION 场馆状态、学业预警、创新学分、第二课堂和昌平校区地图。
+- **Iris（QQ 伴侣）**：可选的本地 QQ 桌面伴侣，用文字或图片回答教室空闲、场馆状态等校园查询，并支持 Codex / Claude Code 等桌面 Agent 桥接。
 - **外观**：主题、缩放、3D 背景、动效、色板和渐变映射都可以在“设置与接入”中调整并保存在本机。
+
+启动时会出现 THEIA 品牌加载画面，随后自动切换为主界面；校历、培养计划等离线资产在后台刷新，不阻塞窗口出现。
 
 ## 第一次使用
 
 THEIA 的完整功能需要桌面客户端。纯浏览器预览只用于查看前端，不能提供学校认证、Windows 加密存储、文件选择、内置浏览器或本地模型密钥能力。
 
-1. 从 [v0.5.0 Release](https://github.com/bakahuiii/THEIA/releases/tag/v0.5.0) 下载并安装 Windows x64 安装包。
+1. 从 [v0.5.1 Release](https://github.com/bakahuiii/THEIA/releases/tag/v0.5.1) 下载并安装 Windows x64 安装包。
 2. 启动后在“统一身份认证”中保存学校账号。CAS 登录后，THEIA 会分别检查教务系统（JWGLXT）和北化在线 THEOL 的会话，顶部会独立显示两个来源的状态；一个来源失败不会把另一个来源的成功结果清空。
 3. 点击同步。首次同步后，课表、考试、成绩、学业进度、课程、作业和通知会按来源逐步出现；短暂的单域失败会保留上一次有效的本地结果。
 4. 如果要使用“学业顾问”，打开“设置与接入 -> 模型服务”，选择协议、填写服务地址、API Key 和模型 ID，先检测连接再保存。支持 OpenAI Responses、Anthropic Messages、Gemini GenerateContent 和 Ollama Chat。
@@ -78,6 +81,11 @@ GET /v1/emails
 GET /v1/calendar.ics
 GET /v1/venue-catalog
 GET /v1/venue-status?detailUrl=<详情页>&date=YYYY-MM-DD&venue=<场馆组>
+GET /v1/venue-statuses?activity=<项目>&date=YYYY-MM-DD
+GET /v1/motion-table-image?activity=<项目>&date=YYYY-MM-DD
+GET /v1/free-classroom-image?periods=<节次>&weekdays=<星期>&termId=<学期ID>
+GET /v1/table-image?domain=<域>&title=<标题>&limit=<行数>
+GET /v1/school-schedule?keyword=<课程>&termId=<学期ID>&page=<页>&pageSize=<每页数>
 ```
 
 仓库还提供标准 MCP stdio 桥接 [integration/theia-mcp.mjs](integration/theia-mcp.mjs)。它复用 Agent 的脱敏和工具白名单，只暴露当前快照的只读投影，不暴露凭据、Cookie、浏览器会话、任意网络或学校侧写入。完整配置见[本地数据接口](integration/README.md)。
@@ -138,7 +146,7 @@ npm run cli -- work show <assignment-id>
 
 ## 发布说明
 
-v0.5.0 的 Windows 安装包当前未配置可公开验证的 Authenticode 证书，Windows 可能显示未知发布者或 SmartScreen 提示。安装前请核对 Release 页面提供的 SHA-256；安装包、源码归档和 blockmap 的校验值记录在 [v0.5.0 发行说明](docs/releases/v0.5.0.md) 中。
+v0.5.1 的 Windows 安装包当前未配置可公开验证的 Authenticode 证书，Windows 可能显示未知发布者或 SmartScreen 提示。安装前请核对 Release 页面提供的 SHA-256；安装包、源码归档和 blockmap 的校验值记录在 [v0.5.1 发行说明](docs/releases/v0.5.1.md) 中。
 
 ## 许可
 
