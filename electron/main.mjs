@@ -12,12 +12,21 @@ import { AcademicApiFirstAdapter } from '../core/academic-api-adapter.mjs'
 import { AcademicApiClient } from '../core/academic-api-client.mjs'
 import { TheolAdapter, THEOL_URLS } from '../core/adapters/theol.mjs'
 import { TyglAdapter, upgradeTyglRedirectUrl } from '../core/adapters/tygl.mjs'
+import { MotionVenueAdapter } from '../core/adapters/motion.mjs'
 import { SyncService } from '../core/sync-service.mjs'
 import { startLocalApi } from '../core/local-api.mjs'
 import { AcademicCalendarAssetsService } from '../core/academic-calendar-assets.mjs'
 import { probeAcademicCalendarOcrRuntime } from '../core/academic-calendar-ocr.mjs'
 import { collectionCsv, toTheiaFeed, toIcs } from '../core/schema.mjs'
-import { cachedFitnessResult, cachedSchoolScheduleResult, SCHOOL_SCHEDULE_PARSER_VERSION } from '../core/data-catalog.mjs'
+import {
+  cachedFitnessResult,
+  cachedSchoolScheduleResult,
+  SCHOOL_SCHEDULE_PARSER_VERSION,
+  cachedMotionVenueCatalog,
+  cacheMotionVenueCatalog,
+  cacheMotionVenueStatus,
+  motionVenueCacheSummary,
+} from '../core/data-catalog.mjs'
 import {
   failAcademicCalendarCatalog,
   failFitnessCatalog,
@@ -50,6 +59,7 @@ import {
   permittedSourceUrl,
 } from '../core/source-url-policy.mjs'
 import { renderMarkdownToPdf } from './pdf-renderer.mjs'
+import { renderHtmlToPng } from './table-renderer.mjs'
 import { updateSettingsTransaction } from '../core/settings-transaction.mjs'
 import { normalizeModelServiceBaseUrl } from '../core/model-url-policy.mjs'
 import { normalizeModelProvider } from '../core/model-provider-policy.mjs'
@@ -69,6 +79,7 @@ import {
   registerCourseSelectionIpc,
   registerCourseWorkQueueIpc,
   registerMailboxIpc,
+  registerMotionVenueIpc,
   registerModelRuntimeIpc,
   registerWindowIpc,
   registerUserDataIpc,
@@ -78,7 +89,9 @@ import { BACKGROUND_PROTOCOL, createAppearanceService } from './appearance-servi
 import { createAuthActorManager } from './auth-actor-manager.mjs'
 import { CourseWorkQueue } from '../core/course-work-queue.mjs'
 import { JwglxtAttachmentStore } from '../core/jwglxt-attachment-store.mjs'
+import { THEOL_ATTACHMENT_MAX_BYTES, TheolAttachmentStore } from '../core/theol-attachment-store.mjs'
 import { academicPlanDocumentMatches, buildAcademicPlanDocument } from '../core/academic-plan-document.mjs'
+import { IrisCompanion } from './iris-companion.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const PARTITION = 'persist:theia'
@@ -167,11 +180,13 @@ function registerLocalProtocols() {
 }
 
 let mainWindow
+let splashWindow
 let mainEntryUrl
 let viteServer
 let localApi
 let store
 let syncService
+let motionVenueAdapter
 let sessionClient
 let academicSessionClient
 let schoolSession
@@ -190,9 +205,11 @@ let advisorThreadStore
 let advisorUpgradeRule = null
 let courseSelectionService
 let courseSelectionJournal
-let courseSelectionApiClient
 let academicCalendarAssetsService
 let academicAttachmentStore
+let theolAttachmentStore
+let irisCompanion
+let irisControlWindow
 let academicCalendarProbeTimer
 // A calendar refresh may run while the renderer is starting. Keep the
 // in-flight promise visible so consumers can wait for the first authoritative
@@ -452,6 +469,7 @@ const SYNC_DOMAIN_TARGETS = Object.freeze({
   'jwglxt-courses': { source: 'jwglxt', domain: 'courses' },
   'jwglxt-notices': { source: 'jwglxt', domain: 'notices' },
   'theol-courses': { source: 'theol', domain: 'courses' },
+  'theol-course-details': { source: 'theol', domain: 'course-details' },
   'theol-notices': { source: 'theol', domain: 'notices' },
   'academic-extras': { source: 'jwglxt', domain: 'academic-extras' },
   ...Object.fromEntries(JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES.map((domain) => [domain, { source: 'jwglxt', domain }])),
@@ -482,6 +500,9 @@ const STATIC_ACADEMIC_PREFETCH_DOMAINS = Object.freeze(['academic-plan'])
 const ACADEMIC_STATIC_PREFETCH_DELAY_MS = 3_000
 let academicStaticPrefetchTimer = null
 let academicStaticPrefetchInFlight = null
+const THEOL_COURSE_DETAILS_PREFETCH_DELAY_MS = 2_500
+let theolCourseDetailsPrefetchTimer = null
+let theolCourseDetailsPrefetchInFlight = null
 
 function syncForegroundCampusData() {
   const startedAt = Date.now()
@@ -499,6 +520,7 @@ function syncForegroundCampusData() {
     // makes the IPC request itself authoritative even if a renderer missed the
     // final progress notification during startup.
     sendSnapshot()
+    scheduleTheolCourseDetailsPrefetch({ reason: 'foreground_sync' })
     await writeDiagnostic('sync.foreground_finished', {
       elapsedMs: Date.now() - startedAt,
       runId: snapshot.sync?.runId || null,
@@ -613,6 +635,31 @@ function scheduleAcademicStaticPrefetch({ reason = 'authenticated' } = {}) {
       .catch((error) => writeDiagnostic('sync.static_prefetch_failed', { reason, error: diagnosticError(error) }))
       .finally(() => { academicStaticPrefetchInFlight = null })
   }, ACADEMIC_STATIC_PREFETCH_DELAY_MS)
+}
+
+async function prefetchTheolCourseDetails({ reason = 'authenticated' } = {}) {
+  if (!syncService || explicitlyLoggedOut || !verifiedSessions.theol) return
+  if (!(await waitForSyncIdle())) {
+    void writeDiagnostic('sync.course_details_prefetch_deferred', { reason, cause: 'foreground_sync_active' })
+    return
+  }
+  if (!store.snapshot().courses.some((item) => item?.source === 'theol')) return
+  try {
+    void writeDiagnostic('sync.course_details_prefetch_started', { reason })
+    await syncService.syncNow({ sources: ['theol'], domains: ['course-details'] })
+    void writeDiagnostic('sync.course_details_prefetch_finished', { reason })
+  } catch (error) {
+    void writeDiagnostic('sync.course_details_prefetch_failed', { reason, error: diagnosticError(error) })
+  }
+}
+
+function scheduleTheolCourseDetailsPrefetch({ reason = 'authenticated' } = {}) {
+  if (theolCourseDetailsPrefetchTimer || theolCourseDetailsPrefetchInFlight || explicitlyLoggedOut) return
+  theolCourseDetailsPrefetchTimer = setTimeout(() => {
+    theolCourseDetailsPrefetchTimer = null
+    theolCourseDetailsPrefetchInFlight = prefetchTheolCourseDetails({ reason })
+      .finally(() => { theolCourseDetailsPrefetchInFlight = null })
+  }, THEOL_COURSE_DETAILS_PREFETCH_DELAY_MS)
 }
 
 const ipcMain = createTrustedIpc({
@@ -912,6 +959,10 @@ let feedWrite = Promise.resolve()
 let explicitlyLoggedOut = false
 let authEpoch = 0
 const AUTH_SOURCES = ['jwglxt', 'theol', 'tygl']
+function isTrustedBuctAuthHostname(value) {
+  const hostname = String(value || '').trim().toLowerCase()
+  return hostname === 'buct.edu.cn' || hostname.endsWith('.buct.edu.cn')
+}
 let theolInteractiveActor = null
 const authRecovery = Object.fromEntries(AUTH_SOURCES.map((source) => [source, {
   lastAt: 0,
@@ -932,6 +983,12 @@ const AUTH_RECOVERY_MAX_ATTEMPTS = 3
 // A saved-password background login should be invisible when healthy, but a
 // broken/changed CAS page must hand control back to the user promptly.
 const AUTH_BACKGROUND_TIMEOUT_MS = 20_000
+// The central CAS page loads its flow key and SM2 public key asynchronously.
+// Give the iframe enough time to become ready, but submit a saved password only
+// once per login window. CAS treats overlapping password posts as a reused or
+// invalid flow and responds with the unhelpful 999999 error.
+const AUTH_CREDENTIAL_RETRY_DELAYS_MS = Object.freeze([0, 300, 800, 1_500, 2_500, 4_000, 6_000, 9_000, 13_000])
+const AUTH_CREDENTIAL_MAX_SUBMISSIONS = 1
 // CAS invalidates or overwrites the shared browser session when two campus
 // entry points authenticate at once. The actor manager serializes lifecycles
 // globally while keeping source-specific browser behavior in this process.
@@ -953,6 +1010,10 @@ const authActorManager = createAuthActorManager({
     pollActive: false,
     timeoutTimer: null,
     credentialTimers: new Set(),
+    credentialSubmitCount: 0,
+    authDebuggerPromise: null,
+    authDebuggerAttached: false,
+    authDebuggerRequests: new Map(),
     lastPollError: null,
     resumeAssignments: null,
     sessionReused: false,
@@ -1069,21 +1130,6 @@ function writeDiagnostic(event, fields = {}) {
   return diagnosticWrite
 }
 
-async function courseSelectionApiSession({ refresh = false } = {}) {
-  if (!store?.snapshot().settings.academicApiEnabled) {
-    throw new Error('请先在“数据与接口”中启用教务系统 API，再使用 API 抢课')
-  }
-  if (!refresh && courseSelectionApiClient) return courseSelectionApiClient
-  const credentials = await academicApiVault?.readCredentials()
-  if (!credentials) throw new Error('请先在“数据与接口”中保存教务系统 API 账号和密码')
-  const client = new AcademicApiClient(credentials)
-  const startedAt = Date.now()
-  await client.login()
-  courseSelectionApiClient = client
-  void writeDiagnostic('course_selection.api_session_ready', { elapsedMs: Date.now() - startedAt })
-  return client
-}
-
 function queueTheiaFeed(snapshot) {
   const destination = resolve(app.getPath('userData'), 'theia-feed.json')
   const content = `${JSON.stringify(toTheiaFeed(snapshot), null, 2)}\n`
@@ -1112,6 +1158,16 @@ async function recentActivityLog(limit = 80) {
       return []
     }
   }).reverse()
+}
+
+// Startup-phase timing helper. Each step returns a fresh start timestamp so
+// callers can chain `step = logStartupStep('name', step)`. Durations land in
+// the diagnostics stream for post-mortem analysis of the black-screen window.
+function logStartupStep(name, startedAt) {
+  const elapsedMs = Date.now() - (startedAt || Date.now())
+  console.log(`[THEIA] startup ${name}: ${elapsedMs}ms`)
+  void writeDiagnostic('startup.step', { name, elapsedMs })
+  return Date.now()
 }
 
 async function finishSmoke(result) {
@@ -1174,6 +1230,7 @@ function courseSelectionSnapshot() {
     target: journal.target || null,
     targets: journal.targets || [],
     sentinel: journal.sentinel || { enabled: false, startAt: null, endAt: null, intervalMs: 3_000, concurrency: 2, completedTargetIds: [] },
+    history: journal.history || [],
     recordUpdatedAt: journal.updatedAt || null,
   }
 }
@@ -1544,6 +1601,20 @@ function sourceFromUrl(rawUrl) {
   if (hostname === 'course.buct.edu.cn') return 'theol'
   if (hostname === 'tygl.buct.edu.cn') return 'tygl'
   return null
+}
+
+function locateTheolCourseResource(courseId, resourceId) {
+  const id = String(courseId || '').trim()
+  const resourceKey = String(resourceId || '').trim()
+  if (!id || !resourceKey) throw new TypeError('THEOL 课程资源标识无效')
+  const course = store?.snapshot()?.courses?.find((item) => item?.source === 'theol' && String(item.id || '') === id)
+  if (!course) throw new Error('请先获取有效的北化在线THEOL课程')
+  const resource = (Array.isArray(course.courseResources) ? course.courseResources : [])
+    .find((item) => String(item?.id || '') === resourceKey || String(item?.sourceKey || '') === resourceKey)
+  if (!resource || resource.kind === 'folder') throw new Error('找不到可下载的THEOL课程文件')
+  const url = permittedSourceUrl(resource.url)
+  if (sourceFromUrl(url) !== 'theol') throw new Error('THEOL 课程资源地址无效')
+  return { course, resource: { ...resource, url } }
 }
 
 function loginTargetDetails(source) {
@@ -3197,12 +3268,239 @@ function removePendingSourceOpens(source) {
   }
 }
 
+function authEndpointPath(rawUrl) {
+  try {
+    return new URL(String(rawUrl || '')).pathname
+  } catch {
+    return ''
+  }
+}
+
+function isAuthEndpointUrl(rawUrl) {
+  return /\/cas\/(?:username-password\/login|info-query|api\/reset\/rules|captcha)(?:[/?#]|$)/i.test(authEndpointPath(rawUrl))
+}
+
+function authResponseSummary(payload) {
+  const data = payload?.data && typeof payload.data === 'object' ? payload.data : null
+  const typed = (value) => {
+    if (typeof value === 'string') return value.slice(0, 80)
+    if (value === null || value === undefined) return null
+    return typeof value
+  }
+  return {
+    dataKeys: data ? Object.keys(data).slice(0, 32) : [],
+    flowKeyPresent: Boolean(data?.flowKey),
+    servicePresent: data?.service !== undefined && data?.service !== null,
+    serviceType: data?.service === undefined || data?.service === null ? null : typeof data.service,
+    mfaType: typed(data?.mfa),
+    captchaType: typed(data?.captcha),
+  }
+}
+
+async function installAuthDebuggerDiagnostics(actor) {
+  const window = actor?.window
+  if (!isCurrentAuthActor(actor, window)) return
+  if (actor.authDebuggerPromise) return actor.authDebuggerPromise
+  actor.authDebuggerPromise = (async () => {
+    const debuggerApi = window.webContents?.debugger
+    if (!debuggerApi) return
+    try {
+      if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
+      const requests = actor.authDebuggerRequests
+      const current = () => isCurrentAuthActor(actor, window)
+      const responseFor = (requestId) => requests.get(String(requestId)) || null
+      const parsePayload = (body) => {
+        try {
+          const parsed = JSON.parse(String(body || ''))
+          if (typeof parsed === 'string') return parsePayload(parsed)
+          return parsed && typeof parsed === 'object' ? parsed : null
+        } catch { return null }
+      }
+      debuggerApi.on('message', async (_event, method, params) => {
+        if (!current()) return
+        if (method === 'Network.requestWillBeSent') {
+          const request = params?.request
+          const url = String(request?.url || '')
+          if (!isAuthEndpointUrl(url)) return
+          const requestHeaders = request?.headers && typeof request.headers === 'object' ? request.headers : {}
+          const xRequestedWith = Object.keys(requestHeaders).find((key) => key.toLowerCase() === 'x-requested-with')
+          const postData = String(request?.postData || '')
+          let parsedPostData = null
+          try { parsedPostData = JSON.parse(postData) } catch { /* form body is intentionally not retained */ }
+          const body = parsedPostData && typeof parsedPostData === 'object' ? parsedPostData : null
+          const keys = body ? Object.keys(body).slice(0, 32) : []
+          const passwordValue = typeof body?.password === 'string' ? body.password : ''
+          const flowKeyValue = typeof body?.flowKey === 'string' ? body.flowKey : ''
+          requests.set(String(params.requestId), {
+            url: authEndpointPath(url),
+            status: null,
+            method: String(request?.method || 'GET').toUpperCase(),
+            bodyKeys: keys,
+            bodyLength: postData.length || 0,
+            passwordLength: passwordValue.length || 0,
+            flowKeyPresent: Boolean(flowKeyValue),
+            flowKeyLength: flowKeyValue.length || 0,
+            xRequestedWith: Boolean(xRequestedWith),
+          })
+          void writeDiagnostic('auth.endpoint_request', {
+            source: actor.source,
+            url: authEndpointPath(url),
+            method: String(request?.method || 'GET').toUpperCase(),
+            bodyKeys: keys,
+            bodyLength: postData.length || 0,
+            passwordLength: passwordValue.length || 0,
+            flowKeyPresent: Boolean(flowKeyValue),
+            flowKeyLength: flowKeyValue.length || 0,
+            xRequestedWith: Boolean(xRequestedWith),
+          })
+          return
+        }
+        if (method === 'Network.responseReceived') {
+          const response = params?.response
+          const url = String(response?.url || '')
+          if (!isAuthEndpointUrl(url)) return
+          requests.set(String(params.requestId), {
+            ...(requests.get(String(params.requestId)) || {}),
+            url: authEndpointPath(url),
+            status: Number(response?.status) || null,
+          })
+          return
+        }
+        if (method === 'Network.loadingFailed') {
+          const request = responseFor(params?.requestId)
+          if (!request) return
+          requests.delete(String(params.requestId))
+          void writeDiagnostic('auth.endpoint_request_failed', {
+            source: actor.source,
+            url: request.url,
+            status: request.status,
+            method: request.method || null,
+            bodyKeys: request.bodyKeys || [],
+            bodyLength: request.bodyLength || 0,
+            passwordLength: request.passwordLength || 0,
+            flowKeyPresent: request.flowKeyPresent === true,
+            flowKeyLength: request.flowKeyLength || 0,
+            xRequestedWith: request.xRequestedWith === true,
+            error: String(params?.errorText || 'network failure').slice(0, 240),
+          })
+          return
+        }
+        if (method !== 'Network.loadingFinished') return
+        const requestId = String(params?.requestId || '')
+        const request = responseFor(requestId)
+        if (!request) return
+        requests.delete(requestId)
+        let payload = null
+        try {
+          const body = await debuggerApi.sendCommand('Network.getResponseBody', { requestId })
+          payload = parsePayload(body?.body)
+        } catch {
+          // The body may be evicted before DevTools asks for it. The status
+          // event below remains useful and never exposes request contents.
+        }
+        void writeDiagnostic('auth.endpoint_response', {
+          source: actor.source,
+          url: request.url,
+          status: request.status,
+          method: request.method || null,
+          bodyKeys: request.bodyKeys || [],
+          bodyLength: request.bodyLength || 0,
+          passwordLength: request.passwordLength || 0,
+          flowKeyPresent: request.flowKeyPresent === true,
+          flowKeyLength: request.flowKeyLength || 0,
+          xRequestedWith: request.xRequestedWith === true,
+          code: payload?.code ?? null,
+          msg: typeof payload?.msg === 'string' ? payload.msg.slice(0, 240) : null,
+          ...authResponseSummary(payload),
+        })
+      })
+      await debuggerApi.sendCommand('Network.enable')
+      actor.authDebuggerAttached = true
+      void writeDiagnostic('auth.network_probe_ready', { source: actor.source })
+    } catch (error) {
+      actor.authDebuggerPromise = null
+      if (current()) void writeDiagnostic('auth.network_probe_failed', { source: actor.source, error: diagnosticError(error) })
+    }
+  })()
+  return actor.authDebuggerPromise
+}
+
+async function installAuthNetworkDiagnostics(actor) {
+  const window = actor?.window
+  if (!isCurrentAuthActor(actor, window)) return
+  try {
+    // The CAS page performs its login through the top-level jQuery instance,
+    // while the username/password form lives in an iframe. Wrap only the
+    // response callbacks and retain status/code/message; never persist the
+    // request body or any credential-bearing headers.
+    await window.webContents.executeJavaScript(`(() => {
+      if (window.__theiaAuthAjaxProbe === true) return 'already-installed'
+      const ajax = window.jQuery?.ajax
+      if (typeof ajax !== 'function') return 'jquery-pending'
+      const pathOf = (value) => {
+        try {
+          const url = new URL(String(value || ''), location.href)
+          return url.pathname
+        } catch { return '[invalid-url]' }
+      }
+      const shouldProbe = (value) => /\\/(?:username-password\\/login|info-query|api\\/reset\\/rules|captcha)(?:[/?#]|$)/i.test(pathOf(value))
+      const report = (kind, url, data = {}) => {
+        try {
+          const payload = data?.payload && typeof data.payload === 'object' ? data.payload : null
+          const responseData = payload?.data && typeof payload.data === 'object' ? payload.data : null
+          const typed = (value) => {
+            if (typeof value === 'string') return value.slice(0, 80)
+            if (value === null || value === undefined) return null
+            return typeof value
+          }
+          const record = {
+            kind,
+            url: pathOf(url),
+            status: Number.isFinite(data?.status) ? data.status : null,
+            code: payload && Object.hasOwn(payload, 'code') ? payload.code : null,
+            msg: typeof payload?.msg === 'string' ? payload.msg.slice(0, 240) : null,
+            dataKeys: responseData ? Object.keys(responseData).slice(0, 32) : [],
+            flowKeyPresent: Boolean(responseData?.flowKey),
+            servicePresent: responseData?.service !== undefined && responseData?.service !== null,
+            serviceType: responseData?.service === undefined || responseData?.service === null ? null : typeof responseData.service,
+            mfaType: typed(responseData?.mfa),
+            captchaType: typed(responseData?.captcha),
+          }
+          console.info('__THEIA_AUTH_RESPONSE__' + JSON.stringify(record))
+        } catch {}
+      }
+      window.jQuery.ajax = function patchedAuthAjax(options, ...rest) {
+        const request = options && typeof options === 'object' ? { ...options } : options
+        const requestUrl = typeof request === 'string' ? request : request?.url
+        if (!shouldProbe(requestUrl) || !request || typeof request !== 'object') return ajax.call(this, options, ...rest)
+        const success = request.success
+        const error = request.error
+        request.success = function patchedAuthSuccess(payload, ...args) {
+          report('success', requestUrl, { payload })
+          return typeof success === 'function' ? success.call(this, payload, ...args) : undefined
+        }
+        request.error = function patchedAuthError(xhr, ...args) {
+          report('error', requestUrl, { status: Number(xhr?.status) || null })
+          return typeof error === 'function' ? error.call(this, xhr, ...args) : undefined
+        }
+        return ajax.call(this, request, ...rest)
+      }
+      window.__theiaAuthAjaxProbe = true
+      return 'installed'
+    })()`)
+  } catch (error) {
+    if (isCurrentAuthActor(actor, window)) {
+      void writeDiagnostic('auth.network_probe_failed', { source: actor.source, error: diagnosticError(error) })
+    }
+  }
+}
+
 async function autoFillSavedCredentials(actor) {
   const window = actor?.window
   if (!isCurrentAuthActor(actor, window)) return
   const { source, epoch } = actor
   const authFrames = window.webContents.mainFrame.framesInSubtree.filter((frame) => {
-    try { return new URL(frame.url).hostname === 'experimental-auth-endpoint.buct.edu.cn' }
+    try { return isTrustedBuctAuthHostname(new URL(frame.url).hostname) }
     catch { return false }
   })
   if (!authFrames.length) return
@@ -3211,13 +3509,37 @@ async function autoFillSavedCredentials(actor) {
   if (!isCurrentAuthActor(actor, window) || actor.epoch !== epoch) return
   if (!credentials) return
   const attemptKey = `${source}:unified:${credentials.updatedAt || ''}`
-  if (credentialAttempts.get(window.webContents.id) === attemptKey) return
-  // Mark the attempt before executing in the page. Multiple frame-load events
-  // can otherwise submit the same central-authentication form concurrently.
-  credentialAttempts.set(window.webContents.id, attemptKey)
+  const attempt = credentialAttempts.get(window.webContents.id)
+  if (attempt?.key === attemptKey) {
+    if (attempt.inFlight || attempt.submittedAt) return
+  }
+  if (Number(actor.credentialSubmitCount || 0) >= AUTH_CREDENTIAL_MAX_SUBMISSIONS) return
+
+  // Mark the probe while the renderer call is in flight. Frame-load events
+  // arrive in parallel with the timers below, so this guard must be set before
+  // executeJavaScript rather than after the result comes back.
+  credentialAttempts.set(window.webContents.id, { key: attemptKey, inFlight: true, submittedAt: 0 })
 
   const payload = JSON.stringify(JSON.stringify({ username: credentials.username, password: credentials.password }))
   const script = `(({ username, password }) => {
+    const owner = window.parent || window
+    const flowKey = String(owner.flowKey || window.flowKey || '').trim()
+    const publicKey = String(owner.publicKey || window.publicKey || '').trim()
+    const captcha = String(owner.captcha || window.captcha || '').trim()
+    const mfa = String(owner.mfa || window.mfa || '').trim()
+    const state = {
+      flowKeyReady: Boolean(flowKey),
+      publicKeyReady: /^[A-Za-z0-9+/=]{40,}$/.test(publicKey),
+      captcha: captcha || null,
+      mfa: mfa || null,
+    }
+    if (!state.flowKeyReady || !state.publicKeyReady) {
+      return { submitted: false, reason: 'authentication-material-pending', ...state, inputs: [] }
+    }
+    // CAPTCHA/MFA is intentionally left for the user. The central page can
+    // expose the requirement only after the first password response, so this
+    // also prevents the bounded retry from repeatedly submitting into it.
+    if (state.captcha) return { submitted: false, reason: 'additional-verification-required', ...state, inputs: [] }
     const documents = [document]
     for (const frame of document.querySelectorAll('iframe')) {
       try { if (frame.contentDocument) documents.push(frame.contentDocument) } catch {}
@@ -3242,37 +3564,63 @@ async function autoFillSavedCredentials(actor) {
       type: el.type, name: el.name, id: el.id, visible: visible(el), value: el.value?.length
     }))
     for (const current of documents) {
-      const usernameInput = [...current.querySelectorAll(
-        'input[name="username"], input[name="un"], input[id="un"], input[name="yhm"], input[id="yhm"]'
-      )].find(visible)
-      const passwordInput = [...current.querySelectorAll('input[type="password"]')].find(visible)
+      const visibleInputs = [...current.querySelectorAll('input:not([type="hidden"])')].filter(visible)
+      const verificationInput = visibleInputs.find((input) => /captcha|验证码|校验码/i.test([input.name, input.id, input.placeholder].filter(Boolean).join(' ')))
+      if (verificationInput && !String(verificationInput.value || '').trim()) {
+        return { submitted: false, reason: 'additional-verification-required', verificationInputPresent: true, ...state, inputs: allInputs }
+      }
+      const usernameInput = visibleInputs.find((input) => {
+        if (String(input.type || '').toLowerCase() === 'password') return false
+        const identifiers = [input.name, input.id, input.autocomplete].filter(Boolean)
+        return identifiers.some((value) => /^(?:username|un|yhm|account|user(?:name)?|login(?:name)?)$/i.test(String(value).trim()))
+      }) || visibleInputs.find((input) => ['text', 'email', ''].includes(String(input.type || '').toLowerCase()))
+      const passwordInput = visibleInputs.find((input) => (
+        String(input.type || '').toLowerCase() === 'password'
+        || /^(?:password|pwd|mm)$/i.test([input.name, input.id, input.autocomplete].filter(Boolean).join(' ').trim())
+      ))
       const submit = [...current.querySelectorAll(
-        'button.btn-submit, button[type="submit"], input[type="submit"], a.btn-login, button.login-btn'
+        'button.btn-submit, button[type="submit"], input[type="submit"], a.btn-login, button.login-btn, button[name="login"]'
       )].find(visible)
       if (!usernameInput || !passwordInput) continue
       setValue(usernameInput, username)
       setValue(passwordInput, password)
       if (submit) {
         setTimeout(() => submit.click(), 150)
-        return { submitted: true, usernameField: usernameInput.name||usernameInput.id, usernameFilled: usernameInput.value === username, inputs: allInputs }
+        return { submitted: true, usernameField: usernameInput.name||usernameInput.id, usernameFilled: usernameInput.value === username, ...state, inputs: allInputs }
+      }
+      if (passwordInput.form) {
+        setTimeout(() => passwordInput.form.requestSubmit(), 150)
+        return { submitted: true, usernameField: usernameInput.name||usernameInput.id, usernameFilled: usernameInput.value === username, ...state, inputs: allInputs }
       }
     }
-    return { submitted: false, inputs: allInputs }
+    return { submitted: false, reason: 'login-form-not-ready', ...state, inputs: allInputs }
   })(JSON.parse(${payload}))`
   for (const frame of authFrames) {
     const result = await frame.executeJavaScript(script)
     if (!isCurrentAuthActor(actor, window) || actor.epoch !== epoch) return
     const visibleInputs = result?.inputs?.filter((input) => input.visible) || []
-    if (result?.submitted || visibleInputs.length) {
+    if (result?.submitted || visibleInputs.length || result?.reason) {
       void writeDiagnostic('auth.credentials_fill_result', {
         source,
         submitted: result?.submitted,
+        reason: result?.reason || null,
+        flowKeyReady: result?.flowKeyReady === true,
+        publicKeyReady: result?.publicKeyReady === true,
+        additionalVerification: result?.captcha || null,
+        mfa: result?.mfa || null,
+        verificationInputPresent: result?.verificationInputPresent === true,
         usernameField: result?.usernameField,
         usernameFilled: result?.usernameFilled,
         inputs: visibleInputs,
       })
     }
     if (result?.submitted) {
+      actor.credentialSubmitCount = Number(actor.credentialSubmitCount || 0) + 1
+      credentialAttempts.set(window.webContents.id, {
+        key: attemptKey,
+        inFlight: false,
+        submittedAt: Date.now(),
+      })
       void writeDiagnostic('auth.credentials_submitted', { source, frame: diagnosticUrl(frame.url) })
       return
     }
@@ -3281,8 +3629,10 @@ async function autoFillSavedCredentials(actor) {
 }
 
 function scheduleCredentialFill(actor) {
-  // Try filling at 0, 300, 800, 1500, 2500ms to handle slow CAS page loads
-  for (const delay of [0, 300, 800, 1_500, 2_500]) {
+  // Try filling repeatedly while CAS loads the iframe, flow key, public key,
+  // and optional verification metadata. The actor submission cap bounds the
+  // number of password posts if the provider keeps returning the login form.
+  for (const delay of AUTH_CREDENTIAL_RETRY_DELAYS_MS) {
     const timer = setTimeout(() => {
       actor.credentialTimers.delete(timer)
       if (!isCurrentAuthActor(actor)) return
@@ -3418,11 +3768,15 @@ async function runAuthActor(actor) {
         httpResponseCode,
         isMainFrame,
       })
+      void installAuthDebuggerDiagnostics(actor)
+      void installAuthNetworkDiagnostics(actor)
       scheduleCredentialFill(actor)
       void pollAuthStatus(actor)
     })
     window.webContents.on('did-navigate-in-page', () => {
       if (!isCurrentAuthActor(actor, window)) return
+      void installAuthDebuggerDiagnostics(actor)
+      void installAuthNetworkDiagnostics(actor)
       scheduleCredentialFill(actor)
       void pollAuthStatus(actor)
     })
@@ -3436,7 +3790,32 @@ async function runAuthActor(actor) {
         isMainFrame,
       })
     })
-    window.webContents.on('did-frame-finish-load', () => scheduleCredentialFill(actor))
+    window.webContents.on('did-frame-finish-load', () => {
+      void installAuthDebuggerDiagnostics(actor)
+      void installAuthNetworkDiagnostics(actor)
+      scheduleCredentialFill(actor)
+    })
+    window.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+      const text = String(message || '')
+      const prefix = '__THEIA_AUTH_RESPONSE__'
+      if (!text.startsWith(prefix)) return
+      try {
+        const record = JSON.parse(text.slice(prefix.length))
+        void writeDiagnostic('auth.endpoint_response', {
+          source: actor.source,
+          kind: record?.kind || null,
+          url: record?.url || null,
+          status: Number.isFinite(record?.status) ? record.status : null,
+          code: record?.code ?? null,
+          msg: typeof record?.msg === 'string' ? record.msg : null,
+          level,
+          line: Number(line) || null,
+          frame: diagnosticUrl(sourceId),
+        })
+      } catch (error) {
+        void writeDiagnostic('auth.endpoint_response_parse_failed', { source: actor.source, error: diagnosticError(error) })
+      }
+    })
     actor.pollTimer = setInterval(() => { void pollAuthStatus(actor) }, 800)
     void writeDiagnostic('auth.target_loading', { source: actor.source, url: diagnosticUrl(target.url) })
     void loadSourceWindowUrl(window, target.url).catch((error) => {
@@ -3494,6 +3873,7 @@ async function finishAuthActor(actor) {
   recovery.lastAt = Date.now()
   recovery.failures = 0
   if (actor.source === 'theol') syncService.enableAssignmentScan({ schedule: false })
+  if (actor.source === 'theol') scheduleTheolCourseDetailsPrefetch({ reason: actor.skipSync ? 'source_open' : 'authenticated' })
   if (isCampusSource && !unifiedVerification) {
     // A saved cookie/session is still a valid source of fresh data. The old
     // sessionReused shortcut made startup silently skip every existing record,
@@ -3545,7 +3925,9 @@ async function openLoginWindow({ background = false, sources, expectedEpoch = au
   }
   const requestedSources = Array.isArray(sources) && sources.length
     ? [...new Set(sources.filter((source) => AUTH_SOURCES.includes(source)))]
-    : ['theol', 'jwglxt']
+    // The shared actor queue is intentionally serial. Start with JWGLXT so a
+    // slow THEOL redirect cannot block course selection and academic sync.
+    : ['jwglxt', 'theol']
   void writeDiagnostic('auth.open_requested', { background, sources: requestedSources })
   const actors = await authActorManager.open({
     background,
@@ -3565,6 +3947,55 @@ async function openLoginWindow({ background = false, sources, expectedEpoch = au
   // open instead of retaining an old warning from the previous probe.
   void broadcastAuthStatus()
   return actors
+}
+
+async function freshJwglxtBrowserStatus(expectedEpoch = authEpoch) {
+  assertAuthEpoch(expectedEpoch)
+  const adapter = syncService?.jwglxt
+  const status = typeof adapter?.browserStatus === 'function'
+    ? await adapter.browserStatus()
+    : await freshSourceStatus('jwglxt')
+  assertAuthEpoch(expectedEpoch)
+  return status
+}
+
+async function recoverCourseSelectionReadSession(expectedEpoch = authEpoch) {
+  const epoch = expectedEpoch
+  assertAuthEpoch(epoch)
+  await schoolProxyReady.catch(() => undefined)
+  assertAuthEpoch(epoch)
+
+  let status = await freshJwglxtBrowserStatus(epoch)
+  if (status?.connected) {
+    await rememberVerifiedSession('jwglxt', status.url || JWGLXT_URLS.home, epoch)
+    return status
+  }
+
+  const credentials = await credentialVault.status().catch(() => ({ saved: false }))
+  void writeDiagnostic('course_selection.read_browser_auth_started', {
+    background: Boolean(credentials?.saved),
+  })
+  const actors = await openLoginWindow({
+    background: Boolean(credentials?.saved),
+    sources: ['jwglxt'],
+    expectedEpoch: epoch,
+    requireBrowser: true,
+    skipSync: true,
+  })
+  const actor = actors?.find?.((candidate) => candidate?.source === 'jwglxt')
+  if (actor?.lifecycle) await actor.lifecycle
+  assertAuthEpoch(epoch)
+
+  status = await freshJwglxtBrowserStatus(epoch)
+  if (!status?.connected) {
+    void writeDiagnostic('course_selection.read_browser_auth_failed', {
+      actorAuthenticated: Boolean(actor?.authenticated),
+    })
+    throw new AuthRequiredError('Course selection', status?.url || JWGLXT_URLS.home)
+  }
+  await rememberVerifiedSession('jwglxt', status.url || JWGLXT_URLS.home, epoch)
+  void writeDiagnostic('course_selection.read_browser_auth_succeeded', {})
+  return status
 }
 
 async function closeLiveCaptureActors(reason = 'live capture finished') {
@@ -3802,12 +4233,14 @@ async function migrateFromLegacyDir() {
 async function restartLocalApi(preferredPort) {
   const previous = localApi
   if (previous?.port === preferredPort) return previous
-  const restart = () => startLocalApi({
+    const restart = () => startLocalApi({
       store,
       root: app.getPath('userData'),
       preferredPort,
       academicCalendarAssetsService,
+      getAdvisorRuntime: () => advisorRuntime,
       publishRuntime: false,
+      renderTableImage: renderHtmlToPng,
     })
   let next
   try {
@@ -3825,9 +4258,12 @@ async function restartLocalApi(preferredPort) {
 }
 
 async function startServices() {
+  let startupClock = Date.now()
   store = new CampusStore(app.getPath('userData'))
   const storeStartedAt = Date.now()
   await store.load()
+  startupClock = logStartupStep('store_loaded', startupClock)
+  motionVenueAdapter = new MotionVenueAdapter()
   try {
     const workspaceMigration = await rebaseLegacyWorkspacePaths(store.snapshot(), {
       currentRoot: app.getPath('userData'),
@@ -3850,10 +4286,15 @@ async function startServices() {
   credentialVault = new CredentialVault(app.getPath('userData'), safeStorage)
   academicApiVault = new AcademicApiVault(app.getPath('userData'), safeStorage)
   academicAttachmentStore = new JwglxtAttachmentStore(app.getPath('userData'))
-  await normalizeAcademicPlanAttachmentCache().catch((error) => writeDiagnostic('jwglxt.attachment_migration_failed', { error: diagnosticError(error) }))
+  theolAttachmentStore = new TheolAttachmentStore(app.getPath('userData'))
+  // The plan document is derived from a locally cached PDF and is only read by
+  // the advisor / academic-progress views, never by the first renderer paint.
+  // Run it in the background so a large PDF parse cannot hold the window open.
+  void normalizeAcademicPlanAttachmentCache().catch((error) => writeDiagnostic('jwglxt.attachment_migration_failed', { error: diagnosticError(error) }))
   mailVault = new MailVault(app.getPath('userData'), safeStorage)
   courseSelectionJournal = new CourseSelectionJournal(app.getPath('userData'))
   await courseSelectionJournal.load()
+  startupClock = logStartupStep('journal_loaded', startupClock)
   academicCalendarAssetsService = new AcademicCalendarAssetsService({
     root: app.getPath('userData'),
     onDiagnostic: (event, fields) => writeDiagnostic(event, fields),
@@ -3863,15 +4304,18 @@ async function startServices() {
   })
   const calendarManifest = await academicCalendarAssetsService.load()
   await store.update((state) => loadAcademicCalendarCatalog(state, { manifest: calendarManifest, runId: randomUUID() }))
-  // Complete one authoritative refresh before exposing the advisor runtime.
+  // Kick off one authoritative refresh before the advisor runtime exists.
   // Previously this was fire-and-forget at the end of startup, so an early
   // question could build a workspace from the old/empty calendar manifest.
-  // A failed refresh is intentionally non-fatal: the catalog layer retains
-  // the last successful calendar and records the failed attempt.
+  // It is safe to run this in the background here (not blocking the window)
+  // because AdvisorRuntime.ensureDataReady awaits the in-flight refresh before
+  // preparing any question. A failed refresh is intentionally non-fatal: the
+  // catalog layer retains the last successful calendar and records the attempt.
   if (!smokeFile) {
-    await refreshAcademicCalendarAssets({ trigger: 'startup' })
+    void refreshAcademicCalendarAssets({ trigger: 'startup' })
       .catch((error) => writeDiagnostic('academic_calendar.refresh_failed', { error: diagnosticError(error) }))
   }
+  startupClock = logStartupStep('calendar_ready', startupClock)
   advisorUpgradeRule = await loadTrustedUpgradeRule({
     root: app.getPath('userData'),
     onDiagnostic: (event, fields) => writeDiagnostic(event, fields),
@@ -3901,9 +4345,11 @@ async function startServices() {
     headers['Sec-CH-UA'] = '"Google Chrome";v="137", "Chromium";v="137", "Not/A)Brand";v="24"'
     headers['Sec-CH-UA-Mobile'] = '?0'
     headers['Sec-CH-UA-Platform'] = '"Windows"'
-    // Remove Electron-specific headers that may trigger server-side bot detection
+    // Remove Electron-specific headers that may trigger server-side bot detection.
+    // X-Requested-With is intentionally preserved: the official CAS page sends
+    // it on its jQuery JSON requests and the authentication service expects the
+    // same browser request shape.
     delete headers['X-Electron-Version']
-    delete headers['X-Requested-With']
     callback({ requestHeaders: headers })
   })
   // THEOL keeps a single rendered browser because its course/task links depend
@@ -3949,6 +4395,7 @@ async function startServices() {
     onDiagnostic: (event, fields) => writeDiagnostic(event, fields),
   })
   const persistedAdvisorThreads = await advisorThreadStore.load()
+  startupClock = logStartupStep('advisor_threads_loaded', startupClock)
 
   // Rebuild runtime when budgetLevel changes
   const rebuildAdvisorRuntime = async () => {
@@ -4009,7 +4456,6 @@ async function startServices() {
   const applyTheiaSettings = async (next) => {
     const allowed = next && typeof next === 'object' ? next : {}
     const previousAdvisorBudgetLevel = store.snapshot().settings.advisorConfig?.budgetLevel
-    if (typeof allowed.academicApiEnabled === 'boolean') courseSelectionApiClient = null
     const snapshot = await updateSettingsTransaction({
       store,
       next: allowed,
@@ -4025,6 +4471,7 @@ async function startServices() {
   }
 
   await rebuildAdvisorRuntime()
+  startupClock = logStartupStep('advisor_runtime_built', startupClock)
   webmailService = new WebmailService({
     store,
     vault: mailVault,
@@ -4148,8 +4595,9 @@ async function startServices() {
     },
   })
   courseSelectionService = new CourseSelectionService({
-    client: sessionClient,
-    courseSelectionClientFactory: courseSelectionApiSession,
+    // Zhengfang validates this workflow against the authenticated page
+    // context. Use the rendered JWGLXT session instead of an isolated API jar.
+    client: academicSessionClient,
     academicClientFactory: async () => {
       const credentials = await academicApiVault.readCredentials()
       return credentials ? new AcademicApiClient(credentials) : null
@@ -4177,6 +4625,7 @@ async function startServices() {
       }))
       sendSnapshot()
     },
+    onDiagnostic: (event, fields) => writeDiagnostic(event, fields),
   })
   void armCourseSelectionSentinel().catch((error) => writeDiagnostic('course_selection.sentinel_resume_failed', { error: diagnosticError(error) }))
   syncService.configureAutoSync(store.state.settings.autoSync, store.state.settings.syncIntervalMinutes)
@@ -4235,7 +4684,96 @@ async function startServices() {
   })
   await courseWorkQueue.load()
   courseWorkQueueReady = true
-  localApi = await startLocalApi({ store, root: app.getPath('userData'), preferredPort: store.state.settings.apiPort, academicCalendarAssetsService })
+  startupClock = logStartupStep('course_work_queue_loaded', startupClock)
+  localApi = await startLocalApi({ store, root: app.getPath('userData'), preferredPort: store.state.settings.apiPort, academicCalendarAssetsService, getAdvisorRuntime: () => advisorRuntime, renderTableImage: renderHtmlToPng, queryFreeClassrooms: async (query = {}) => {
+    const term = store.snapshot().terms.find((item) => item?.id === query?.termId)
+    // 按学年数值 + 学期代码数值取最新学期（"2026-12" 应排在 "2026-3" 之后）
+    const newestTerm = [...store.snapshot().terms].sort((left, right) => {
+      const ly = Number(left?.year) || 0
+      const ry = Number(right?.year) || 0
+      if (ly !== ry) return ry - ly
+      const termRank = (value) => ({ '3': 1, '12': 2, '16': 3 })[String(value?.term || value?.id || '').split('-').pop()] || 0
+      return termRank(right) - termRank(left)
+    })[0] || null
+    const selectedTerm = term || newestTerm
+    if (!selectedTerm) throw new Error('请选择有效的教务学期')
+    const epoch = authEpoch
+    await schoolProxyReady.catch(() => undefined)
+    assertAuthEpoch(epoch)
+    const parseIds = (value) => String(value || '').split(',').map((item) => Number(item.trim())).filter((item) => Number.isInteger(item) && item >= 1)
+    const weeks = parseIds(query.weeks)
+    const weekdays = parseIds(query.weekdays)
+    const periods = parseIds(query.periods)
+    const validSeats = (value) => {
+      const n = Number(value)
+      return Number.isFinite(n) && n >= 0 ? n : undefined
+    }
+    const snapshot = await syncService.syncNow({
+      sources: ['jwglxt'],
+      domains: ['free-classroom'],
+      freeClassroom: {
+        term: selectedTerm,
+        ...(weeks.length ? { weeks } : {}),
+        ...(weekdays.length ? { weekdays } : {}),
+        ...(periods.length ? { periods } : {}),
+        ...(query.campus ? { campus: String(query.campus).slice(0, 80) } : {}),
+        ...(query.building ? { building: String(query.building).slice(0, 80) } : {}),
+        ...(query.classroomType ? { classroomType: String(query.classroomType).slice(0, 80) } : {}),
+        ...(validSeats(query.minSeats) !== undefined ? { minSeats: validSeats(query.minSeats) } : {}),
+        ...(validSeats(query.maxSeats) !== undefined ? { maxSeats: validSeats(query.maxSeats) } : {}),
+      },
+      foreground: true,
+    })
+    assertAuthEpoch(epoch)
+    const domain = snapshot.academicExtras?.domains?.['free-classroom'] || {}
+    return { records: domain.records || [], capturedAt: domain.capturedAt || null }
+  }, fetchMotionVenueStatuses: async ({ activity, date } = {}) => {
+    const catalog = cachedMotionVenueCatalog(store.snapshot().dataCatalog)
+    const requested = String(activity || '').trim().slice(0, 120).toLocaleLowerCase()
+    const venues = Array.isArray(catalog?.venues) ? catalog.venues : []
+    const matched = requested
+      ? venues.filter((venue) => `${venue.activity || ''} ${venue.label || ''}`.toLocaleLowerCase().includes(requested))
+      : venues
+    // 并发拉取（最多 3 个同时进行），避免 12 个场馆串行 12-24 秒。
+    const targets = matched.slice(0, 12).filter((venue) => Boolean(venue?.detailUrl))
+    const results = []
+    const latestByResult = []
+    let cursor = 0
+    const workers = Array.from({ length: Math.min(3, Math.max(1, targets.length)) }, async () => {
+      while (cursor < targets.length) {
+        const index = cursor
+        cursor += 1
+        const venue = targets[index]
+        try {
+          // Each catalog entry's detailUrl already selects its venue (via xq/xm
+          // query params). Do NOT pass venue=activity here: the detail page's
+          // venue selector uses the concrete court name (e.g. 体育馆羽毛球馆),
+          // not the activity label, so a label would fail the page match.
+          const result = await motionVenueAdapter.queryStatus({ detailUrl: venue.detailUrl, date: date || null })
+          results[index] = { ...result, fromCache: false }
+          latestByResult[index] = result.capturedAt || null
+        } catch (error) {
+          void writeDiagnostic('motion.venue_status_live_failed', { venue: venue.label || null, error: diagnosticError(error) })
+        }
+      }
+    })
+    await Promise.all(workers)
+    const items = results.filter(Boolean)
+    // 循环后一次性批量写入 store，避免每个场馆一次全量磁盘读写。
+    if (items.length) {
+      await store.update((state) => {
+        let next = state
+        for (const status of items) {
+          next = { ...next, dataCatalog: cacheMotionVenueStatus(next.dataCatalog, status, status.capturedAt) }
+        }
+        return next
+      })
+    }
+    sendSnapshot()
+    const latestCapturedAt = latestByResult.filter(Boolean).sort().at(-1) || null
+    return { item: items, updatedAt: latestCapturedAt || new Date().toISOString(), summary: motionVenueCacheSummary(store.snapshot().dataCatalog) }
+  } })
+  startupClock = logStartupStep('local_api_started', startupClock)
   if (localApi.port !== store.state.settings.apiPort) {
     await store.update((state) => ({ ...state, settings: { ...state.settings, apiPort: localApi.port } }))
   }
@@ -4250,6 +4788,15 @@ async function startServices() {
     void scanSchoolScheduleArchive().catch((error) => writeDiagnostic('school_schedule.archive_failed', { error: diagnosticError(error) }))
   }
 
+  irisCompanion = new IrisCompanion({
+    root: app.getPath('userData'),
+    runtimeRoot: app.isPackaged
+      ? resolve(process.resourcesPath, 'app.asar.unpacked', 'electron', 'iris-runtime')
+      : resolve(import.meta.dirname, 'iris-runtime'),
+    storage: safeStorage,
+  })
+  void irisCompanion.start().catch((error) => writeDiagnostic('iris.start_failed', { error: diagnosticError(error) }))
+
   registerModelRuntimeIpc({
     ipcMain,
     modelService,
@@ -4261,6 +4808,16 @@ async function startServices() {
     sendSnapshot,
   })
   registerUserDataIpc({ ipcMain, store })
+  registerMotionVenueIpc({
+    ipcMain,
+    adapter: motionVenueAdapter,
+    store,
+    cachedMotionVenueCatalog,
+    cacheMotionVenueCatalog,
+    cacheMotionVenueStatus,
+    sendSnapshot,
+    writeDiagnostic,
+  })
   registerCourseWorkQueueIpc({ ipcMain, queue: courseWorkQueue })
 
   ipcMain.handle('theia:get-snapshot', () => {
@@ -4311,6 +4868,22 @@ async function startServices() {
     }
   })
   ipcMain.handle('theia:get-activity-log', () => recentActivityLog())
+  ipcMain.handle('theia:get-iris-status', () => irisCompanion.status())
+  ipcMain.handle('theia:open-iris-control-panel', () => openIrisControlPanel())
+  ipcMain.handle('theia:save-iris-settings', async (_event, settings) => {
+    const saved = await irisCompanion.writeSettings(settings)
+    if (saved.enabled) await irisCompanion.start()
+    else await irisCompanion.stop({ disable: true })
+    return irisCompanion.status()
+  })
+  ipcMain.handle('theia:save-iris-credentials', async (_event, credentials) => irisCompanion.saveCredentials(credentials))
+  ipcMain.handle('theia:clear-iris-credentials', async () => {
+    await irisCompanion.stop({ disable: true })
+    return irisCompanion.clearCredentials()
+  })
+  ipcMain.handle('theia:start-iris', () => irisCompanion.start({ force: true }))
+  ipcMain.handle('theia:stop-iris', () => irisCompanion.stop({ disable: true }))
+  ipcMain.handle('theia:restart-iris', () => irisCompanion.restart())
   ipcMain.handle('theia:get-auth-status', () => getStatus())
   ipcMain.handle('theia:get-credential-status', () => credentialVault.status())
   ipcMain.handle('theia:get-academic-api-credential-status', async () => ({ ...(await academicApiVault.status()), enabled: store.snapshot().settings.academicApiEnabled }))
@@ -4325,7 +4898,6 @@ async function startServices() {
   })
   ipcMain.handle('theia:save-credentials', (_event, credentials) => credentialVault.save(credentials || {}))
   ipcMain.handle('theia:save-academic-api-credentials', async (_event, credentials) => {
-    courseSelectionApiClient = null
     return { ...(await academicApiVault.save(credentials || {})), enabled: store.snapshot().settings.academicApiEnabled }
   })
   ipcMain.handle('theia:clear-credentials', async () => {
@@ -4344,7 +4916,6 @@ async function startServices() {
     return openLoginWindow({ expectedEpoch: epoch, userInitiated: true })
   })
   ipcMain.handle('theia:clear-academic-api-credentials', async () => {
-    courseSelectionApiClient = null
     return { ...(await academicApiVault.clear()), enabled: store.snapshot().settings.academicApiEnabled }
   })
   registerMailboxIpc({
@@ -4449,6 +5020,53 @@ async function startServices() {
     }
     return snapshot
   })
+  ipcMain.handle('theia:refresh-course-resources', async (_event, courseId) => {
+    const epoch = authEpoch
+    assertAuthEpoch(epoch)
+    await schoolProxyReady.catch(() => undefined)
+    assertAuthEpoch(epoch)
+    const snapshot = await syncService.retryCourseResources(courseId)
+    assertAuthEpoch(epoch)
+    sendSnapshot()
+    return snapshot
+  })
+  ipcMain.handle('theia:download-course-resource', async (_event, courseId, resourceId) => {
+    const epoch = authEpoch
+    assertAuthEpoch(epoch)
+    await schoolProxyReady.catch(() => undefined)
+    assertAuthEpoch(epoch)
+    const { course, resource } = locateTheolCourseResource(courseId, resourceId)
+    let cached = await theolAttachmentStore?.find(resource)
+    if (!cached) {
+      if (!sessionClient || typeof sessionClient.binary !== 'function') throw new Error('THEOL 课程资源下载服务尚未就绪')
+      const result = await sessionClient.binary(resource.url, {
+        source: `THEOL 课程资源 ${course.title}`,
+        maxBytes: THEOL_ATTACHMENT_MAX_BYTES,
+      })
+      assertAuthEpoch(epoch)
+      const saved = await theolAttachmentStore.save(resource, result.buffer)
+      cached = saved
+    }
+    const capturedAt = new Date().toISOString()
+    const snapshot = await store.update((state) => ({
+      ...state,
+      courses: state.courses.map((item) => {
+        if (item?.source !== 'theol' || String(item.id || '') !== String(course.id)) return item
+        return {
+          ...item,
+          courseResources: (Array.isArray(item.courseResources) ? item.courseResources : []).map((entry) => (
+            String(entry?.id || '') === String(resource.id) || String(entry?.sourceKey || '') === String(resource.sourceKey)
+              ? { ...entry, cachedAt: capturedAt, cachedBytes: cached.bytes, cachedFileName: cached.filename }
+              : entry
+          )),
+        }
+      }),
+    }))
+    sendSnapshot()
+    const openError = await shell.openPath(cached.path)
+    if (openError) throw new Error(`课程资源已保存，但打开失败：${openError}`)
+    return { cached: true, bytes: cached.bytes, filename: cached.filename, opened: true, snapshot }
+  })
   ipcMain.handle('theia:query-free-classrooms', async (_event, query) => {
     const epoch = authEpoch
     assertAuthEpoch(epoch)
@@ -4476,6 +5094,7 @@ async function startServices() {
     armCourseSelectionSentinel,
     sendCourseSelectionSnapshot,
     courseSelectionSnapshot,
+    recoverCourseSelectionReadSession,
     writeDiagnostic,
   })
   ipcMain.handle('theia:get-academic-calendar-assets', () => academicCalendarAssetsService.snapshot())
@@ -4835,6 +5454,45 @@ async function startServices() {
     if (outcome) throw new Error(outcome)
     return { opened: true, path: directory }
   })
+  logStartupStep('services_ready_done', startupClock)
+}
+
+async function createSplashWindow() {
+  // Inline branded splash — no external files so it works in both dev and
+  // packaged mode without worrying about asar/dist asset paths.
+  const html = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>THEIA 正在启动</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;background:#131920;color:#e8e8e8;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;user-select:none}
+.mark{width:96px;height:96px;margin-bottom:24px;background:#1e2a36;border-radius:24px;display:flex;align-items:center;justify-content:center;font-size:48px;font-weight:700;color:#5b9cf5;opacity:0;animation:fadeIn .6s ease-out forwards}
+.wordmark{font-size:28px;font-weight:600;letter-spacing:4px;opacity:0;animation:fadeIn .6s ease-out .2s forwards}
+.status{margin-top:28px;font-size:14px;color:#8899aa;opacity:0;animation:fadeIn .6s ease-out .4s forwards}
+.spinner{width:24px;height:24px;border:3px solid #2a3a4a;border-top-color:#5b9cf5;border-radius:50%;margin-top:16px;animation:spin .8s linear infinite, fadeIn .6s ease-out .5s forwards;opacity:0}
+@keyframes fadeIn{to{opacity:1}}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style></head>
+<body>
+<div class="mark">T</div>
+<div class="wordmark">THEIA</div>
+<div class="status">正在启动 THEIA…</div>
+<div class="spinner"></div>
+</body></html>`
+  const splash = new BrowserWindow({
+    width: 460,
+    height: 340,
+    frame: false,
+    resizable: false,
+    show: false,
+    backgroundColor: '#131920',
+    icon: APP_ICON,
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+  })
+  splash.setMenu(null)
+  splash.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+  splash.once('ready-to-show', () => { if (!splash.isDestroyed()) splash.show() })
+  return splash
 }
 
 async function createMainWindow() {
@@ -4847,7 +5505,10 @@ async function createMainWindow() {
     frame: false,
     autoHideMenuBar: true,
     icon: APP_ICON,
-    show: !smokeFile,
+    // Hide until first paint so the splash stays visible and no dark flash
+    // appears. ready-to-show shows the window after the renderer renders its
+    // first frame (the loading screen or main UI), and also closes the splash.
+    show: false,
     backgroundColor: '#131920',
     webPreferences: {
       contextIsolation: true,
@@ -4857,6 +5518,11 @@ async function createMainWindow() {
     },
   })
   mainWindow = window
+  window.once('ready-to-show', () => {
+    if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close()
+    splashWindow = null
+    if (!window.isDestroyed()) window.show()
+  })
   mainEntryUrl = app.isPackaged
     ? pathToFileURL(resolve(root, 'dist/index.html')).toString()
     : viteServer.resolvedUrls?.local?.[0] || 'http://127.0.0.1:5174/'
@@ -4935,7 +5601,7 @@ async function createMainWindow() {
           'cancelAdvisorRequest', 'deleteAdvisorThread', 'onAdvisorStream',
           'getCourseSelection', 'discoverCourseSelection', 'getCourseSelectionCandidates', 'getCachedSchoolSchedule',
           'saveCourseSelectionTarget', 'removeCourseSelectionTarget', 'setCourseSelectionSentinel', 'startCourseSelection', 'stopCourseSelection',
-          'openSource', 'openAcademicAttachment', 'openSchedulePdf', 'exportData', 'getApiStatus', 'updateSettings',
+          'openSource', 'openAcademicAttachment', 'openSchedulePdf', 'refreshCourseResources', 'downloadCourseResource', 'exportData', 'getApiStatus', 'updateSettings',
           'getCredentialStatus', 'saveCredentials', 'clearCredentials',
           'getAcademicApiCredentialStatus', 'saveAcademicApiCredentials', 'clearAcademicApiCredentials',
           'getMailCredentialStatus', 'saveMailCredentials', 'clearMailCredentials', 'refreshMailbox',
@@ -5018,6 +5684,60 @@ async function createMainWindow() {
     }
   })
   await window.loadURL(mainEntryUrl)
+  if (!smokeFile && !window.isDestroyed() && !window.isVisible()) {
+    if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close()
+    splashWindow = null
+    window.show()
+  }
+}
+
+async function openIrisControlPanel() {
+  if (irisControlWindow && !irisControlWindow.isDestroyed()) {
+    irisControlWindow.show()
+    irisControlWindow.focus()
+    return { opened: true, url: irisControlWindow.webContents.getURL() || undefined }
+  }
+  const status = await irisCompanion?.status()
+  if (!status?.running || !status.controlUrl) throw new Error('Iris 尚未运行，请先启动 companion')
+  let target = new URL(status.controlUrl)
+  if (target.protocol !== 'http:' || target.hostname !== '127.0.0.1') throw new Error('Iris 控制面板地址无效')
+  const deadline = Date.now() + 5_000
+  let ready = false
+  while (Date.now() < deadline) {
+    try {
+      const current = await irisCompanion.status()
+      if (current.controlUrl) target = new URL(current.controlUrl)
+      const response = await fetch(new URL('/api/status', target), { signal: AbortSignal.timeout(600), cache: 'no-store' })
+      if (response.ok) { ready = true; break }
+    } catch { /* companion control server may still be starting */ }
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 120))
+  }
+  if (!ready) throw new Error('Iris 控制面板尚未就绪，请稍后重试')
+  const window = new BrowserWindow({
+    title: 'Iris 控制面板',
+    width: 1120,
+    height: 820,
+    minWidth: 900,
+    minHeight: 640,
+    show: false,
+    autoHideMenuBar: true,
+    icon: APP_ICON,
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+  })
+  irisControlWindow = window
+  window.once('ready-to-show', () => { if (!window.isDestroyed()) window.show() })
+  window.webContents.on('will-navigate', (event, url) => {
+    if (new URL(url).origin !== target.origin) event.preventDefault()
+  })
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  window.on('closed', () => { if (irisControlWindow === window) irisControlWindow = null })
+  try {
+    await window.loadURL(target.toString())
+  } catch (error) {
+    if (!window.isDestroyed()) window.close()
+    throw error
+  }
+  return { opened: true, url: target.toString() }
 }
 
 async function startVite() {
@@ -5044,6 +5764,8 @@ async function shutdownServices() {
     if (academicCalendarProbeTimer) clearInterval(academicCalendarProbeTimer)
     if (academicStaticPrefetchTimer) clearTimeout(academicStaticPrefetchTimer)
     academicStaticPrefetchTimer = null
+    if (theolCourseDetailsPrefetchTimer) clearTimeout(theolCourseDetailsPrefetchTimer)
+    theolCourseDetailsPrefetchTimer = null
     modelService?.cancelAll()
     advisorRuntime?.cancelAll()
     syncPageQueue.cancelPending(new Error('Application shutdown cancelled the queued school request'))
@@ -5052,6 +5774,8 @@ async function shutdownServices() {
     syncService?.stop()
     mailService?.stop()
     webmailService?.stop()
+    if (irisControlWindow && !irisControlWindow.isDestroyed()) irisControlWindow.close()
+    irisControlWindow = null
     await Promise.allSettled([
       advisorRuntime?.flush?.(),
       courseWorkQueue?.close({ cancelRunning: true }),
@@ -5059,6 +5783,7 @@ async function shutdownServices() {
       diagnosticWrite,
       store?.drain(),
       localApi?.close(),
+      irisCompanion?.shutdown(),
       viteServer?.close(),
     ])
     shutdownComplete = true
@@ -5113,6 +5838,7 @@ if (theolMobileDiagnosticOutput) {
   migrateFromLegacyDir().then(() => app.whenReady()).then(async () => {
     Menu.setApplicationMenu(null)
     registerLocalProtocols()
+    let startupClock = Date.now()
     if (liveCaptureOutput) {
       try {
         const result = await startServices().then(() => runLiveCapture())
@@ -5127,12 +5853,26 @@ if (theolMobileDiagnosticOutput) {
       }
       return
     }
+    // A branded splash covers the service startup window so the user never
+    // stares at a black screen while the main window is still being prepared.
+    if (!smokeFile) {
+      try {
+        splashWindow = await createSplashWindow()
+        startupClock = logStartupStep('splash_created', startupClock)
+      } catch (error) {
+        console.warn('[THEIA] splash window could not be created; startup will continue', error)
+      }
+    }
     await Promise.all([startVite(), startServices()])
+    startupClock = logStartupStep('services_ready', startupClock)
     await createMainWindow()
+    startupClock = logStartupStep('main_window_loaded', startupClock)
     if (!smokeFile) void autoLoginOnStartup().catch((error) => console.error('[THEIA] automatic login failed', error))
     app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) void createMainWindow() })
   }).catch((error) => {
     console.error('[THEIA] startup failed', error)
+    if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close()
+    splashWindow = null
     app.whenReady().then(() => {
       dialog.showErrorBoxSync(
         'THEIA 启动失败',
