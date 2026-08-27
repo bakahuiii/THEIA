@@ -21,6 +21,12 @@ test-results/
 .renderer-diagnostic-*/
 release-bin-selection/
 release-bin-compression-test*/
+.codex-*/
+.codex-sync-probe-data/
+.codex-queue-probe/
+.codex-docs-*/
+.plan-*.png
+.plan-*.jpg
 scripts/__pycache__/
 src/*.bak
 *.pyc
