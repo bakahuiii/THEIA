@@ -152,3 +152,15 @@ test('rows without an official course code are not guessed to be retakes by titl
   assert.deepEqual(computeEarnedCredits(grades), { credits: 4, courses: 2 })
   assert.equal(computeGpa(grades).included, 2)
 })
+
+test('D and D+ are passing letter grades; D- is not a recognized BUCT letter grade', () => {
+  // LETTER_POINTS defines D=1 and D+=1.33 but has no D- entry. A D- score has
+  // no point mapping and must not be treated as a passing graded attempt.
+  assert.equal(isPassedGrade({ credits: 2, score: 'D' }), true)
+  assert.equal(isPassedGrade({ credits: 2, score: 'D+' }), true)
+  assert.equal(gradePoint({ credits: 2, score: 'D+' }), 1.33)
+  assert.equal(isPassedGrade({ credits: 2, score: 'D-' }), false)
+  assert.equal(gradePoint({ credits: 2, score: 'D-' }), null)
+  assert.equal(isPassedGrade({ credits: 2, score: 'F' }), false)
+  assert.equal(isPassedGrade({ credits: 2, score: 'U' }), false)
+})

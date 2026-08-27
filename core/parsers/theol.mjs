@@ -56,16 +56,129 @@ export function parseTheolCourse(html, { course, sourceUrl, capturedAt = new Dat
     if (!href || !title || title.length < 2) return
     if (!links.some((item) => item.url === href && item.title === title)) links.push({ title, url: href })
   })
-  const resourceLinks = links.filter((item) => /资源|课件|资料|下载|播课|视频|文档/.test(item.title))
+  const resourceLinks = links.filter((item) => /资源|课件|资料|下载|播课|视频|文档|基本信息|课程介绍|课程简介|简介|教学大纲|教学日历|大纲|日历/.test(item.title))
+  const teachingMaterialLinks = resourceLinks.filter((item) => /基本信息|课程介绍|课程简介|简介|教学大纲|教学日历|大纲|日历/.test(item.title))
   const assignmentLinks = links.filter((item) => /作业|任务|测试|试卷|问卷|hwtask|exam|quiz/i.test(`${item.title} ${item.url}`))
+  const bodyText = normalizeText($.text())
+  const courseInfo = {}
+  const infoPatterns = [
+    ['department', /课程所属院系[:：]\s*([^\s]+?学院|[^\s]+?系|[^\s]+?部)/],
+    ['enrolled', /选课学生数[:：]\s*(\d+)/],
+    ['resourceCount', /课程资源数[:：]\s*(\d+)/],
+    ['videoCount', /课程视频资源数[:：]\s*(\d+)/],
+    ['noticeCount', /课程通知数[:：]\s*(\d+)/],
+    ['assignmentCount', /课程作业数[:：]\s*(\d+)/],
+  ]
+  for (const [key, pattern] of infoPatterns) {
+    const match = bodyText.match(pattern)
+    if (match) courseInfo[key] = /^\d+$/.test(match[1]) ? Number(match[1]) : match[1]
+  }
+  const teachingMaterials = teachingMaterialLinks.map((item) => ({
+    id: stableId('theol-teaching-material', course?.id || '', item.url, item.title),
+    courseId: String(course?.id || ''),
+    title: item.title,
+    url: item.url,
+    kind: 'page',
+    capturedAt,
+  }))
   return {
     ...(course || {}),
     description: normalizeText($('.course-intro, .courseInfo, .course_introduce, [class*="intro"]').first().text()) || null,
+    courseInfo: Object.keys(courseInfo).length ? courseInfo : null,
     resourceLinks: resourceLinks.slice(0, 100),
+    teachingMaterials: teachingMaterials.slice(0, 100),
     assignmentLinks: assignmentLinks.slice(0, 100),
     sourceUrl,
     capturedAt,
   }
+}
+
+const VOLATILE_RESOURCE_PARAMETERS = new Set(['jsessionid', 'sessionid', 'session', 'sid', 'token', 'timestamp', '_', 't'])
+const RESOURCE_ID_PARAMETERS = ['resid', 'fileid', 'fileId', 'folderid', 'columnid', 'columnId', 'groupid', 'groupId']
+
+function safeDecodeURIComponent(value) {
+  try { return decodeURIComponent(value) } catch { return value }
+}
+
+function canonicalResourceUrl(rawUrl, sourceUrl) {
+  try {
+    const url = new URL(rawUrl, sourceUrl)
+    const entries = [...url.searchParams.entries()]
+      .filter(([name]) => !VOLATILE_RESOURCE_PARAMETERS.has(name.toLowerCase()))
+      .map(([name, value]) => [name.toLowerCase(), value])
+      .sort(([leftName, leftValue], [rightName, rightValue]) => leftName.localeCompare(rightName) || leftValue.localeCompare(rightValue))
+    url.search = new URLSearchParams(entries).toString()
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
+function resourceSourceKey(courseId, kind, parsed, canonicalUrl) {
+  const identifiers = RESOURCE_ID_PARAMETERS
+    .map((name) => [name.toLowerCase(), parsed.searchParams.get(name)])
+    .filter(([, value]) => value)
+    .map(([name, value]) => `${name}=${value}`)
+  return [String(courseId || ''), kind, identifiers.join('&') || canonicalUrl || parsed.pathname.toLowerCase()].join(':')
+}
+
+export function parseTheolCourseResources(html, { courseId, sourceUrl, capturedAt = new Date().toISOString() } = {}) {
+  const $ = cheerio.load(html)
+  const items = []
+  const contextTitle = (node) => {
+    const scope = $(node).closest('#dowload-preview, .wrap, body')
+    const fileName = normalizeText(scope.find('h2').first().text()).match(/文件名\s*[:：]\s*(.+?)(?:\s*\(|$)/)?.[1]
+    return fileName || normalizeText(scope.find('h1').first().text()) || normalizeText($(node).attr('title') || $(node).attr('aria-label'))
+  }
+  const add = (rawHref, rawTitle, kind = null, node = null) => {
+    const url = absoluteUrl(rawHref, sourceUrl)
+    let title = normalizeText(rawTitle) || contextTitle(node)
+    if (!url || !title || title.length < 2 || /^javascript:/i.test(url) || /^###?$/.test(url)) return
+    let parsed
+    try { parsed = new URL(url) } catch { return }
+    const isFolder = kind === 'folder' || (parsed.searchParams.has('folderid') && /(?:acttype=enter|listview\.jsp|courseResource\.jsp)/i.test(parsed.pathname + parsed.search))
+      || (/resFolderViewList\.do/i.test(parsed.pathname) && parsed.searchParams.has('folderid') && !parsed.searchParams.has('resid') && !parsed.searchParams.has('fileid'))
+    const isAttribute = /attribute_(?:file|folder)\.jsp/i.test(parsed.pathname) || /查看(?:目录)?属性/.test(title)
+    const isFile = /(?:download(?:_preview)?\.jsp|preview\.jsp|onlinepreview\.jsp)/i.test(parsed.pathname)
+      || parsed.searchParams.has('resid') || parsed.searchParams.has('fileid') || parsed.searchParams.has('fileId')
+    if (isAttribute || (!isFolder && !isFile && kind !== 'file')) return
+    const normalizedKind = isFolder ? 'folder' : 'file'
+    const canonicalUrl = canonicalResourceUrl(url, sourceUrl)
+    const sourceKey = resourceSourceKey(courseId, normalizedKind, parsed, canonicalUrl)
+    const parentFolderId = (() => {
+      try { return new URL(sourceUrl).searchParams.get('folderid') || null } catch { return null }
+    })()
+    const fileName = !isFolder
+      ? (title.match(/文件名\s*[:：]\s*(.+?)(?:\s*\(|$)/)?.[1]
+        || (/\.[a-z0-9]{1,8}$/i.test(title) ? title : null)
+        || safeDecodeURIComponent(parsed.pathname.split('/').pop() || '').replace(/^download(?:_preview)?\.jsp$/i, '')
+        || null)
+      : null
+    if (!title && fileName) title = fileName
+    items.push({
+      id: stableId('theol-course-resource', sourceKey),
+      sourceKey,
+      courseId: String(courseId || ''), title: title.slice(0, 300), url,
+      kind: normalizedKind, fileName,
+      ...(parentFolderId ? { parentFolderId } : {}),
+      capturedAt,
+    })
+  }
+  $('a[href]').each((_index, node) => add($(node).attr('href'), $(node).attr('title') || $(node).text(), null, node))
+  // Buildless course columns expose the actual file only through an iframe;
+  // keeping that preview URL lets the authenticated source window render it.
+  $('iframe[src], frame[src]').each((_index, node) => {
+    const src = $(node).attr('src')
+    if (!src || !/(?:preview|download|resFolderViewList|listview)\./i.test(src)) return
+    add(src, contextTitle(node), null, node)
+  })
+  $('[onclick]').each((_index, node) => {
+    const source = String($(node).attr('onclick') || '')
+    for (const match of source.matchAll(/(?:MM_goToURL\([^,]+,|window\.open\(|location(?:\.href)?\s*=)[^"']*["']([^"']+)["']/gi)) {
+      add(match[1], $(node).attr('title') || $(node).text(), 'file', node)
+    }
+  })
+  return [...new Map(items.map((item) => [item.id, item])).values()].slice(0, 500)
 }
 
 function assignmentLink(rawHref, sourceUrl) {

@@ -73,7 +73,7 @@ export class CredentialVault {
     const updatedAt = new Date().toISOString()
     const ciphertext = this.storage.encryptString(JSON.stringify({ username: normalizedUsername, password: normalizedPassword }))
     const content = JSON.stringify({ format: FORMAT, protection: 'electron-safeStorage', updatedAt, ciphertext: ciphertext.toString('base64') }, null, 2) + '\n'
-    this.writeQueue = this.writeQueue.then(async () => {
+    this.writeQueue = this.writeQueue.catch(() => {}).then(async () => {
       await mkdir(dirname(this.file), { recursive: true })
       const temp = `${this.file}.tmp`
       await writeFile(temp, content, { encoding: 'utf8', mode: 0o600 })
@@ -85,7 +85,10 @@ export class CredentialVault {
   }
 
   async clear() {
-    await rm(this.file, { force: true })
+    this.writeQueue = this.writeQueue.catch(() => {}).then(async () => {
+      await rm(this.file, { force: true })
+    })
+    await this.writeQueue
     return { saved: false, encryptionAvailable: this.encryptionAvailable() }
   }
 }

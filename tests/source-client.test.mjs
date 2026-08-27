@@ -12,6 +12,29 @@ test('session client falls back to the request URL when Electron returns an empt
   assert.equal(result.url, 'https://jwglxt.buct.edu.cn/jwglxt/xtgl/index_initMenu.html')
 })
 
+test('session client uses Electron follow redirects without copying Cookie headers', async () => {
+  let observed
+  class Session {
+    constructor() {
+      this.cookies = { get: async () => [{ name: 'JSESSIONID', value: 'scoped-session' }] }
+    }
+
+    async fetch(url, init) {
+      observed = { url: String(url), redirect: init.redirect, cookie: new Headers(init.headers).get('Cookie') }
+      return new Response('<html><body>ok</body></html>', { status: 200 })
+    }
+  }
+  const session = new Session()
+  const client = new SessionClient(session)
+
+  await client.request('https://jwglxt.buct.edu.cn/jwglxt/xtgl/index_initMenu.html', {}, { source: 'test' })
+  assert.deepEqual(observed, {
+    url: 'https://jwglxt.buct.edu.cn/jwglxt/xtgl/index_initMenu.html',
+    redirect: 'follow',
+    cookie: null,
+  })
+})
+
 test('session client retries transient GET failures but never retries a POST', async () => {
   let getCalls = 0
   const client = new SessionClient(

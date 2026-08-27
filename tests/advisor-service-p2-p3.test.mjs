@@ -211,9 +211,7 @@ test('advisor public DTOs allowlist provenance without breaking safe data-qualit
   assert.equal(whatIf.analysis.requirements.requirementSource, null)
   assert.equal(whatIf.analysis.requirements.requirementSourceKind, 'unknown-tree')
   assert.equal(overview.evidence.every((entry) => entry.source === null || entry.source === 'jwglxt'), true)
-  assert.equal(courseDecision.evidence.every((entry) => (
-    entry.source === null || entry.source === 'jwglxt' || entry.source === 'request-input'
-  )), true)
+  // Course decisions no longer carry evidence (credit-gap based recommendation).
 })
 
 test('public evidence projection rejects extension-field passthrough and preserves its fixed renderer contract', () => {
@@ -333,18 +331,8 @@ test('course decision service strips executable fields and cannot trigger networ
     assert.equal(result.snapshotRevision, versioned.revision)
     assert.equal(result.decisions[0].scheduleStatus, 'unknown')
     assert.equal(result.decisions[0].reasons.length > 0, true)
-    assert.equal(result.decisions[0].evidenceRefs.length, 5)
-    assert.deepEqual(new Set(result.evidence.map((entry) => entry.domain)), new Set([
-      'academic-progress', 'schedule', 'grades', 'selected-courses', 'request-input',
-    ]))
-    const inputEvidence = result.evidence.find((entry) => entry.origin === 'request-input')
-    assert.ok(inputEvidence)
-    assert.equal(inputEvidence.dataset, 'course-selection-candidates')
-    assert.equal(inputEvidence.label, '本次请求中的候选课程（非 CampusStore 数据）')
-    assert.equal(inputEvidence.snapshotRevision, versioned.revision)
-    assert.match(inputEvidence.requestDigest, /^[a-f0-9]{64}$/)
-    assert.equal(inputEvidence.disclosedFields.includes('sourceUrl'), false)
-    assert.equal(inputEvidence.disclosedFields.includes('operationId'), false)
+    assert.equal(Object.hasOwn(result.decisions[0], 'evidenceRefs'), false)
+    assert.equal(Object.hasOwn(result, 'evidence'), false)
     assert.equal(result.proposals.every((proposal) => ['save-target', 'view-details', 'open-confirmation'].includes(proposal.kind)), true)
     assert.doesNotMatch(JSON.stringify(result), /example\.com|submit-secret/)
   } finally {
@@ -352,7 +340,7 @@ test('course decision service strips executable fields and cannot trigger networ
   }
 })
 
-test('course decision evidence closes over one store revision and covers duplicate sources', () => {
+test('course decision output stays revision-bound and identifies duplicates without evidence', () => {
   const versioned = versionedState({
     academicProgress: {
       categories: [],
@@ -376,22 +364,14 @@ test('course decision evidence closes over one store revision and covers duplica
   }), {
     clock: () => CURRENT_CAPTURE,
   })
-  const evidenceById = new Map(result.evidence.map((entry) => [entry.id, entry]))
   const decision = result.decisions[0]
 
   assert.equal(result.snapshotRevision, versioned.revision)
   assert.equal(decision.duplicateStatus, 'currently-selected')
   assert.equal(decision.reasons.length > 0, true)
-  assert.equal(decision.evidenceRefs.length >= 2, true)
-  for (const reference of decision.evidenceRefs) {
-    const evidence = evidenceById.get(reference)
-    assert.ok(evidence, `unresolved evidence ${reference}`)
-    assert.equal(evidence.snapshotRevision, versioned.revision)
-    assert.equal(evidence.disclosedFields.length > 0, true)
-  }
-  assert.equal(result.evidence.some((entry) => entry.domain === 'academic-progress'), true)
-  assert.equal(result.evidence.some((entry) => entry.domain === 'selected-courses'), true)
-  assert.equal(result.evidence.some((entry) => entry.origin === 'request-input'), true)
+  assert.equal(Object.hasOwn(decision, 'evidenceRefs'), false)
+  assert.equal(Object.hasOwn(result, 'evidence'), false)
+  assert.equal(decision.duplicateMatches.some((match) => match.existingId.split(':')[1] === 'selected-courses'), true)
 })
 
 test('course decision service exposes only opaque schedule and duplicate record references', () => {
@@ -470,11 +450,7 @@ test('course decision service exposes only opaque schedule and duplicate record 
     'selected-courses',
     'schedule',
   ]))
-  for (const reference of decision.evidenceRefs) {
-    const evidence = first.evidence.find((entry) => entry.id === reference)
-    assert.ok(evidence, `unresolved evidence ${reference}`)
-    assert.match(evidence.entityId, /^entity:[a-f0-9]{16}$/)
-  }
+  assert.equal(Object.hasOwn(decision, 'evidenceRefs'), false)
   const serialized = JSON.stringify(first)
   for (const rawId of rawIds) assert.equal(serialized.includes(rawId), false)
 })
@@ -644,9 +620,23 @@ test('stale or retained selected-course records cannot assert a current duplicat
   }
 })
 
-test('request-input evidence is deterministic and changes only with the allowlisted candidate projection', () => {
-  const versioned = versionedState({}, {
-    'academic-progress': domainOutcome({ emptyConfirmed: true }),
+test('course decision is deterministic and ignores executable-only fields', () => {
+  const versioned = versionedState({
+    academicProgress: {
+      categories: [],
+      roots: [{
+        id: 'requirement-1',
+        title: '专业选修',
+        relation: 'and',
+        required: 8,
+        earned: 0,
+        remaining: 8,
+        children: [],
+        courses: [{ id: 'planned-1', courseCode: 'ABC100', title: '课程', studyStatus: '未修' }],
+      }],
+    },
+  }, {
+    'academic-progress': domainOutcome(),
     schedule: domainOutcome({ emptyConfirmed: true }),
     grades: domainOutcome({ emptyConfirmed: true }),
     'selected-courses': domainOutcome({ emptyConfirmed: true }),
@@ -684,11 +674,12 @@ test('request-input evidence is deterministic and changes only with the allowlis
     snapshotRevision: versioned.revision,
     candidates: [{ ...baseRequest.candidates[0], credits: 3 }],
   }, options)
-  const inputOf = (result) => result.evidence.find((entry) => entry.origin === 'request-input')
 
-  assert.equal(inputOf(first).id, inputOf(executableOnlyChange).id)
-  assert.equal(inputOf(first).requestDigest, inputOf(executableOnlyChange).requestDigest)
-  assert.notEqual(inputOf(first).id, inputOf(safeFactChange).id)
+  // Executable-only fields (sourceUrl, operationId, token) are stripped by the
+  // candidateRecord projection and do not change the decision outcome.
+  assert.deepEqual(first.decisions[0], executableOnlyChange.decisions[0])
+  // A change in a meaningful candidate field (credits) does change the score.
+  assert.notDeepEqual(first.decisions[0].scoreBreakdown, safeFactChange.decisions[0].scoreBreakdown)
   assert.doesNotMatch(JSON.stringify(first), /example\.com|secret-one/)
   assert.doesNotMatch(JSON.stringify(executableOnlyChange), /nested\.example|nested-operation-secret|nested-token-secret|array-token-secret/)
 })

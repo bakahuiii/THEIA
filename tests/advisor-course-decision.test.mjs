@@ -377,7 +377,7 @@ test('ranking is pure local computation and never calls fetch', () => {
   assert.equal(calls, 0)
 })
 
-test('optional evidence factory receives only local entity requests and URL-like refs are rejected', () => {
+test('optional evidence factory is ignored: course decisions carry no evidence refs', () => {
   const requests = []
   const decision = one(completeInput(), {
     evidenceRefFactory(request) {
@@ -388,9 +388,61 @@ test('optional evidence factory receives only local entity requests and URL-like
       ]
     },
   })
-  assert.equal(requests.length > 0, true)
-  assert.equal(decision.evidenceRefs.length > 0, true)
-  assert.equal(decision.evidenceRefs.every((ref) => ref.startsWith('evidence:')), true)
+  assert.equal(requests.length, 0)
+  assert.equal(Object.hasOwn(decision, 'evidenceRefs'), false)
+})
+
+test('matched requirement gap raises the recommendation score', () => {
+  const base = one(completeInput())
+  const gapNow = one(completeInput({
+    academicProgress: {
+      categories: [],
+      roots: [{ ...REQUIREMENT, remaining: 8 }],
+    },
+  }))
+  const gapFilled = one(completeInput({
+    academicProgress: {
+      categories: [],
+      roots: [{ ...REQUIREMENT, remaining: 0 }],
+    },
+  }))
+  assert.equal(gapNow.scoreBreakdown.requirementGap, 24)
+  assert.equal(gapFilled.scoreBreakdown.requirementGap, 0)
+  assert.equal(base.scoreBreakdown.requirementGap, 24)
+  assert.ok(gapNow.score > gapFilled.score)
+})
+
+test('gap reason names the training-plan node and its remaining credits', () => {
+  const decision = one(completeInput({
+    academicProgress: {
+      categories: [],
+      roots: [{ ...REQUIREMENT, remaining: 8 }],
+    },
+  }))
+  assert.equal(decision.reasons.some((reason) => /仍缺 8 学分/.test(reason)), true)
+  const filled = one(completeInput({
+    academicProgress: {
+      categories: [],
+      roots: [{ ...REQUIREMENT, remaining: 0 }],
+    },
+  }))
+  assert.equal(filled.reasons.some((reason) => /学分缺口已补足/.test(reason)), true)
+})
+
+test('gap scoring reads credits from the nested credits object as well', () => {
+  const decision = one(completeInput({
+    academicProgress: {
+      categories: [],
+      roots: [{
+        ...REQUIREMENT,
+        required: null,
+        earned: null,
+        remaining: null,
+        credits: { required: 8, earned: 2, remaining: 6 },
+      }],
+    },
+  }))
+  assert.equal(decision.scoreBreakdown.requirementGap, 18)
 })
 
 test('module source contains no course-selection POST endpoint or network primitive', async () => {

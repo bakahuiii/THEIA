@@ -12,6 +12,7 @@ const ACADEMIC_PROGRESS = new URL('xsxy/xsxyqk_cxXsxyqkIndex.html?gnmkdm=N105515
 export const ACADEMIC_PROGRESS_DETAILS = new URL('xsxy/xsxyqk_cxJxzxjhxfyqKcxx.html?gnmkdm=N105515', BASE).toString()
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36'
 const MAX_BINARY_RESPONSE_BYTES = 32 * 1024 * 1024
+const MAX_TEXT_RESPONSE_BYTES = 16 * 1024 * 1024
 
 export class AcademicApiError extends Error {
   constructor(code, message) {
@@ -86,11 +87,11 @@ function describeResponse(text) {
   }
 }
 
-async function readBoundedBinary(response, maximum) {
+async function readBoundedBinary(response, maximum, label = '教务附件') {
   const reader = response?.body?.getReader?.()
   if (!reader) {
     const buffer = Buffer.from(await response.arrayBuffer())
-    if (buffer.length > maximum) throw new AcademicApiError(999, '教务附件超过 32 MB 限制')
+    if (buffer.length > maximum) throw new AcademicApiError(999, `${label}超过 ${Math.ceil(maximum / 1024 / 1024)} MB 限制`)
     return buffer
   }
   const chunks = []
@@ -103,7 +104,7 @@ async function readBoundedBinary(response, maximum) {
       bytes += chunk.length
       if (bytes > maximum) {
         await reader.cancel().catch(() => {})
-        throw new AcademicApiError(999, '教务附件超过 32 MB 限制')
+        throw new AcademicApiError(999, `${label}超过 ${Math.ceil(maximum / 1024 / 1024)} MB 限制`)
       }
       chunks.push(chunk)
     }
@@ -316,12 +317,13 @@ export class AcademicApiClient {
         return this.request(nextUrl, nextInit, redirects + 1, { binary })
       }
       const declaredLength = Number(response.headers.get('content-length'))
-      if (binary && Number.isFinite(declaredLength) && declaredLength > MAX_BINARY_RESPONSE_BYTES) {
-        throw new AcademicApiError(999, '教务附件超过 32 MB 限制')
+      const maximumBytes = binary ? MAX_BINARY_RESPONSE_BYTES : MAX_TEXT_RESPONSE_BYTES
+      if (Number.isFinite(declaredLength) && declaredLength > maximumBytes) {
+        throw new AcademicApiError(999, `教务 API 响应超过 ${Math.ceil(maximumBytes / 1024 / 1024)} MB 限制`)
       }
       const buffer = binary
-        ? await readBoundedBinary(response, MAX_BINARY_RESPONSE_BYTES)
-        : Buffer.from(await response.arrayBuffer())
+        ? await readBoundedBinary(response, MAX_BINARY_RESPONSE_BYTES, '教务附件')
+        : await readBoundedBinary(response, MAX_TEXT_RESPONSE_BYTES, '教务 API 响应')
       const contentType = response.headers.get('content-type') || ''
       const textual = !binary || /^(?:text\/|application\/(?:json|javascript|xml)|[\w.+-]+\/json)/iu.test(contentType) || buffer.subarray(0, 1).toString('ascii') === '<'
       const text = textual ? decode(buffer, contentType) : ''

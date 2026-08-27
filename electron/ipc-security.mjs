@@ -3,7 +3,7 @@ import { JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES } from '../core/jwglxt-extra.mjs'
 
 export const RETRIABLE_SYNC_DOMAIN_IDS = Object.freeze([
   'profile', 'terms', 'schedule', 'exams', 'grades', 'selected-courses',
-  'academic-progress', 'jwglxt-courses', 'jwglxt-notices', 'theol-courses',
+  'academic-progress', 'jwglxt-courses', 'jwglxt-notices', 'theol-courses', 'theol-course-details',
   'assignments', 'theol-notices', 'mailbox', 'academic-calendar', 'fitness',
   'school-schedule',
   'academic-extras',
@@ -383,6 +383,8 @@ const NO_ARGUMENT_CHANNELS = [
   'theia:install-mcp-clients',
   'theia:advisor:list-threads', 'theia:advisor:create-thread',
   'theia:get-course-work-queue',
+  'theia:get-iris-status', 'theia:open-iris-control-panel', 'theia:clear-iris-credentials',
+  'theia:start-iris', 'theia:stop-iris', 'theia:restart-iris',
 ]
 
 export const THEIA_IPC_SCHEMAS = new Map(NO_ARGUMENT_CHANNELS.map((channel) => [channel, noArgs]))
@@ -420,6 +422,12 @@ for (const channel of [
   'theia:process-course-work-with-model', 'theia:render-answer-pdf',
   'theia:open-answer-pdf',
 ]) THEIA_IPC_SCHEMAS.set(channel, idArg)
+THEIA_IPC_SCHEMAS.set('theia:refresh-course-resources', idArg)
+THEIA_IPC_SCHEMAS.set('theia:download-course-resource', (channel, args) => {
+  argCount(channel, args, 2)
+  stringValue(channel, args[0], 'course id', 160)
+  stringValue(channel, args[1], 'resource id', 300)
+})
 THEIA_IPC_SCHEMAS.set('theia:cancel-course-work-job', idArg)
 THEIA_IPC_SCHEMAS.set('theia:set-course-work-queue-enabled', (channel, args) => {
   argCount(channel, args, 1)
@@ -455,6 +463,29 @@ THEIA_IPC_SCHEMAS.set('theia:read-saved-secret', (channel, args) => {
   if (!['unified-password', 'academic-api-password', 'mail-password', 'mail-protocol-password'].includes(args[0])) {
     fail(channel, 'saved secret kind is invalid')
   }
+})
+THEIA_IPC_SCHEMAS.set('theia:save-iris-settings', (channel, args) => {
+  argCount(channel, args, 1)
+  objectValue(channel, args[0], 'Iris settings')
+  allowedFields(channel, args[0], ['enabled', 'visibleProviders', 'providers'])
+  if (args[0].enabled !== undefined && typeof args[0].enabled !== 'boolean') fail(channel, 'Iris enabled must be a boolean')
+  if (args[0].visibleProviders !== undefined) {
+    if (!Array.isArray(args[0].visibleProviders) || args[0].visibleProviders.length > 16) fail(channel, 'Iris visibleProviders is invalid')
+    for (const provider of args[0].visibleProviders) stringValue(channel, provider, 'Iris provider', 32)
+  }
+  if (args[0].providers !== undefined) {
+    objectValue(channel, args[0].providers, 'Iris providers')
+    allowedFields(channel, args[0].providers, ['theia', 'hyperion', 'selene', 'codex', 'hermes', 'claude', 'claudeDesktop'])
+    for (const value of Object.values(args[0].providers)) if (typeof value !== 'boolean') fail(channel, 'Iris provider flags must be booleans')
+  }
+})
+THEIA_IPC_SCHEMAS.set('theia:save-iris-credentials', (channel, args) => {
+  argCount(channel, args, 1)
+  objectValue(channel, args[0], 'Iris credentials')
+  allowedFields(channel, args[0], ['appId', 'appSecret', 'ownerOpenid'])
+  stringValue(channel, args[0].appId, 'QQ App ID', 128)
+  stringValue(channel, args[0].appSecret, 'QQ AppSecret', 512)
+  stringValue(channel, args[0].ownerOpenid, 'QQ owner OpenID', 256, { optional: true })
 })
 THEIA_IPC_SCHEMAS.set('theia:read-mailbox-message', (channel, args) => {
   argCount(channel, args, 1, 2)

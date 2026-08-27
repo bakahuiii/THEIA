@@ -11,6 +11,10 @@ import {
   normalizeAcademicPlanDocument,
 } from '../core/academic-plan-document.mjs'
 import { startLocalApi } from '../core/local-api.mjs'
+
+function authedFetch(api, url, init) {
+  return fetch(url, { ...(init || {}), headers: { ...(init?.headers || {}), Authorization: `Bearer ${api.token}` } })
+}
 import { toTheiaFeed } from '../core/schema.mjs'
 import { CampusStore } from '../core/store.mjs'
 
@@ -124,7 +128,7 @@ test('cultivation-plan JSON has its own fragment and never enters the public fee
     assert.equal(feed.includes('academicPlanDocument'), false)
 
     api = await startLocalApi({ store: reloaded, root: storeRoot, preferredPort: 19745, publishRuntime: false })
-    const response = await fetch(`${api.baseUrl}/v1/academic-plan-document`).then((value) => value.json())
+    const response = await authedFetch(api, `${api.baseUrl}/v1/academic-plan-document`).then((value) => value.json())
     assert.equal(response.schema, 'theia-academic-plan-document-response/v1')
     assert.equal(response.item.pageCount, 2)
     assert.equal(response.item.pages[0].text.includes('最低毕业学分 171'), true)

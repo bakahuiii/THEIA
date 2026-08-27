@@ -709,3 +709,26 @@ test('read-only agent stops before sending a context that exceeds its token budg
   }), /input .*budget exhausted/u)
   assert.equal(calls, 0)
 })
+
+test('lazy workspace redacts paths and credentials from untrusted mail body observations', () => {
+  const versioned = versionedState({
+    emails: [{
+      id: 'mail-1',
+      subject: '本地通知',
+      body: '下载文件到 C:\\Users\\student\\secret\\key.json，使用 Bearer sk-proj-abcdef1234567890，密码=abc123，Cookie: JSESSIONID=xyz',
+      bodyHtml: null,
+      receivedAt: '2026-08-15T00:00:00.000Z',
+    }],
+  })
+  const overview = advisorOverviewFromVersionedSnapshot(versioned, { clock: () => '2026-08-16T00:00:00.000Z' })
+  const searchWorkspace = createAdvisorLazyWorkspace({ overview, state: versioned.state, snapshotRevision: versioned.revision })
+  const search = searchWorkspace.tools.search_campus_records({ domain: 'mailbox' })
+  const recordId = search.data.items[0].recordId
+  const body = searchWorkspace.tools.read_message({ recordId }).data.message.body
+  assert.doesNotMatch(body, /Users[\\/]student/iu)
+  assert.doesNotMatch(body, /sk-proj-/iu)
+  assert.doesNotMatch(body, /JSESSIONID=xyz/iu)
+  assert.doesNotMatch(body, /password=abc123|密码=abc123/iu)
+  assert.match(body, /本地通知|下载文件/iu)
+})
+

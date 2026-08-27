@@ -613,6 +613,21 @@ function normalizeRecord(record, domain, index) {
   return safe
 }
 
+export function normalizeFormOptions(source) {
+  if (!source || typeof source !== 'object') return {}
+  const result = {}
+  for (const [key, optionsValue] of Object.entries(source)) {
+    if (!/^[A-Za-z][A-Za-z0-9_]{0,63}$/u.test(key)) continue
+    const list = Array.isArray(optionsValue) ? optionsValue : []
+    const normalized = list.map((option) => ({
+      value: clean(option?.value, 160),
+      label: clean(option?.label ?? option?.text, 160),
+    })).filter((option) => option.value !== null || option.label !== null).slice(0, 128)
+    if (normalized.length) result[key] = normalized
+  }
+  return result
+}
+
 function normalizedAttachments(source, domain) {
   const attachments = (Array.isArray(source.attachments) ? source.attachments : []).map((item) => ({
     id: clean(item?.id, 240), label: clean(item?.label, 160), type: clean(item?.type, 40), sourceUrl: clean(item?.sourceUrl, 800),
@@ -699,6 +714,7 @@ export function normalizeJwglxtExtraDomain(value, domain = 'academic-plan') {
     },
     messages: [...new Set((Array.isArray(source.messages) ? source.messages : []).map((value) => clean(value, 600)).filter(Boolean))].slice(0, 16),
     filters: [...new Set((Array.isArray(source.filters) ? source.filters : []).map((name) => clean(name, 80)).filter(Boolean))].slice(0, 64),
+    options: normalizeFormOptions(source.options),
     attachments: normalizedAttachments(source, domain),
     records: domain === 'academic-plan'
       ? []

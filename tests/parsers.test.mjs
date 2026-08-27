@@ -1,8 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { describeJwSchedulePayload, isStandardCourseCode, parseJwAcademicProgress, parseJwAcademicStatus, parseJwExams, parseJwGrades, parseJwNotices, parseJwQueryForm, parseJwSchedule, parseJwSelectedCourses, parseJwStudentIdentity, parseJwHomepage } from '../core/parsers/jwglxt.mjs'
-import { parseTheolAssignments, parseTheolCourse, parseTheolHome } from '../core/parsers/theol.mjs'
+import { parseTheolAssignments, parseTheolCourse, parseTheolCourseResources, parseTheolHome } from '../core/parsers/theol.mjs'
 import { JWGLXT_URLS } from '../core/adapters/jwglxt.mjs'
+import { THEOL_URLS } from '../core/adapters/theol.mjs'
 import { parseAcademicTerm } from '../core/util.mjs'
 
 const term = { id: '2026-3', year: 2026, term: '3', label: '2026-2027 第一学期' }
@@ -20,6 +21,10 @@ test('JWGLXT uses its registered unified-authentication callback', () => {
   assert.equal(login.hostname, 'experimental-auth-endpoint.buct.edu.cn')
   assert.equal(login.searchParams.get('service'), 'https://jwglxt.buct.edu.cn/sso/jziotlogin')
   assert.match(login.searchParams.get('timestamp') || '', /^\d+$/)
+})
+
+test('THEOL keeps its registered SSO callback entry', () => {
+  assert.equal(THEOL_URLS.login, 'https://course.buct.edu.cn/meol/homepage/common/sso_login.jsp')
 })
 
 test('JWGLXT central-auth and local login pages are never treated as signed in', () => {
@@ -235,6 +240,83 @@ test('THEOL home, course links and assignments normalize', () => {
   assert.equal(assignments[0].status, 'pending')
   assert.ok(assignments[0].dueAt)
   assert.equal(assignments[0].courseSourceUrl, course.sourceUrl)
+})
+
+test('THEOL course details and resources normalize teaching materials', () => {
+  const course = { id: '123', title: '程序设计基础', source: 'theol' }
+  const detail = parseTheolCourse(`
+    <div class="course-intro">课程简介</div>
+    <div>课程所属院系：信息科学与技术学院</div><div>课程资源数：2</div>
+    <a href="/meol/common/script/courseResource.jsp?folderid=0&lid=123">课程资源</a>
+    <a href="/meol/jpk/course/course_column_preview_transfer.jsp?columnId=11&courseId=123" title="基本信息">基本信息</a>
+    <a href="/meol/jpk/course/course_column_preview_transfer.jsp?columnId=12&courseId=123">教学大纲</a>
+    <a href="/meol/jpk/course/course_column_preview_transfer.jsp?columnId=13&courseId=123">教学日历</a>
+  `, { course, sourceUrl: 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=123' })
+  assert.equal(detail.description, '课程简介')
+  assert.equal(detail.courseInfo.department, '信息科学与技术学院')
+  assert.equal(detail.courseInfo.resourceCount, 2)
+  assert.equal(detail.teachingMaterials.length, 3)
+  assert.equal(detail.courseResources, undefined)
+
+  const resources = parseTheolCourseResources(`
+    <a href="/meol/common/script/download.jsp?fileId=9">教学大纲.pdf</a>
+    <a href="/meol/common/script/courseResource.jsp?folderid=4&lid=123">第一章资料</a>
+  `, { courseId: '123', sourceUrl: 'https://course.buct.edu.cn/meol/common/script/courseResource.jsp?folderid=0&lid=123' })
+  assert.equal(resources.length, 2)
+  assert.equal(resources[0].courseId, '123')
+  assert.equal(resources[1].kind, 'folder')
+  assert.equal(resources[0].sourceKey, '123:file:fileid=9')
+})
+
+test('THEOL resource identity ignores session parameters and title changes', () => {
+  const first = parseTheolCourseResources(
+    '<a href="/meol/common/script/preview.jsp?fileid=9&lid=123&sid=old">旧标题.pdf</a>',
+    { courseId: '123', sourceUrl: 'https://course.buct.edu.cn/meol/listview.jsp?folderid=4&lid=123' },
+  )
+  const refreshed = parseTheolCourseResources(
+    '<a href="/meol/common/script/preview.jsp?lid=123&fileid=9&sid=new">新标题.pdf</a>',
+    { courseId: '123', sourceUrl: 'https://course.buct.edu.cn/meol/listview.jsp?folderid=4&lid=123' },
+  )
+  assert.equal(first[0].sourceKey, refreshed[0].sourceKey)
+  assert.equal(first[0].id, refreshed[0].id)
+})
+
+test('THEOL resource parser keeps real folders and preview/download files only', () => {
+  const resources = parseTheolCourseResources(`
+    <table>
+      <tr><td><a href="listview.jsp?acttype=enter&folderid=73222&lid=17010">课程大纲</a></td></tr>
+      <tr><td><a href="/meol/common/script/preview/download_preview.jsp?fileid=2287712&resid=508135&lid=17010">教学日历</a></td></tr>
+      <tr><td><a href="listview.jsp?groupid=4&lid=17010&folderid=0###" title="查看目录属性" onclick="MM_goToURL('self','attribute_folder.jsp?lid=17010&folderid=73222')"></a></td></tr>
+    </table>
+  `, { courseId: '17010', sourceUrl: 'https://course.buct.edu.cn/meol/common/script/listview.jsp?lid=17010&folderid=0' })
+  assert.deepEqual(resources.map((item) => item.kind), ['folder', 'file'])
+  assert.equal(resources[1].url.includes('fileid=2287712'), true)
+})
+
+test('THEOL buildless resource pages expose iframe preview files with their filename', () => {
+  const resources = parseTheolCourseResources(`
+    <div id="dowload-preview">
+      <div class="h1-title"><h1>1科技论文写作-前言</h1><h2>文件名:1科技论文写作-前言.ppt <span>(1.2M)</span></h2></div>
+      <iframe id="ifm" src="/meol/common/script/preview/preview.jsp?fileid=376372"></iframe>
+    </div>
+  `, {
+    courseId: '17010',
+    sourceUrl: 'https://course.buct.edu.cn/meol/buildless/resFolderViewList.do?folderid=73259&lid=17010&columnId=153116',
+  })
+  assert.equal(resources.length, 1)
+  assert.equal(resources[0].kind, 'file')
+  assert.equal(resources[0].title, '1科技论文写作-前言.ppt')
+  assert.equal(resources[0].fileName, '1科技论文写作-前言.ppt')
+  assert.match(resources[0].url, /preview\.jsp\?fileid=376372$/)
+})
+
+test('THEOL resource parser tolerates malformed percent-encoding in file paths', () => {
+  const resources = parseTheolCourseResources(
+    '<a href="/meol/common/script/preview.jsp?fileid=44">坏%标题.pdf</a>',
+    { courseId: '17010', sourceUrl: 'https://course.buct.edu.cn/meol/listview.jsp?folderid=4&lid=17010' },
+  )
+  assert.equal(resources.length, 1)
+  assert.equal(resources[0].title, '坏%标题.pdf')
 })
 
 test('THEOL assignments accept only unique detail endpoints and reject list navigation', () => {

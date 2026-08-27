@@ -4,9 +4,18 @@ import { dirname, resolve } from 'node:path'
 
 const FORMAT = 'theia-course-selection-records/v1'
 const HISTORY_LIMIT = 160
+const JOB_LOG_LIMIT = 80
+const TARGET_CONTEXT_FIELDS = [
+  'kcmc', 'rwlx', 'rlkz', 'cdrlkz', 'rlzlkz', 'xxkbj', 'cxbj', 'qz', 'jcxx_id',
+  'xklc', 'xkly', 'kklxdm',
+]
+
+function redactSecrets(value) {
+  return String(value ?? '').replace(/(JSESSIONID|token|cookie|authorization|password|passwd|pwd|xkkz_xh|jxb_ids|jcxx_id)(?:["']?)\s*[=:]\s*(?:"[^"]*"|'[^']*'|[^\s,;}"']+)/gi, '$1=[redacted]')
+}
 
 function text(value, limit = 240) {
-  const normalized = String(value ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim()
+  const normalized = redactSecrets(value).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim()
   return normalized ? normalized.slice(0, limit) : null
 }
 
@@ -21,6 +30,17 @@ function optionalTimestamp(value) {
   return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null
 }
 
+function safeSelectionContext(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const fields = new Map(Object.entries(value).map(([key, fieldValue]) => [String(key).toLocaleLowerCase(), fieldValue]))
+  const context = {}
+  for (const field of TARGET_CONTEXT_FIELDS) {
+    const value = text(fields.get(field), 240)
+    if (value) context[field] = value
+  }
+  return Object.keys(context).length ? context : null
+}
+
 function safeTarget(target) {
   if (!target || typeof target !== 'object') return null
   const title = text(target.title)
@@ -29,6 +49,10 @@ function safeTarget(target) {
     id: text(target.id, 160),
     termId: text(target.termId, 48),
     classId: text(target.classId, 160),
+    courseId: text(target.courseId, 160),
+    categoryCode: text(target.categoryCode, 48),
+    jxbzls: text(target.jxbzls, 32),
+    selectionContext: safeSelectionContext(target.selectionContext),
     courseCode: text(target.courseCode, 96),
     title,
     className: text(target.className),
@@ -40,17 +64,47 @@ function safeTarget(target) {
   }
 }
 
+function safeLog(entry) {
+  if (!entry || typeof entry !== 'object') return null
+  const message = text(entry.message, 480)
+  if (!message) return null
+  return {
+    at: timestamp(entry.at),
+    level: text(entry.level, 32) || 'info',
+    message,
+  }
+}
+
 function safeJob(snapshot) {
   const job = snapshot?.active
   if (!job || typeof job !== 'object') return null
   const candidate = safeTarget({
+    ...job.target,
     ...job.candidate,
-    classId: job.candidate?.classId,
-    className: job.candidate?.className,
+    id: job.candidate?.id ?? job.target?.id,
+    termId: job.candidate?.termId ?? job.target?.termId,
+    courseCode: job.candidate?.courseCode ?? job.target?.courseCode,
+    courseId: job.candidate?.courseId ?? job.target?.courseId,
+    categoryCode: job.candidate?.categoryCode ?? job.target?.categoryCode,
+    jxbzls: job.candidate?.jxbzls ?? job.target?.jxbzls,
+    selectionContext: job.candidate?.selectionContext ?? job.target?.selectionContext,
+    title: job.candidate?.title ?? job.target?.title,
+    classId: job.candidate?.classId ?? job.target?.classId,
+    className: job.candidate?.className ?? job.target?.className,
+    teacher: job.candidate?.teacher ?? job.target?.teacher,
+    time: job.candidate?.time ?? job.target?.time,
+    location: job.candidate?.location ?? job.target?.location,
+    credits: job.candidate?.credits ?? job.target?.credits,
     chosenAt: job.startAt || job.startedAt,
   })
   if (!candidate) return null
   const lastAttempt = Array.isArray(job.attempts) ? job.attempts.at(-1) : null
+  const lastMessage = text(lastAttempt?.message || job.lastMessage, 480)
+  const logs = (Array.isArray(job.logs) ? job.logs : []).map(safeLog).filter(Boolean).slice(-JOB_LOG_LIMIT)
+  if (!logs.length && lastMessage) {
+    const level = job.status === 'selected' ? 'success' : job.status === 'exhausted' ? 'error' : job.status === 'stopped' ? 'stopped' : 'info'
+    logs.push({ at: timestamp(job.completedAt || job.startedAt || job.startAt), level, message: `HISTORY SUMMARY | ${lastMessage}` })
+  }
   return {
     kind: 'job',
     at: timestamp(job.completedAt || job.startedAt || job.startAt),
@@ -58,7 +112,8 @@ function safeJob(snapshot) {
     status: text(job.status, 48),
     candidate,
     attempts: Math.max(0, Math.min(300, Number(job.attempts?.length) || 0)),
-    lastMessage: text(lastAttempt?.message || job.lastMessage, 480),
+    lastMessage,
+    logs,
   }
 }
 
@@ -113,6 +168,7 @@ export class CourseSelectionJournal {
             candidate: entry.candidate,
             attempts: Array.from({ length: Math.min(300, Number(entry.attempts) || 0) }, () => ({})),
             lastMessage: entry.lastMessage,
+            logs: entry.logs,
             completedAt: entry.at,
           } : null })).filter(Boolean).slice(-HISTORY_LIMIT)
           : [],
@@ -192,6 +248,7 @@ export class CourseSelectionJournal {
       && current?.status === entry.status
       && current?.attempts === entry.attempts
       && current?.lastMessage === entry.lastMessage
+      && JSON.stringify(current?.logs || []) === JSON.stringify(entry.logs || [])
     if (unchanged) return this.snapshot()
     this.data.history = [...this.data.history.filter((item) => item.jobId !== entry.jobId), entry].slice(-HISTORY_LIMIT)
     this.data.updatedAt = new Date().toISOString()

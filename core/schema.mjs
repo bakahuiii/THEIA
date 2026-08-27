@@ -15,6 +15,33 @@ export const APP_VERSION = String(require('../package.json').version || '0.0.0')
 const RICH_MAIL_VERSION = 4
 const UNSAFE_RICH_MAIL_MARKUP = /<(?:script|iframe|frame|object|embed|form|input|button|select|textarea|video|audio|source|link|meta|base|svg|math|img)\b|(?:\bon[a-z][\w:-]*\s*=|\b(?:src|srcset|poster)\s*=|url\s*\(|@import\b|javascript:|data:text\/html)/iu
 
+// Entity-encoded schemes/attributes (e.g. jav&#x61;script:, on\u0065rror=) are
+// decoded by the renderer before they can take effect, so the schema gate must
+// re-check the decoded form instead of trusting the literal markup.
+function decodeHtmlEntities(value) {
+  return String(value || '').replace(/&#x([0-9a-f]+);|&#(\d+);|&(amp|lt|gt|quot|apos|nbsp);/giu, (match, hex, dec, named) => {
+    let codePoint
+    if (hex !== undefined) codePoint = Number.parseInt(hex, 16)
+    else if (dec !== undefined) codePoint = Number.parseInt(dec, 10)
+    if (Number.isFinite(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff && !(codePoint >= 0xd800 && codePoint <= 0xdfff)) {
+      return String.fromCodePoint(codePoint)
+    }
+    const namedMap = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }
+    return namedMap[named] ?? match
+  })
+}
+
+function unsafeRichMailMarkup(value) {
+  const html = String(value || '')
+  if (UNSAFE_RICH_MAIL_MARKUP.test(html)) return true
+  // Limit the decoded re-check to attribute/entity-bearing fragments so a
+  // large legitimately-encoded message body is not double-scanned in full.
+  if (/&(?:#x?[0-9a-f]+|(?:amp|lt|gt|quot|apos|nbsp));/iu.test(html)) {
+    return UNSAFE_RICH_MAIL_MARKUP.test(decodeHtmlEntities(html))
+  }
+  return false
+}
+
 function plainTextFromMailHtml(value) {
   return String(value || '')
     .replace(/<\s*(script|style|iframe|frame|object|embed|form|input|button|select|textarea|video|audio|source|link|meta|base|svg|math|img)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/giu, ' ')
@@ -162,7 +189,7 @@ function normalizeEmail(item) {
   // Rich mail is rendered only after the IMAP sanitizer has stamped version 4.
   // Older snapshots can contain raw HTML (including remote images); retaining it
   // in any state/API projection would bypass the renderer's version check.
-  if (item.bodyHtmlVersion !== RICH_MAIL_VERSION || !bodyHtml || UNSAFE_RICH_MAIL_MARKUP.test(bodyHtml)) {
+  if (item.bodyHtmlVersion !== RICH_MAIL_VERSION || !bodyHtml || unsafeRichMailMarkup(bodyHtml)) {
     normalized.bodyHtml = null
     normalized.bodyHtmlVersion = null
   } else {
@@ -493,7 +520,10 @@ export function toTheiaFeed(state) {
 
 function csvEscape(value) {
   const text = value === null || value === undefined ? '' : String(value)
-  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+  // Neutralize spreadsheet formula injection prefixes and keep carriage
+  // returns inside a quoted cell so the row structure cannot be broken.
+  const guarded = /^[=+\-@]/u.test(text) ? `'${text}` : text
+  return /[",\r\n]/.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded
 }
 
 export function collectionCsv(state, collection) {
@@ -503,7 +533,7 @@ export function collectionCsv(state, collection) {
 }
 
 function icsEscape(value) {
-  return String(value ?? '').replace(/[\\;,\n]/g, (match) => ({ '\\': '\\\\', ';': '\\;', ',': '\\,', '\n': '\\n' }[match]))
+  return String(value ?? '').replace(/[\\;,\n\r]/g, (match) => ({ '\\': '\\\\', ';': '\\;', ',': '\\,', '\n': '\\n', '\r': '\\r' }[match]))
 }
 
 function icsDate(value) {

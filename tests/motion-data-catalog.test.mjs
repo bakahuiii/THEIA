@@ -5,6 +5,7 @@ import {
   cacheMotionVenueStatus,
   cachedMotionVenueCatalog,
   cachedMotionVenueStatus,
+  cachedMotionVenueStatuses,
   emptyDataCatalog,
   motionVenueCacheSummary,
   normalizeDataCatalog,
@@ -64,4 +65,29 @@ test('MOTION cache drops malformed venue records and keeps read-only fields', ()
   assert.equal(normalized.collections.venueReservations.venues.length, 1)
   assert.equal(normalized.collections.venueReservations.venues[0].detailUrl, detailUrl)
   assert.equal(normalized.collections.venueReservations.venues[0].password, undefined)
+})
+
+test('cachedMotionVenueStatuses tolerates a missing activity filter and missing result activity', () => {
+  // Regression: both null paths used to call .toLocaleLowerCase() on null and
+  // crash the /v1/venue-statuses endpoint whenever activity was omitted.
+  let value = emptyDataCatalog()
+  value = cacheMotionVenueCatalog(value, catalog)
+  value = cacheMotionVenueStatus(value, status)
+  const normalized = normalizeDataCatalog(value)
+
+  const noFilter = cachedMotionVenueStatuses(normalized, {})
+  assert.equal(noFilter.length, 1)
+
+  const onlyDate = cachedMotionVenueStatuses(normalized, { date: '2026-08-19' })
+  assert.equal(onlyDate.length, 1)
+
+  // A stored status whose own query.activity is missing must not throw either.
+  const bareStatus = {
+    ...status,
+    query: { ...status.query, activity: null },
+  }
+  let bare = emptyDataCatalog()
+  bare = cacheMotionVenueCatalog(bare, catalog)
+  bare = cacheMotionVenueStatus(bare, bareStatus)
+  assert.equal(cachedMotionVenueStatuses(normalizeDataCatalog(bare), {}).length, 1)
 })

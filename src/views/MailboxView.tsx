@@ -85,7 +85,7 @@ export function MailboxView({ emails, query = "" }: { emails: EmailMessage[]; qu
   const pageEmails = visibleEmails.slice(page * MAIL_PAGE_SIZE, (page + 1) * MAIL_PAGE_SIZE);
 
   if (!emails.length) {
-    return <EmptyState icon={Inbox} title="收件箱为空" detail="在“数据与接口”中配置校园邮箱后，邮件会保存在本机并显示在这里。" />;
+    return <EmptyState icon={Inbox} title="收件箱为空" detail="在“数据”中配置校园邮箱后，邮件会保存在本机并显示在这里。" />;
   }
 
   if (!visibleEmails.length) {

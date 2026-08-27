@@ -8,6 +8,10 @@ import { DATA_OUTPUT_SCHEMA, PUBLIC_DATA_DOMAINS, projectTheiaDataDomain, toThei
 import { cacheMotionVenueCatalog, cacheMotionVenueStatus } from '../core/data-catalog.mjs'
 import { startLocalApi } from '../core/local-api.mjs'
 
+function authedFetch(api, url, init) {
+  return fetch(url, { ...(init || {}), headers: { ...(init?.headers || {}), Authorization: `Bearer ${api.token}` } })
+}
+
 test('public data output has one stable shape and excludes unsupported domains', () => {
   const state = emptyState()
   state.profile = { id: 'profile-1', name: '张三', password: 'must-not-leak', sourceUrl: 'https://private.invalid' }
@@ -56,13 +60,13 @@ test('local API serves the versioned public data output without transport fields
   }
   const api = await startLocalApi({ store, root, preferredPort: 0, publishRuntime: false })
   try {
-    const response = await fetch(`${api.baseUrl}/v1/data-output/courses`)
+    const response = await authedFetch(api, `${api.baseUrl}/v1/data-output/courses`)
     const body = await response.json()
     assert.equal(response.status, 200)
     assert.equal(body.schema, 'theia-data-domain-output/v1')
     assert.equal(body.snapshotRevision, 'revision-1')
     assert.equal(body.data[0].sourceUrl, undefined)
-    assert.equal((await fetch(`${api.baseUrl}/v1/data-output/academic-warning`)).status, 404)
+    assert.equal((await authedFetch(api, `${api.baseUrl}/v1/data-output/academic-warning`)).status, 404)
   } finally {
     await api.close()
     await rm(root, { recursive: true, force: true })
@@ -105,19 +109,19 @@ test('local API exposes cached MOTION venue catalog and status as read-only proj
     }
     api = await startLocalApi({ store, root, preferredPort: 0, publishRuntime: false })
 
-    const catalogResponse = await fetch(`${api.baseUrl}/v1/venue-catalog`)
+    const catalogResponse = await authedFetch(api, `${api.baseUrl}/v1/venue-catalog`)
     const catalogBody = await catalogResponse.json()
     assert.equal(catalogResponse.status, 200)
     assert.equal(catalogBody.item.venues[0].detailUrl, detailUrl)
     assert.equal(catalogBody.item.campuses[0].venueIds[0], 'venue-1')
 
-    const statusResponse = await fetch(`${api.baseUrl}/v1/venue-status?detailUrl=${encodeURIComponent(detailUrl)}&date=2026-08-19&venue=${encodeURIComponent('体育馆比赛馆')}`)
+    const statusResponse = await authedFetch(api, `${api.baseUrl}/v1/venue-status?detailUrl=${encodeURIComponent(detailUrl)}&date=2026-08-19&venue=${encodeURIComponent('体育馆比赛馆')}`)
     const statusBody = await statusResponse.json()
     assert.equal(statusResponse.status, 200)
     assert.equal(statusBody.item.fromCache, true)
     assert.equal(statusBody.item.availability.summary.byState.available, 1)
 
-    const missingBody = await fetch(`${api.baseUrl}/v1/venue-status?detailUrl=${encodeURIComponent(detailUrl)}&date=2026-08-20&venue=${encodeURIComponent('体育馆比赛馆')}`).then((response) => response.json())
+    const missingBody = await authedFetch(api, `${api.baseUrl}/v1/venue-status?detailUrl=${encodeURIComponent(detailUrl)}&date=2026-08-20&venue=${encodeURIComponent('体育馆比赛馆')}`).then((response) => response.json())
     assert.equal(missingBody.item, null)
   } finally {
     await api?.close()

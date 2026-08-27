@@ -1,5 +1,4 @@
 import {
-  COURSE_DECISION_CANDIDATE_FIELDS,
   COURSE_DECISION_RULES_VERSION,
   createAdvisorOverview,
   createCourseDecisions,
@@ -7,29 +6,20 @@ import {
   evaluateDataQuality,
   EvidenceRegistry,
 } from '../core/advisor/index.mjs'
-import { canonicalDigest, compareCanonicalText, shortDigest } from '../core/advisor/canonical.mjs'
 import {
   AcademicReferenceError,
   createAcademicReferenceCatalog,
-  projectAdvisorEvidence,
   projectAcademicResult,
   projectAdvisorOverview,
   resolveAlternativeSelections,
 } from './advisor-academic-references.mjs'
 
 export const ADVISOR_TIME_ZONE = 'Asia/Shanghai'
-const COURSE_DECISION_INPUT_EVIDENCE_SCHEMA = 'theia-advisor-request-input-evidence/v1'
 const QUALITY_KEYS = Object.freeze({
   academicProgress: 'academic-progress',
   schedule: 'schedule',
   grades: 'grades',
   selectedCourses: 'selected-courses',
-})
-const QUALITY_LABELS = Object.freeze({
-  'academic-progress': '培养方案数据质量',
-  schedule: '课表数据质量',
-  grades: '成绩数据质量',
-  'selected-courses': '已选课程数据质量',
 })
 const COMPLETENESS_RANK = Object.freeze({ unknown: 0, partial: 1, complete: 2 })
 const MAX_CANDIDATE_TEXT_LENGTH = 2_000
@@ -244,51 +234,6 @@ function currentRecordsUsable(quality, effective) {
     && effective !== 'unknown'
 }
 
-function candidateInputEvidence(candidates, snapshotRevision) {
-  const orderedCandidates = [...candidates]
-    .sort((left, right) => compareCanonicalText(left.id, right.id))
-  const requestDigest = canonicalDigest({
-    schema: COURSE_DECISION_INPUT_EVIDENCE_SCHEMA,
-    candidates: orderedCandidates,
-  })
-  const entries = orderedCandidates.map((candidate) => {
-    const evidenceDigest = canonicalDigest({
-      schema: COURSE_DECISION_INPUT_EVIDENCE_SCHEMA,
-      candidate,
-    })
-    const identity = {
-      schema: COURSE_DECISION_INPUT_EVIDENCE_SCHEMA,
-      snapshotRevision,
-      requestDigest,
-      evidenceDigest,
-      fields: COURSE_DECISION_CANDIDATE_FIELDS,
-    }
-    return Object.freeze({
-      id: `iev1:course-selection-candidates:${shortDigest(identity, 16)}:${shortDigest(COURSE_DECISION_CANDIDATE_FIELDS, 12)}`,
-      origin: 'request-input',
-      dataset: 'course-selection-candidates',
-      domain: 'request-input',
-      entityId: `entity:${shortDigest({ candidateId: candidate.id }, 16)}`,
-      fields: [...COURSE_DECISION_CANDIDATE_FIELDS],
-      capturedAt: null,
-      source: 'request-input',
-      snapshotRevision,
-      domainDigest: requestDigest,
-      evidenceDigest,
-      requestDigest,
-      availability: 'available',
-      freshness: 'unknown',
-      completeness: 'partial',
-      label: '本次请求中的候选课程（非 CampusStore 数据）',
-      disclosedFields: [...COURSE_DECISION_CANDIDATE_FIELDS],
-    })
-  })
-  return {
-    byCandidateId: new Map(orderedCandidates.map((candidate, index) => [candidate.id, entries[index]])),
-    entries,
-  }
-}
-
 export function advisorCourseDecisionsFromStore(store, request, {
   clock = () => new Date().toISOString(),
 } = {}) {
@@ -304,10 +249,6 @@ export function advisorCourseDecisionsFromStore(store, request, {
     now: clock(),
     timeZone: ADVISOR_TIME_ZONE,
   })
-  const evidenceRegistry = new EvidenceRegistry(versioned, {
-    dataQuality,
-    rulesVersion: COURSE_DECISION_RULES_VERSION,
-  })
   const academicCatalog = createAcademicReferenceCatalog({
     academicProgress: state.academicProgress,
     snapshotRevision: versioned.revision,
@@ -322,41 +263,6 @@ export function advisorCourseDecisionsFromStore(store, request, {
     if (!Object.hasOwn(COMPLETENESS_RANK, requestedValue)) return [key, storeValue]
     return [key, weakerCompleteness(storeValue, requestedValue)]
   }))
-  const inputEvidence = candidateInputEvidence(candidates, versioned.revision)
-  const evidenceRefFactory = (specification) => {
-    if (!specification) return []
-    if (specification.dataset === 'course-selection-candidates') {
-      return inputEvidence.byCandidateId.get(specification.entityId)?.id || []
-    }
-    if (!Object.values(QUALITY_KEYS).includes(specification.domain)) return []
-    const quality = dataQuality.domains?.[specification.domain]
-    const qualityEvidence = specification.dataset === 'sync-domain'
-    const evidence = evidenceRegistry.register({
-      ...specification,
-      ...(qualityEvidence ? {
-        capturedAt: quality?.capturedAt || null,
-        source: quality?.source?.[0] || null,
-        label: QUALITY_LABELS[specification.domain] || '校园数据质量',
-        evidenceDigest: canonicalDigest({
-          domain: quality?.domain || specification.domain,
-          availability: quality?.availability || 'unknown',
-          freshness: quality?.freshness || 'unknown',
-          completeness: quality?.completeness || 'unknown',
-          capturedAt: quality?.capturedAt || null,
-          sourceSucceededAt: quality?.sourceSucceededAt || null,
-          source: quality?.source || [],
-          parserVersion: quality?.parserVersion || null,
-          recordCount: quality?.recordCount || 0,
-          contentEmptyConfirmed: quality?.contentEmptyConfirmed === true,
-          contentDigest: quality?.contentDigest || null,
-          lastAttempt: quality?.lastAttempt || null,
-          provenanceInferred: quality?.provenanceInferred !== false,
-        }),
-      } : {}),
-    })
-    evidenceRegistry.disclose(evidence.id, specification.fields)
-    return evidence.id
-  }
   const result = createCourseDecisions({
     candidates,
     academicProgress: state.academicProgress,
@@ -378,20 +284,10 @@ export function advisorCourseDecisionsFromStore(store, request, {
     },
   }, {
     rulesVersion: COURSE_DECISION_RULES_VERSION,
-    evidenceRefFactory,
     requirementRefFactory: ({ rawId, path }) => academicCatalog.requirementRef(rawId, path),
   })
-  const referencedEvidence = new Set(result.decisions.flatMap((decision) => decision.evidenceRefs))
-  const evidence = [
-    ...evidenceRegistry.list(),
-    ...inputEvidence.entries,
-  ]
-    .filter((entry) => referencedEvidence.has(entry.id))
-    .sort((left, right) => compareCanonicalText(left.id, right.id))
-    .map(projectAdvisorEvidence)
   return Object.freeze({
     ...result,
     snapshotRevision: versioned.revision,
-    evidence,
   })
 }

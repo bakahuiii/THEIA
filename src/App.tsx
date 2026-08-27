@@ -133,7 +133,7 @@ export default function App() {
         onClosePalette={() => app.setPaletteOpen(false)}
         onNavigate={goToFromPalette}
       >
-        <ErrorBoundary>
+        <ErrorBoundary key={app.view}>
         {app.view === "dashboard" && (
           <DashboardView
             state={state}
@@ -202,6 +202,21 @@ export default function App() {
             state={state}
             query={app.query}
             terms={app.visibleTerms}
+            onRefreshResources={async (courseId) => {
+              try {
+                return await bridge.refreshCourseResources(courseId);
+              } catch {
+                return undefined;
+              }
+            }}
+            onDownloadResource={async (courseId, resourceId) => {
+              try {
+                return await bridge.downloadCourseResource(courseId, resourceId);
+              } catch {
+                return undefined;
+              }
+            }}
+            onOpenSource={(url) => bridge.openSource(url)}
           />
         )}
         {app.view === "selection" && (

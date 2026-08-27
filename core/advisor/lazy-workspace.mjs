@@ -1,6 +1,7 @@
 import { canonicalDigest, canonicalJson, compareCanonicalText, parseCampusInstant } from './canonical.mjs'
 import { freezeRequestCatalog } from './citation-verifier.mjs'
-import { htmlToSafeText, projectAttachmentMetadata, sanitizeUntrustedText } from './notice-mail-context.mjs'
+import { htmlToSafeText, projectAttachmentMetadata } from './notice-mail-context.mjs'
+import { sanitizeAdvisorUntrustedText } from './redaction.mjs'
 import { buildAcademicAnalysis } from '../academic-model.mjs'
 import { JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES, JWGLXT_EXTRA_DOMAINS } from '../jwglxt-extra.mjs'
 
@@ -47,7 +48,10 @@ const GENERIC_FIELDS = Object.freeze([
 ])
 
 function text(value, maximum = 1_000) {
-  return sanitizeUntrustedText(value, { maxChars: maximum }).text || null
+  // Untrusted campus text (mail bodies, notices, remarks) must pass the full
+  // advisor redaction policy — not just URL stripping — so paths, credentials,
+  // cookies and API-key shaped strings cannot reach the model observation.
+  return sanitizeAdvisorUntrustedText(value, { maxLength: maximum }) || null
 }
 
 function instant(value) {
@@ -213,8 +217,16 @@ function projectNotice(item) {
 }
 
 function projectMailbox(item, { body = false } = {}) {
+  // The plain-text body also flows through the full advisor redaction policy:
+  // HTML-to-text strips markup, and the redaction pass removes paths,
+  // credentials, cookies and API-key shaped strings from the observation.
   const rawBody = body
-    ? (item?.bodyHtml ? htmlToSafeText(item.bodyHtml, { maxChars: MAX_MESSAGE_BODY_CHARS }) : text(item?.body, MAX_MESSAGE_BODY_CHARS))
+    ? sanitizeAdvisorUntrustedText(
+        item?.bodyHtml
+          ? htmlToSafeText(item.bodyHtml, { maxChars: MAX_MESSAGE_BODY_CHARS })
+          : String(item?.body ?? ''),
+        { maxLength: MAX_MESSAGE_BODY_CHARS },
+      ) || null
     : null
   return compactObject({
     subject: text(item?.subject, 500),

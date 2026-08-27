@@ -114,7 +114,11 @@ async function loadRuntime() {
 const args = parseArgs(process.argv.slice(2))
 const command = args._[0] || 'help'
 const helpRequested = command === 'help' || command === '--help' || args.help
-const runtime = helpRequested ? null : await loadRuntime()
+// The doctor command must stay usable when the local store is damaged: it is
+// the tool that tells the user the store cannot be loaded and what to check.
+// Every other command fails fast with the underlying store error.
+let runtime = null
+if (!helpRequested && command !== 'doctor') runtime = await loadRuntime()
 const { root, store, state, courseWork } = runtime || {}
 
 if (helpRequested) {
@@ -190,13 +194,31 @@ if (helpRequested) {
   }
 } else if (command === 'doctor') {
   const problems = []
-  if (state.schema !== 'theia-campus-data/v1') problems.push(`未知数据协议: ${state.schema}`)
-  if (!state.sync.lastCompletedAt) problems.push('尚未完成首次同步')
-  for (const [source, status] of Object.entries(state.sync.sources || {})) {
-    if (!status?.connected) problems.push(`${sanitizeDiagnosticText(source)}: ${sanitizeDiagnosticText(status?.error || '未连接')}`)
+  let storeLoadError = null
+  if (!store) {
+    try {
+      runtime = await loadRuntime()
+    } catch (error) {
+      storeLoadError = error instanceof Error ? error.message : String(error)
+    }
   }
-  process.stdout.write(JSON.stringify({ ok: problems.length === 0, dataRoot: root, problems, counts: counts(state) }, null, 2) + '\n')
-  if (problems.length) process.exitCode = 1
+  const doctorStore = runtime?.store || store
+  const doctorState = runtime?.state || state
+  const dataRoot = runtime?.root || root
+  if (!doctorStore || !doctorState) {
+    problems.push(`本地数据无法加载: ${sanitizeDiagnosticText(storeLoadError || '未知错误')}`)
+    problems.push('请检查数据目录是否存在、文件是否损坏，或先在桌面客户端中打开一次 THEIA 以触发恢复')
+    process.stdout.write(JSON.stringify({ ok: false, dataRoot, problems, counts: {} }, null, 2) + '\n')
+    process.exitCode = 1
+  } else {
+    if (doctorState.schema !== 'theia-campus-data/v1') problems.push(`未知数据协议: ${doctorState.schema}`)
+    if (!doctorState.sync.lastCompletedAt) problems.push('尚未完成首次同步')
+    for (const [source, status] of Object.entries(doctorState.sync.sources || {})) {
+      if (!status?.connected) problems.push(`${sanitizeDiagnosticText(source)}: ${sanitizeDiagnosticText(status?.error || '未连接')}`)
+    }
+    process.stdout.write(JSON.stringify({ ok: problems.length === 0, dataRoot, problems, counts: counts(doctorState) }, null, 2) + '\n')
+    if (problems.length) process.exitCode = 1
+  }
 } else {
   process.stderr.write(`未知命令: ${command}\n\n${help()}`)
   process.exitCode = 2

@@ -344,7 +344,7 @@ test('sync status stays inside the topbar and cannot reflow the advisor workbenc
   assert.ok(headerStart >= 0 && bannerStart > headerStart && headerEnd > bannerStart)
   assert.ok(loginBannerStart > headerStart && loginBannerStart < headerEnd)
   assert.match(stylesSource, /\.topbar-sync-banner\s*\{[\s\S]*?flex:\s*0 1 clamp\([\s\S]*?margin:\s*0[\s\S]*?pointer-events:\s*none/)
-  assert.doesNotMatch(stylesSource, /\.topbar-sync-banner\s*\{[\s\S]*?position:\s*absolute/)
+  assert.doesNotMatch(stylesSource, /\.topbar-sync-banner\s*\{[^}]*position:\s*absolute/)
   assert.match(stylesSource, /@media \(max-width: 720px\)\s*\{[\s\S]*?\.topbar-sync-banner\s*\{\s*display:\s*none;/)
 })
 

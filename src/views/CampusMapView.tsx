@@ -1,4 +1,5 @@
 import {
+  Building2,
   LocateFixed,
   Map as MapIcon,
   Minus,
@@ -14,10 +15,35 @@ import {
 } from "react";
 import campusMap from "../assets/theia-changping-campus-map.jpg";
 import satelliteMap from "../assets/theia-changping-campus-satellite-mercator.webp";
+import firstFloor1 from "../assets/indoor/first/aligned/1A.png";
+import firstFloor2 from "../assets/indoor/first/aligned/2A.png";
+import firstFloor3 from "../assets/indoor/first/aligned/3A.png";
+import firstFloor4 from "../assets/indoor/first/aligned/4A.png";
+import firstFloor5 from "../assets/indoor/first/aligned/5A.png";
+import secondFloor1 from "../assets/indoor/second/floor-1.png";
+import secondFloor2 from "../assets/indoor/second/floor-2.png";
+import secondFloor3 from "../assets/indoor/second/floor-3.png";
+import secondFloor4 from "../assets/indoor/second/floor-4.png";
+import secondFloor5 from "../assets/indoor/second/floor-5.png";
 
+type BuildingId = "campus" | "first" | "second";
 type MapLayer = "campus" | "satellite";
 type MapPosition = { x: number; y: number };
-type SavedMapView = { layer: MapLayer; zoom: number; position: MapPosition };
+type SheetSize = { width: number; height: number };
+type MapSource = {
+  alt: string;
+  title: string;
+  src: string;
+  width: number;
+  height: number;
+};
+type SavedMapView = {
+  building: BuildingId;
+  floor: number;
+  layer: MapLayer;
+  zoom: number;
+  position: MapPosition;
+};
 
 type DragState = {
   lastX: number;
@@ -25,20 +51,62 @@ type DragState = {
   lastAt: number;
 };
 
-const mapSources: Record<
-  MapLayer,
-  { alt: string; width: number; height: number }
-> = {
-  campus: { alt: "北京化工大学昌平校区地图", width: 6874, height: 10063 },
-  satellite: { alt: "北京化工大学昌平校区卫星图", width: 6874, height: 10063 },
+const campusSource: MapSource = {
+  alt: "北京化工大学昌平校区地图",
+  title: "昌平校区",
+  src: campusMap,
+  width: 6874,
+  height: 10063,
 };
 
-const MAP_VIEW_STORAGE_KEY = "theia-campus-map-view-v1";
+const satelliteSource: MapSource = {
+  alt: "北京化工大学昌平校区卫星图",
+  title: "昌平校区卫星图",
+  src: satelliteMap,
+  width: 6874,
+  height: 10063,
+};
+
+const firstFloors: MapSource[] = [
+  ["1 层", firstFloor1, 4918, 2516],
+  ["2 层", firstFloor2, 4820, 2531],
+  ["3 层", firstFloor3, 4813, 2527],
+  ["4 层", firstFloor4, 4792, 2473],
+  ["5 层", firstFloor5, 4835, 2509],
+].map(([label, src, width, height]) => ({
+  alt: `第一教学楼 ${label}室内平面图`,
+  title: `第一教学楼 · ${label}`,
+  src: src as string,
+  width: width as number,
+  height: height as number,
+}));
+
+const secondFloors: MapSource[] = [
+  ["1 层", secondFloor1, 4368, 3433],
+  ["2 层", secondFloor2, 4368, 3433],
+  ["3 层", secondFloor3, 4368, 3433],
+  ["4 层", secondFloor4, 4368, 3433],
+  ["5 层", secondFloor5, 4368, 3433],
+].map(([label, src, width, height]) => ({
+  alt: `第二教学楼 ${label}室内平面图`,
+  title: `第二教学楼 · ${label}`,
+  src: src as string,
+  width: width as number,
+  height: height as number,
+}));
+
+const MAP_VIEW_STORAGE_KEY = "theia-campus-map-view-v2";
 const defaultMapView: SavedMapView = {
+  building: "campus",
+  floor: 0,
   layer: "campus",
   zoom: 1,
   position: { x: 0, y: 0 },
 };
+
+function isBuilding(value: unknown): value is BuildingId {
+  return value === "campus" || value === "first" || value === "second";
+}
 
 function readSavedMapView(): SavedMapView {
   try {
@@ -46,6 +114,11 @@ function readSavedMapView(): SavedMapView {
     const saved = raw ? (JSON.parse(raw) as Partial<SavedMapView>) : null;
     const position = saved?.position;
     return {
+      building: isBuilding(saved?.building) ? saved.building : "campus",
+      floor:
+        typeof saved?.floor === "number" && Number.isFinite(saved.floor)
+          ? Math.max(0, Math.min(4, Math.floor(saved.floor)))
+          : 0,
       layer: saved?.layer === "satellite" ? "satellite" : "campus",
       zoom:
         typeof saved?.zoom === "number" && Number.isFinite(saved.zoom)
@@ -65,18 +138,31 @@ function readSavedMapView(): SavedMapView {
   }
 }
 
+function getMapSource(building: BuildingId, floor: number, layer: MapLayer): MapSource {
+  if (building === "campus") return layer === "satellite" ? satelliteSource : campusSource;
+  const floors = building === "first" ? firstFloors : secondFloors;
+  return floors[floor] ?? floors[0];
+}
+
 export function CampusMapView() {
   const [initialView] = useState(readSavedMapView);
-  const [layer, setLayer] = useState<MapLayer>(initialView.layer);
+  const [building, setBuilding] = useState<BuildingId>(initialView.building);
+  const [floor, setFloor] = useState(initialView.floor);
+  const [layer, setLayer] = useState<MapLayer>(
+    initialView.building === "campus" ? initialView.layer : "campus",
+  );
   const [zoom, setZoom] = useState(initialView.zoom);
   const [position, setPosition] = useState<MapPosition>(initialView.position);
+  const [sheetSize, setSheetSize] = useState<SheetSize>({ width: 0, height: 0 });
   const [maxZoom, setMaxZoom] = useState(6);
   const [dragging, setDragging] = useState(false);
   const [coasting, setCoasting] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
-  const sheetRef = useRef<HTMLDivElement>(null);
-  const mapImageRef = useRef<HTMLImageElement>(null);
   const dragRef = useRef<DragState | null>(null);
+  const sourceSelectionRef = useRef({
+    building: initialView.building,
+    floor: initialView.floor,
+  });
   const positionRef = useRef<MapPosition>(initialView.position);
   const zoomRef = useRef(initialView.zoom);
   const velocityRef = useRef<MapPosition>({ x: 0, y: 0 });
@@ -84,6 +170,8 @@ export function CampusMapView() {
   const zoomByRef = useRef<
     (factor: number, event?: { clientX: number; clientY: number }) => void
   >(() => {});
+  const source = getMapSource(building, floor, layer);
+  const baseSource = getMapSource(building, floor, "campus");
 
   const applyPosition = useCallback((next: MapPosition) => {
     positionRef.current = next;
@@ -99,31 +187,47 @@ export function CampusMapView() {
     setCoasting(false);
   }, []);
 
+  const resetViewForSource = useCallback(() => {
+    stopInertia();
+    zoomRef.current = 1;
+    positionRef.current = { x: 0, y: 0 };
+    setZoom(1);
+    setPosition({ x: 0, y: 0 });
+  }, [stopInertia]);
+
   const syncMaxZoom = useCallback(() => {
-    const sheet = sheetRef.current;
-    const source = mapSources[layer];
-    if (!sheet?.offsetWidth) return;
-    const nextMaxZoom = Math.max(
-      1,
-      Math.floor(
-        Math.min(
-          source.width / sheet.offsetWidth,
-          source.height / sheet.offsetHeight,
-        ) * 100,
-      ) / 100,
+    const stage = stageRef.current;
+    if (!stage) return;
+    const rect = stage.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const fitScale = Math.min(rect.width / baseSource.width, rect.height / baseSource.height);
+    const nextSize = {
+      width: Math.max(1, Math.round(baseSource.width * fitScale)),
+      height: Math.max(1, Math.round(baseSource.height * fitScale)),
+    };
+    setSheetSize((current) =>
+      current.width === nextSize.width && current.height === nextSize.height
+        ? current
+        : nextSize,
     );
+    const nextMaxZoom = Math.max(1, Math.floor((1 / fitScale) * 100) / 100);
     setMaxZoom(nextMaxZoom);
     if (zoomRef.current > nextMaxZoom) {
       zoomRef.current = nextMaxZoom;
       setZoom(nextMaxZoom);
     }
-  }, [layer]);
+  }, [baseSource.height, baseSource.width]);
+
+  useEffect(() => {
+    const previous = sourceSelectionRef.current;
+    if (previous.building === building && previous.floor === floor) return;
+    sourceSelectionRef.current = { building, floor };
+    resetViewForSource();
+  }, [building, floor, resetViewForSource]);
 
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
-    const satellite = new Image();
-    satellite.src = satelliteMap;
     const zoomWithWheel = (event: WheelEvent) => {
       event.preventDefault();
       event.stopPropagation();
@@ -152,14 +256,14 @@ export function CampusMapView() {
       try {
         localStorage.setItem(
           MAP_VIEW_STORAGE_KEY,
-          JSON.stringify({ layer, zoom, position }),
+          JSON.stringify({ building, floor, layer, zoom, position }),
         );
       } catch {
         // The map remains usable when local preferences cannot be saved.
       }
     }, 120);
     return () => window.clearTimeout(timeout);
-  }, [layer, position, zoom]);
+  }, [building, floor, layer, position, zoom]);
 
   const startInertia = useCallback(() => {
     if (Math.hypot(velocityRef.current.x, velocityRef.current.y) < 0.2) {
@@ -212,17 +316,13 @@ export function CampusMapView() {
     zoomRef.current = next;
     setZoom(next);
   };
+
   const zoomBy = (
     factor: number,
     event?: { clientX: number; clientY: number },
   ) => updateZoom(zoomRef.current * factor, event?.clientX, event?.clientY);
   zoomByRef.current = zoomBy;
-  const resetMap = () => {
-    stopInertia();
-    zoomRef.current = 1;
-    setZoom(1);
-    applyPosition({ x: 0, y: 0 });
-  };
+
   const beginDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     if ((event.target as HTMLElement).closest("button, a")) return;
     stopInertia();
@@ -234,6 +334,7 @@ export function CampusMapView() {
     };
     setDragging(true);
   };
+
   const moveDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
     if (!drag) return;
@@ -264,6 +365,7 @@ export function CampusMapView() {
     drag.lastY = event.clientY;
     drag.lastAt = now;
   };
+
   const finishDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (
       dragRef.current &&
@@ -273,6 +375,13 @@ export function CampusMapView() {
     dragRef.current = null;
     setDragging(false);
     startInertia();
+  };
+
+  const selectBuilding = (next: BuildingId) => {
+    if (next === building) return;
+    setBuilding(next);
+    setFloor(0);
+    setLayer("campus");
   };
 
   return (
@@ -287,7 +396,7 @@ export function CampusMapView() {
           .filter(Boolean)
           .join(" ")}
         tabIndex={0}
-        aria-label="昌平校区互动地图"
+        aria-label={`${source.title}互动地图`}
         onPointerDown={beginDrag}
         onPointerMove={moveDrag}
         onPointerUp={finishDrag}
@@ -296,29 +405,31 @@ export function CampusMapView() {
         onKeyDown={(event) => {
           if (event.key === "+" || event.key === "=") zoomBy(1.35);
           if (event.key === "-") zoomBy(1 / 1.35);
-          if (event.key === "0") resetMap();
+          if (event.key === "0") resetViewForSource();
         }}
       >
         <div
-          ref={sheetRef}
           className="map-sheet"
           style={{
+            ...(sheetSize.width
+              ? { width: `${sheetSize.width}px`, height: `${sheetSize.height}px` }
+              : {}),
+            aspectRatio: `${baseSource.width} / ${baseSource.height}`,
             transform: `translate(${position.x}px, ${position.y}px) scale(${zoom})`,
           }}
         >
           <img
-            ref={mapImageRef}
             className="map-base-image"
-            src={campusMap}
-            alt={layer === "campus" ? mapSources.campus.alt : ""}
+            src={baseSource.src}
+            alt={layer === "campus" ? baseSource.alt : ""}
             draggable={false}
             onLoad={syncMaxZoom}
           />
-          {layer === "satellite" && (
+          {building === "campus" && layer === "satellite" && (
             <img
               className="map-satellite-overlay"
-              src={satelliteMap}
-              alt={mapSources.satellite.alt}
+              src={satelliteSource.src}
+              alt={satelliteSource.alt}
               draggable={false}
             />
           )}
@@ -328,26 +439,72 @@ export function CampusMapView() {
             <strong>{Math.round(zoom * 100)}%</strong>
             <span>{dragging ? "拖动中" : "滚轮缩放 · 拖动地图"}</span>
           </div>
-          <div className="map-layer-controls" aria-label="底图切换">
+          <div className="map-building-controls" aria-label="地图范围">
             <button
-              className={`icon-button map-tool-button ${layer === "campus" ? "active" : ""}`}
-              data-tooltip="校园总图"
-              aria-label="切换到校园总图"
-              aria-pressed={layer === "campus"}
-              onClick={() => setLayer("campus")}
+              className={`map-building-button ${building === "campus" ? "active" : ""}`}
+              aria-label="查看校园总图"
+              aria-pressed={building === "campus"}
+              onClick={() => selectBuilding("campus")}
             >
-              <MapIcon size={17} />
+              <MapIcon size={15} />
+              <span>校园</span>
             </button>
             <button
-              className={`icon-button map-tool-button ${layer === "satellite" ? "active" : ""}`}
-              data-tooltip="卫星底图"
-              aria-label="切换到卫星底图"
-              aria-pressed={layer === "satellite"}
-              onClick={() => setLayer("satellite")}
+              className={`map-building-button ${building === "first" ? "active" : ""}`}
+              aria-label="查看第一教学楼"
+              aria-pressed={building === "first"}
+              onClick={() => selectBuilding("first")}
             >
-              <Satellite size={17} />
+              <Building2 size={15} />
+              <span>一教</span>
+            </button>
+            <button
+              className={`map-building-button ${building === "second" ? "active" : ""}`}
+              aria-label="查看第二教学楼"
+              aria-pressed={building === "second"}
+              onClick={() => selectBuilding("second")}
+            >
+              <Building2 size={15} />
+              <span>二教</span>
             </button>
           </div>
+          {building !== "campus" && (
+            <div className="map-floor-controls" aria-label="楼层切换">
+              {[0, 1, 2, 3, 4].map((value) => (
+                <button
+                  key={value}
+                  className={floor === value ? "active" : ""}
+                  aria-label={`查看${value + 1}层`}
+                  aria-pressed={floor === value}
+                  onClick={() => setFloor(value)}
+                >
+                  {value + 1}
+                </button>
+              ))}
+            </div>
+          )}
+          {building === "campus" && (
+            <div className="map-layer-controls" aria-label="校园底图切换">
+              <button
+                className={`icon-button map-tool-button ${layer === "campus" ? "active" : ""}`}
+                data-tooltip="校园总图"
+                aria-label="切换到校园总图"
+                aria-pressed={layer === "campus"}
+                onClick={() => setLayer("campus")}
+              >
+                <MapIcon size={17} />
+              </button>
+              <button
+                className={`icon-button map-tool-button ${layer === "satellite" ? "active" : ""}`}
+                data-tooltip="卫星底图"
+                aria-label="切换到卫星底图"
+                aria-pressed={layer === "satellite"}
+                onClick={() => setLayer("satellite")}
+              >
+                <Satellite size={17} />
+              </button>
+            </div>
+          )}
           <div className="map-zoom-controls" aria-label="地图缩放控制">
             <button
               className="icon-button map-tool-button"
@@ -369,11 +526,16 @@ export function CampusMapView() {
               className="icon-button map-tool-button"
               data-tooltip="查看全图"
               aria-label="查看全图"
-              onClick={resetMap}
+              onClick={resetViewForSource}
             >
               <LocateFixed size={17} />
             </button>
           </div>
+        </div>
+        <div className="map-positioning-status" role="status">
+          <LocateFixed size={14} aria-hidden="true" />
+          <span>定位接口预留</span>
+          <small>Windows 端关闭</small>
         </div>
       </div>
     </section>

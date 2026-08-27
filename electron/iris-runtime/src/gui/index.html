@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Iris 控制台</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="topbar"><div><strong>Iris</strong><span>本机服务控制台</span></div><div id="connection" class="status">连接中</div></header>
+    <main>
+      <section class="overview"><div><p class="eyebrow">SERVICE</p><h1>运行与通知</h1><p id="service-summary">正在读取本机服务状态。</p></div><div class="actions"><button id="refresh" class="secondary">刷新</button><button id="test-notification">发送测试</button></div></section>
+      <nav class="tabs" aria-label="控制台页面"><button class="active" data-tab="notifications">通知</button><button data-tab="providers">集成</button><button data-tab="commands">指令</button><button data-tab="diagnostics">诊断</button></nav>
+      <section class="tab active" id="notifications">
+        <div class="section-heading"><div><h2>完成消息模板</h2><p>可用变量：<code>{{provider}}</code> <code>{{status}}</code> <code>{{title}}</code> <code>{{message}}</code> <code>{{continuation}}</code></p></div></div>
+        <label>消息内容<textarea id="completion-template" rows="10"></textarea></label>
+        <div class="preview"><p class="eyebrow">PREVIEW</p><pre id="template-preview"></pre></div>
+        <div class="save-row"><span id="save-state"></span><button id="save-notifications">保存通知设置</button></div>
+      </section>
+      <section class="tab" id="providers">
+        <article class="integration-band">
+          <div><p class="eyebrow">THEIA CAMPUS DATA</p><h2>校园数据只读连接</h2><p class="muted">课程名、作业标题和考试时间会经 QQ 发送给可信 owner。Iris 不读取凭据、浏览器会话、原始网页或作业附件。</p><label class="switch"><input id="theia-enabled" type="checkbox">明确开启 THEIA 校园数据 QQ 查询</label></div>
+          <div class="integration-state"><span id="theia-dot" class="watch-dot"></span><strong id="theia-status">读取状态中</strong><span id="theia-detail"></span><div id="theia-domains" class="theia-domains" aria-live="polite"></div></div>
+          <label>THEIA 数据目录<input id="theia-data-root" autocomplete="off" placeholder="默认：%APPDATA%\THEIA"></label>
+          <label>固定 API 地址（通常留空）<input id="theia-api" autocomplete="off" placeholder="自动发现；仅接受 http://127.0.0.1 或 localhost"></label>
+        </article>
+        <div class="two-column">
+          <article><h2>Codex</h2><label>Codex Home<input id="codex-home" autocomplete="off"></label><label>默认工作区<input id="codex-workspace" autocomplete="off"></label><label>工作区映射<input id="codex-map" autocomplete="off"></label><label>桌面端状态数据库<input id="codex-desktop-state" autocomplete="off" placeholder="默认：Codex Home\state_5.sqlite"></label><label>桌面端 IPC 管道<input id="codex-ipc-pipe" autocomplete="off" placeholder="默认：\\.\pipe\codex-ipc"></label><label>桌面端 Host ID<input id="codex-desktop-host-id" autocomplete="off" placeholder="local"></label><label>桌面端权限<input id="codex-desktop-permissions" autocomplete="off" placeholder=":workspace"></label><label>桌面端审批策略<input id="codex-desktop-approval-policy" autocomplete="off" placeholder="never"></label><label class="switch"><input id="codex-enabled" type="checkbox">启用 Codex 完成通知</label></article>
+          <article><h2>Claude Desktop</h2><p class="muted">监控正在运行的 Claude 桌面端本地会话。完成后读取 Stop hook 和最终答复，发送到 QQ。</p><div class="claude-status"><span id="claude-watch-dot" class="watch-dot"></span><strong id="claude-watch-status">读取状态中</strong><span id="claude-watch-detail"></span></div><label>Claude Desktop 数据目录<input id="claude-desktop-home" autocomplete="off" placeholder="默认：%LOCALAPPDATA%\Claude-3p"></label><label>新会话默认工作区<input id="claude-workspace" autocomplete="off" placeholder="没有桌面端会话时使用"></label><label class="switch"><input id="claude-enabled" type="checkbox">启用 Claude Desktop 完成通知</label><div class="claude-session"><span class="eyebrow">CURRENT SESSION</span><strong id="claude-session-title">未发现会话</strong><span id="claude-session-meta"></span></div></article>
+        </div>
+        <article class="integration-band"><div><p class="eyebrow">COMMAND VISIBILITY</p><h2>帮助菜单显示</h2><p class="muted">这里控制 QQ 的“帮助”里显示哪些 provider；隐藏只影响菜单，不会关闭对应接口。</p></div><div class="two-column visibility-grid"><label class="switch"><input id="theia-visible" type="checkbox">THEIA</label><label class="switch"><input id="hyperion-visible" type="checkbox">HYPERION</label><label class="switch"><input id="selene-visible" type="checkbox">SELENE</label><label class="switch"><input id="codex-visible" type="checkbox">Codex</label><label class="switch"><input id="hermes-visible" type="checkbox">Hermes</label><label class="switch"><input id="claude-visible" type="checkbox">Claude</label></div></article>
+        <div class="save-row"><span>THEIA 设置保存后立即用于下一次只读查询；执行器路径在下一次任务时生效。</span><button id="save-providers">保存集成设置</button></div>
+      </section>
+      <section class="tab" id="commands">
+        <div class="section-heading"><div><h2>指令管理</h2><p>只配置 Iris 当前真正能识别的指令。先选一条，再像填写说明书一样编辑；帮助菜单会自动生成。</p></div></div>
+        <div class="command-builder">
+          <aside class="command-picker"><label>选择要设置的指令<select id="command-select"></select></label><p id="command-supported" class="muted"></p><button id="reset-command" class="secondary" type="button">恢复这条推荐内容</button></aside>
+          <section class="command-form" aria-live="polite">
+            <p class="eyebrow">当前指令</p><h2 id="command-name"></h2>
+            <div class="command-flow"><span>用户发送</span><code id="command-triggers"></code><span>后面接</span><strong id="command-input-hint"></strong><span>，Iris</span><span id="command-result"></span></div>
+            <label class="switch"><input id="command-enabled" type="checkbox">在“帮助”中显示这条指令</label>
+            <label>帮助里显示的格式<input id="command-usage" autocomplete="off" placeholder="例如：codex <要做的事>"></label>
+            <label>这条指令是做什么的<textarea id="command-description" rows="3" placeholder="例如：把任务交给当前 Codex 会话。"></textarea></label>
+            <label>可选补充提醒<textarea id="command-note" rows="2" placeholder="例如：可用 status、use、stop 管理会话。"></textarea></label>
+            <label>自定义缩写<input id="command-aliases" autocomplete="off" placeholder="多个缩写用逗号分开，例如：myh, hh"><span id="command-alias-help" class="field-hint"></span><span id="command-alias-error" class="field-error" role="alert"></span></label>
+            <section id="task-reply-panel" class="task-reply" hidden>
+              <h3>收到任务后，先回复用户</h3><p>这是任务已提交时立即发出的确认消息，完成结果会在任务结束后另行发送。</p>
+              <label>确认消息<textarea id="command-reply" rows="4"></textarea></label>
+              <div class="message-parts"><span>插入信息：</span><button type="button" class="secondary" data-insert="{{task}}">任务名称</button><button type="button" class="secondary" data-insert="{{sessionState}}">当前会话状态</button><button type="button" class="secondary" id="insert-workspace" data-insert="{{workspace}}">工作区名称</button></div>
+              <div class="preview compact"><p class="eyebrow">确认消息预览</p><pre id="command-reply-preview"></pre></div>
+            </section>
+          </section>
+        </div>
+        <section class="help-builder"><div><h2>帮助菜单外观</h2><p>帮助不再需要整段手写。上面勾选的指令会按顺序自动列出。</p></div><label>开头文字<input id="help-intro" autocomplete="off" placeholder="例如：【Iris】"></label><label>结尾补充（可留空）<textarea id="help-footer" rows="2" placeholder="例如：不知道怎么说时，直接把要做的事发给我。"></textarea></label><div class="preview"><p class="eyebrow">帮助菜单预览</p><pre id="help-preview"></pre></div></section>
+        <div class="save-row"><span id="command-save-state">修改后点击保存才会影响 QQ。</span><button id="save-commands">保存指令设置</button></div>
+      </section>
+      <section class="tab" id="diagnostics">
+        <div class="section-heading"><div><h2>运行健康</h2><p>每项独立探测，一个组件离线不会遮住其他组件。</p></div><button id="refresh-logs" class="secondary">刷新</button></div>
+        <div id="health-grid" class="health-grid" aria-live="polite"></div>
+        <div class="section-heading log-heading"><div><h2>最近事件</h2><p>只显示本机 Iris 运行日志尾部。</p></div></div><pre id="logs" class="logs"></pre>
+      </section>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

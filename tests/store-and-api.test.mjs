@@ -24,6 +24,10 @@ function rawHttpRequest({ port, path = '/', method = 'GET', headers = {} }) {
   })
 }
 
+function authedFetch(api, url, init) {
+  return fetch(url, { ...(init || {}), headers: { ...(init?.headers || {}), Authorization: `Bearer ${api.token}` } })
+}
+
 async function assertManifestReferences(root, manifest) {
   for (const [kind, reference] of Object.entries(manifest.fragments)) {
     const fragment = JSON.parse(await readFile(resolve(root, 'data', reference.path), 'utf8'))
@@ -103,10 +107,10 @@ test('normalizing email state removes legacy or unsafe rich HTML before every da
 
     api = await startLocalApi({ store, root, preferredPort: 19875 })
     const [collection, csv, fullSnapshot, feed] = await Promise.all([
-      fetch(`${api.baseUrl}/v1/emails`).then((response) => response.json()),
-      fetch(`${api.baseUrl}/v1/emails.csv`).then((response) => response.text()),
-      fetch(`${api.baseUrl}/v1/snapshot`).then((response) => response.json()),
-      fetch(`${api.baseUrl}/v1/feed`).then((response) => response.json()),
+      authedFetch(api, `${api.baseUrl}/v1/emails`).then((response) => response.json()),
+      authedFetch(api, `${api.baseUrl}/v1/emails.csv`).then((response) => response.text()),
+      authedFetch(api, `${api.baseUrl}/v1/snapshot`).then((response) => response.json()),
+      authedFetch(api, `${api.baseUrl}/v1/feed`).then((response) => response.json()),
     ])
     for (const value of [collection, csv, fullSnapshot, feed]) assert.doesNotMatch(JSON.stringify(value), /tracker\.invalid/)
     assert.equal(collection.items[0].bodyHtml, null)
@@ -181,8 +185,8 @@ test('sync errors are redacted before persistence and loopback API exposure', as
 
     api = await startLocalApi({ store: reloaded, root, preferredPort: 19735, publishRuntime: false })
     const [syncResponse, snapshotResponse] = await Promise.all([
-      fetch(`${api.baseUrl}/v1/sync`).then((response) => response.text()),
-      fetch(`${api.baseUrl}/v1/snapshot`).then((response) => response.text()),
+      authedFetch(api, `${api.baseUrl}/v1/sync`).then((response) => response.text()),
+      authedFetch(api, `${api.baseUrl}/v1/snapshot`).then((response) => response.text()),
     ])
     for (const response of [syncResponse, snapshotResponse]) {
       assert.equal(response.includes(secret), false)
@@ -711,20 +715,38 @@ test('loopback API exposes read-only collections and THEIA feed', async () => {
     }))
     const api = await startLocalApi({ store, root, preferredPort: 19675 })
     try {
-      const health = await fetch(`${api.baseUrl}/v1/health`).then((response) => response.json())
+      const health = await authedFetch(api, `${api.baseUrl}/v1/health`).then((response) => response.json())
+      // Origin: null (any file:// page) is no longer authorized, even with a valid token.
       const packagedOrigin = await rawHttpRequest({
         port: api.port,
         path: '/v1/health',
-        headers: { Host: `127.0.0.1:${api.port}`, Origin: 'null' },
+        headers: { Host: `127.0.0.1:${api.port}`, Origin: 'null', Authorization: `Bearer ${api.token}` },
       })
-      assert.equal(packagedOrigin.status, 200)
+      assert.equal(packagedOrigin.status, 403)
+      assert.deepEqual(JSON.parse(packagedOrigin.body), { error: 'origin_not_allowed' })
       const packagedPreflight = await rawHttpRequest({
         port: api.port,
         path: '/v1/health',
         method: 'OPTIONS',
         headers: { Host: `127.0.0.1:${api.port}`, Origin: 'null' },
       })
-      assert.equal(packagedPreflight.status, 204)
+      assert.equal(packagedPreflight.status, 403)
+      // A hostile cross-site Origin on a real request is rejected before touching data.
+      const foreignOrigin = await rawHttpRequest({
+        port: api.port,
+        path: '/v1/health',
+        headers: { Host: `127.0.0.1:${api.port}`, Origin: 'http://attacker.example', Authorization: `Bearer ${api.token}` },
+      })
+      assert.equal(foreignOrigin.status, 403)
+      assert.deepEqual(JSON.parse(foreignOrigin.body), { error: 'origin_not_allowed' })
+      // A local dev-server origin is allowed and echoes the origin back (with token).
+      const localOrigin = await rawHttpRequest({
+        port: api.port,
+        path: '/v1/health',
+        headers: { Host: `127.0.0.1:${api.port}`, Origin: 'http://127.0.0.1:5174', Authorization: `Bearer ${api.token}` },
+      })
+      assert.equal(localOrigin.status, 200)
+      assert.match(localOrigin.body, /"ok":true/)
       const rebound = await rawHttpRequest({
         port: api.port,
         path: '/v1/snapshot',
@@ -739,25 +761,25 @@ test('loopback API exposes read-only collections and THEIA feed', async () => {
         headers: { Host: `attacker.example:${api.port}`, Origin: `http://attacker.example:${api.port}` },
       })
       assert.equal(reboundPreflight.status, 421)
-      const dataManifest = await fetch(`${api.baseUrl}/v1/data-manifest`).then((response) => response.json())
-      const notices = await fetch(`${api.baseUrl}/v1/notices`).then((response) => response.json())
-      const profile = await fetch(`${api.baseUrl}/v1/profile`).then((response) => response.json())
-      const sync = await fetch(`${api.baseUrl}/v1/sync`).then((response) => response.json())
-      const collections = await fetch(`${api.baseUrl}/v1/collections`).then((response) => response.json())
-      const noticesCsv = await fetch(`${api.baseUrl}/v1/notices.csv`).then((response) => response.text())
-      const emails = await fetch(`${api.baseUrl}/v1/emails`).then((response) => response.json())
-      const workspaces = await fetch(`${api.baseUrl}/v1/workspaces`).then((response) => response.json())
-      const selectedCourses = await fetch(`${api.baseUrl}/v1/selected-courses`).then((response) => response.json())
-      const academicProgress = await fetch(`${api.baseUrl}/v1/academic-progress`).then((response) => response.json())
-      const academicAnalysis = await fetch(`${api.baseUrl}/v1/academic-analysis`).then((response) => response.json())
-      const feed = await fetch(`${api.baseUrl}/v1/feed`).then((response) => response.json())
-      const fitness = await fetch(`${api.baseUrl}/v1/fitness?year=2025-2026_1`).then((response) => response.json())
-      const schoolSchedule = await fetch(`${api.baseUrl}/v1/school-schedule?termId=2026-3&keyword=${encodeURIComponent('高等数学')}`).then((response) => response.json())
-      const academicExtras = await fetch(`${api.baseUrl}/v1/academic-extras/academic-plan?q=${encodeURIComponent('高等数学')}&limit=1`).then((response) => response.json())
-      const ignoredAcademicExtra = await fetch(`${api.baseUrl}/v1/academic-extras/academic-warning`)
-      const removedAcademicExtra = await fetch(`${api.baseUrl}/v1/academic-extras/jwglxt-school-schedule`)
-      const missingAcademicExtra = await fetch(`${api.baseUrl}/v1/academic-extras/not-a-domain`)
-      const clientFeed = await fetchTheiaFeed({ baseUrl: api.baseUrl })
+      const dataManifest = await authedFetch(api, `${api.baseUrl}/v1/data-manifest`).then((response) => response.json())
+      const notices = await authedFetch(api, `${api.baseUrl}/v1/notices`).then((response) => response.json())
+      const profile = await authedFetch(api, `${api.baseUrl}/v1/profile`).then((response) => response.json())
+      const sync = await authedFetch(api, `${api.baseUrl}/v1/sync`).then((response) => response.json())
+      const collections = await authedFetch(api, `${api.baseUrl}/v1/collections`).then((response) => response.json())
+      const noticesCsv = await authedFetch(api, `${api.baseUrl}/v1/notices.csv`).then((response) => response.text())
+      const emails = await authedFetch(api, `${api.baseUrl}/v1/emails`).then((response) => response.json())
+      const workspaces = await authedFetch(api, `${api.baseUrl}/v1/workspaces`).then((response) => response.json())
+      const selectedCourses = await authedFetch(api, `${api.baseUrl}/v1/selected-courses`).then((response) => response.json())
+      const academicProgress = await authedFetch(api, `${api.baseUrl}/v1/academic-progress`).then((response) => response.json())
+      const academicAnalysis = await authedFetch(api, `${api.baseUrl}/v1/academic-analysis`).then((response) => response.json())
+      const feed = await authedFetch(api, `${api.baseUrl}/v1/feed`).then((response) => response.json())
+      const fitness = await authedFetch(api, `${api.baseUrl}/v1/fitness?year=2025-2026_1`).then((response) => response.json())
+      const schoolSchedule = await authedFetch(api, `${api.baseUrl}/v1/school-schedule?termId=2026-3&keyword=${encodeURIComponent('高等数学')}`).then((response) => response.json())
+      const academicExtras = await authedFetch(api, `${api.baseUrl}/v1/academic-extras/academic-plan?q=${encodeURIComponent('高等数学')}&limit=1`).then((response) => response.json())
+      const ignoredAcademicExtra = await authedFetch(api, `${api.baseUrl}/v1/academic-extras/academic-warning`)
+      const removedAcademicExtra = await authedFetch(api, `${api.baseUrl}/v1/academic-extras/jwglxt-school-schedule`)
+      const missingAcademicExtra = await authedFetch(api, `${api.baseUrl}/v1/academic-extras/not-a-domain`)
+      const clientFeed = await fetchTheiaFeed({ baseUrl: api.baseUrl, token: api.token })
       assert.equal(health.ok, true)
       assert.equal(dataManifest.schema, 'theia-sharded-store/v1')
       assert.ok(dataManifest.fragments.includes('academic/grades'))
@@ -789,7 +811,7 @@ test('loopback API exposes read-only collections and THEIA feed', async () => {
       assert.equal(removedAcademicExtra.status, 404)
       assert.equal(missingAcademicExtra.status, 404)
       assert.equal(clientFeed.schema, 'theia-campus-feed/v1')
-      const write = await fetch(`${api.baseUrl}/v1/snapshot`, { method: 'POST' })
+      const write = await authedFetch(api, `${api.baseUrl}/v1/snapshot`, { method: 'POST' })
       assert.equal(write.status, 405)
     } finally {
       await api.close()
@@ -818,9 +840,9 @@ test('loopback API streams locally cached academic-calendar assets', async () =>
     const calendarService = { snapshot: () => ({ ...manifest, root }), pathFor: (key) => key === 'calendar' ? resolve(assetsRoot, 'calendar_current.jpg') : key === 'teachingSchedule' ? resolve(assetsRoot, 'teaching_schedule_current.pdf') : null }
     const api = await startLocalApi({ store, root, preferredPort: 19725, academicCalendarAssetsService: calendarService })
     try {
-      const metadata = await fetch(`${api.baseUrl}/v1/academic-calendar`).then((response) => response.json())
-      const image = await fetch(`${api.baseUrl}/v1/academic-calendar/calendar`)
-      const pdf = await fetch(`${api.baseUrl}/v1/academic-calendar/teaching-schedule`)
+      const metadata = await authedFetch(api, `${api.baseUrl}/v1/academic-calendar`).then((response) => response.json())
+      const image = await authedFetch(api, `${api.baseUrl}/v1/academic-calendar/calendar`)
+      const pdf = await authedFetch(api, `${api.baseUrl}/v1/academic-calendar/teaching-schedule`)
       assert.equal(metadata.assets.calendar.filename, 'calendar_current.jpg')
       assert.equal(image.headers.get('content-type'), 'image/jpeg')
       assert.equal((await image.arrayBuffer()).byteLength, 1200)

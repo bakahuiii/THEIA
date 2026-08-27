@@ -36,18 +36,21 @@ import { AppearanceSettings } from "./settings/AppearanceSettings";
 import { CredentialForm } from "./settings/Credentials";
 import { MailboxSettings } from "./settings/MailboxSettings";
 import { McpIntegrationSettings } from "./settings/McpIntegrationSettings";
+import { IrisCompanionSettings } from "./settings/IrisCompanionSettings";
 import { formatAcademicTermId } from "../ui/term-label";
 export type SettingsSection =
   | "appearance"
   | "sync"
   | "data"
+  | "interfaces"
   | "model"
   | "about";
 
 const SETTINGS_NAV = [
   { id: "appearance", label: "外观", icon: Palette },
   { id: "sync", label: "同步", icon: RefreshCw },
-  { id: "data", label: "数据与接口", icon: Database },
+  { id: "data", label: "数据", icon: Database },
+  { id: "interfaces", label: "接口", icon: Server },
   { id: "model", label: "模型服务", icon: BrainCircuit },
 ] as const;
 
@@ -95,6 +98,7 @@ const SYNC_DATA_GROUPS: Array<{
     detail: "北化在线THEOL严格串行读取",
     items: [
       { id: "theol-courses", label: "THEOL 课程", domain: "courses", source: "theol", unit: "门", mainSync: true, count: (state) => state.courses.filter((course) => course.source === "theol").length },
+      { id: "theol-course-details", label: "THEOL 课程资料", domain: "course-details", source: "theol", unit: "门", mainSync: false, count: (state) => state.courses.filter((course) => course.source === "theol" && (course.courseInfo || course.teachingMaterials?.length || course.resourceLinks?.length)).length },
       { id: "assignments", label: "作业与测试", domain: "assignments", source: "theol", mainSync: true, deferred: true, count: (state) => state.assignments.length },
       { id: "theol-notices", label: "THEOL 通知", domain: "notices", source: "theol", mainSync: true, count: (state) => state.notices.filter((notice) => notice.source === "theol").length },
     ],
@@ -294,6 +298,10 @@ export function SettingsView({
     setSaving(true);
     try {
       await bridge.updateSettings(settings);
+    } catch (error) {
+      onMessage(
+        error instanceof Error ? error.message : "设置保存失败，请重试"
+      );
     } finally {
       setSaving(false);
     }
@@ -367,10 +375,12 @@ export function SettingsView({
       : activeSection === "sync"
         ? "同步"
         : activeSection === "data"
-          ? "数据与接口"
-          : activeSection === "model"
-            ? "模型服务"
-            : "关于 THEIA";
+          ? "数据"
+          : activeSection === "interfaces"
+            ? "接口"
+            : activeSection === "model"
+              ? "模型服务"
+              : "关于 THEIA";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -611,8 +621,8 @@ export function SettingsView({
                   <div className="settings-title">
                     <div className="settings-icon teal"><Database size={20} /></div>
                     <div>
-                      <h2>数据与接口</h2>
-                      <p>统一身份认证用于北化在线THEOL与教务页面；教务 API 使用独立凭据，启用后用于教务同步与选课。</p>
+                      <h2>数据</h2>
+                      <p>管理校园数据来源、认证凭据、邮箱、日志和本地导出。</p>
                     </div>
                   </div>
                   <div className="data-connections-grid">
@@ -689,44 +699,6 @@ export function SettingsView({
 
                 <section className="settings-section">
                   <div className="settings-title">
-                    <div className="settings-icon amber">
-                      <Server size={20} />
-                    </div>
-                    <div>
-                      <h2>THEIA 本地接口</h2>
-                      <p>只读服务仅监听本机回环地址。</p>
-                    </div>
-                  </div>
-                  <div className="api-endpoint">
-                    <code>{origin}</code>
-                    <button
-                      className="icon-button"
-                      data-tooltip="复制接口地址"
-                      aria-label="复制接口地址"
-                      disabled={!apiBase}
-                      onClick={() => void navigator.clipboard.writeText(origin)}
-                    >
-                      <Database size={17} />
-                    </button>
-                  </div>
-                  <div className="endpoint-list">
-                    <code>GET /v1/snapshot</code>
-                    <span>完整规范化数据</span>
-                    <code>GET /v1/feed</code>
-                    <span>校园事件与任务 Feed</span>
-                    <code>GET /v1/academic-progress</code>
-                    <span>培养方案和学分进度</span>
-                    <code>GET /v1/selected-courses</code>
-                    <span>当前学期已选课程</span>
-                    <code>GET /v1/calendar.ics</code>
-                    <span>考试与作业日历</span>
-                  </div>
-                </section>
-
-                <McpIntegrationSettings onMessage={onMessage} />
-
-                <section className="settings-section">
-                  <div className="settings-title">
                     <div className="settings-icon red">
                       <Download size={20} />
                     </div>
@@ -780,6 +752,67 @@ export function SettingsView({
                     </button>
                   </div>
                 </section>
+              </>
+            )}
+
+            {activeSection === "interfaces" && (
+              <>
+                <section className="settings-section data-connections-section">
+                  <div className="settings-title">
+                    <div className="settings-icon teal"><Server size={20} /></div>
+                    <div>
+                      <h2>接口</h2>
+                      <p>管理 THEIA 本地只读 API、MCP 和 Iris 等本机集成。</p>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="settings-section">
+                  <div className="settings-title">
+                    <div className="settings-icon amber">
+                      <Server size={20} />
+                    </div>
+                    <div>
+                      <h2>THEIA 本地接口</h2>
+                      <p>只读服务仅监听本机回环地址。</p>
+                    </div>
+                  </div>
+                  <div className="api-endpoint">
+                    <code>{origin}</code>
+                    <button
+                      className="icon-button"
+                      data-tooltip="复制接口地址"
+                      aria-label="复制接口地址"
+                      disabled={!apiBase}
+                      onClick={() => void navigator.clipboard.writeText(origin)}
+                    >
+                      <Database size={17} />
+                    </button>
+                  </div>
+                  <div className="endpoint-list">
+                    <code>GET /v1/snapshot</code>
+                    <span>完整规范化数据</span>
+                    <code>GET /v1/feed</code>
+                    <span>校园事件与任务 Feed</span>
+                    <code>GET /v1/academic-progress</code>
+                    <span>培养方案和学分进度</span>
+                    <code>GET /v1/selected-courses</code>
+                    <span>当前学期已选课程</span>
+                    <code>GET /v1/calendar.ics</code>
+                    <span>考试与作业日历</span>
+                    <code>GET /v1/venue-statuses</code>
+                    <span>运动场馆实时状态（每次实时拉取）</span>
+                    <code>GET /v1/motion-table-image</code>
+                    <span>运动场馆状态表图片（PNG）</span>
+                    <code>GET /v1/free-classroom-image</code>
+                    <span>空闲教室图片（有缓存则用缓存）</span>
+                    <code>GET /v1/table-image</code>
+                    <span>教务表格图片（PNG）</span>
+                  </div>
+                </section>
+
+                <McpIntegrationSettings onMessage={onMessage} />
+                <IrisCompanionSettings onMessage={onMessage} />
               </>
             )}
 

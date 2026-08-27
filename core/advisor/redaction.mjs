@@ -382,11 +382,11 @@ export function projectCourseDecision(value) {
       effectiveCredits: finiteNumber(breakdown.effectiveCredits),
       historyEvidence: finiteNumber(breakdown.historyEvidence),
       dataQuality: finiteNumber(breakdown.dataQuality),
+      requirementGap: finiteNumber(breakdown.requirementGap),
       total: finiteNumber(breakdown.total),
       formulaVersion: optionalText(breakdown.formulaVersion, 120),
     },
     reasons: displayTextList(input.reasons, { maxItems: 32 }),
-    evidenceRefs: stringList(input.evidenceRefs, { maxItems: 96, maxLength: STRING_LIMITS.id }),
     rulesVersion: requiredText(input.rulesVersion, 'Course decision rules version', 120),
   }
 }

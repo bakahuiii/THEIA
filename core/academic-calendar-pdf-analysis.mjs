@@ -46,12 +46,21 @@ function semesterYear(year, month, semester) {
 function parseDateRange(dateText, schoolYear, semester) {
   const value = clean(dateText).replace(/[至到]/g, '～')
   const year = String(schoolYear || '').match(/(20\d{2})/)?.[1]
-  const make = (month, day) => {
-    const y = semesterYear(year, month, semester)
+  const make = (month, day, yearOverride = null) => {
+    const y = yearOverride || semesterYear(year, month, semester)
     return y && month && day ? iso(`${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`) : null
   }
   const range = value.match(/(\d{1,2})月(\d{1,2})日\s*[～~-]\s*(\d{1,2})月(\d{1,2})日/)
-  if (range) return { startDate: make(+range[1], +range[2]), endDate: make(+range[3], +range[4]) }
+  if (range) {
+    const startMonth = +range[1]
+    // A fall-term week that crosses New Year (12月 → 1月) ends in the next
+    // calendar year. Without this the range is inverted (start > end) and
+    // course-selection window logic reads it as already expired.
+    const endYear = +range[3] < startMonth
+      ? (semesterYear(year, startMonth, semester) || 0) + 1
+      : null
+    return { startDate: make(startMonth, +range[2]), endDate: make(+range[3], +range[4], endYear) }
+  }
   const sameMonth = value.match(/(\d{1,2})月(\d{1,2})日\s*[～~-]\s*(\d{1,2})日/)
   if (sameMonth) return { startDate: make(+sameMonth[1], +sameMonth[2]), endDate: make(+sameMonth[1], +sameMonth[3]) }
   const single = value.match(/(\d{1,2})月(\d{1,2})日/)
@@ -101,6 +110,9 @@ export function parseWeeklyCalendarPdf(text, options = {}) {
     const dates = parseDateRange(match?.[2] || compactMatch?.[2], academicYear, semester)
     const summary = clean(match?.[4] || compactMatch?.[3])
     if (!summary) continue
+    // Defense in depth: a still-inverted range is a parser failure, not a
+    // legitimate schedule row. Dropping it beats showing wrong dates.
+    if (dates.startDate && dates.endDate && dates.startDate > dates.endDate) continue
     entries.push({
       id: `weekly:${entries.length}:${weekValue}:${summary.slice(0, 24)}`,
       ...weeks,

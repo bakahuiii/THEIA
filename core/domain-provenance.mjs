@@ -39,7 +39,7 @@ export const SYNC_SOURCE_DOMAINS = Object.freeze({
     'notices',
     ...JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES,
   ]),
-  theol: Object.freeze(['courses', 'assignments', 'notices']),
+  theol: Object.freeze(['courses', 'course-details', 'assignments', 'notices']),
 })
 
 export const DERIVED_DOMAIN_DEPENDENCIES = Object.freeze({
@@ -54,6 +54,7 @@ const FIELD_BY_DOMAIN = Object.freeze({
   profile: 'profile',
   terms: 'terms',
   courses: 'courses',
+  'course-details': 'courses',
   schedule: 'schedule',
   grades: 'grades',
   exams: 'exams',
@@ -123,6 +124,9 @@ export function domainPayload(state, domain) {
     case 'profile': return snapshot.profile ?? null
     case 'terms': return Array.isArray(snapshot.terms) ? snapshot.terms : []
     case 'courses': return Array.isArray(snapshot.courses) ? snapshot.courses : []
+    case 'course-resources': return (Array.isArray(snapshot.courses) ? snapshot.courses : [])
+      .filter((course) => course?.source === 'theol')
+      .flatMap((course) => Array.isArray(course.courseResources) ? course.courseResources : [])
     case 'academic': return {
       terms: Array.isArray(snapshot.terms) ? snapshot.terms : [],
       courses: Array.isArray(snapshot.courses) ? snapshot.courses : [],
@@ -160,6 +164,7 @@ export function domainPayloadExists(state, domain) {
     case 'profile': return Object.hasOwn(snapshot, 'profile')
     case 'terms': return Object.hasOwn(snapshot, 'terms')
     case 'courses': return Object.hasOwn(snapshot, 'courses')
+    case 'course-resources': return Object.hasOwn(snapshot, 'courses')
     case 'academic': return ['terms', 'courses', 'selectedCourses'].some((field) => Object.hasOwn(snapshot, field))
     case 'schedule': return Object.hasOwn(snapshot, 'schedule')
     case 'grades': return Object.hasOwn(snapshot, 'grades')
@@ -194,6 +199,7 @@ export function domainRecordCount(state, domain) {
   switch (normalizedDomain) {
     case 'profile':
     case 'academic-progress': return payload ? 1 : 0
+    case 'course-resources': return Array.isArray(payload) ? payload.length : 0
     case 'academic': return payload.terms.length + payload.courses.length + payload.selectedCourses.length
     case 'coursework': return payload.assignments.length + payload.workspaces.length
     case 'fitness':

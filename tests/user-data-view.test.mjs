@@ -5,6 +5,10 @@ import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { CampusStore } from '../core/store.mjs'
 import { startLocalApi } from '../core/local-api.mjs'
+
+function authedFetch(api, url, init) {
+  return fetch(url, { ...(init || {}), headers: { ...(init?.headers || {}), Authorization: `Bearer ${api.token}` } })
+}
 import {
   projectUserDataDomainSummary,
   projectUserDataOverview,
@@ -141,18 +145,32 @@ test('local API exposes bounded user views without removing compatibility snapsh
     const store = new CampusStore(root)
     await store.load()
     await store.update((state) => ({ ...state, ...fixtureState() }))
-    const api = await startLocalApi({ store, root, preferredPort: 19875 })
+    const api = await startLocalApi({ store, root, preferredPort: 19875, renderTableImage: async (html) => Buffer.from(`mock-png:${html.length}:${html.slice(0, 80)}`) })
     try {
-      const overview = await fetch(`${api.baseUrl}/v1/overview`).then((response) => response.json())
-      const summary = await fetch(`${api.baseUrl}/v1/domain-summary/grades`).then((response) => response.json())
-      const page = await fetch(`${api.baseUrl}/v1/records/grades?scope=all&limit=1`).then((response) => response.json())
-      const snapshot = await fetch(`${api.baseUrl}/v1/snapshot`).then((response) => response.json())
+      const overview = await authedFetch(api, `${api.baseUrl}/v1/overview`).then((response) => response.json())
+      const summary = await authedFetch(api, `${api.baseUrl}/v1/domain-summary/grades`).then((response) => response.json())
+      const page = await authedFetch(api, `${api.baseUrl}/v1/records/grades?scope=all&limit=1`).then((response) => response.json())
+      const snapshot = await authedFetch(api, `${api.baseUrl}/v1/snapshot`).then((response) => response.json())
       assert.equal(overview.view, 'overview')
       assert.equal(summary.domain, 'grades')
       assert.equal(typeof summary.snapshotRevision, 'string')
       assert.equal(page.items.length, 1)
       assert.equal(page.hasMore, true)
       assert.equal(snapshot.courses[0].title, '高等数学')
+
+      const tableImage = await authedFetch(api, `${api.baseUrl}/v1/table-image?domain=grade-details`).then(async (response) => {
+        const type = response.headers.get('content-type')
+        const buffer = await response.arrayBuffer()
+        return { type, size: buffer.byteLength, ok: response.ok }
+      })
+      assert.equal(tableImage.ok, true)
+      assert.equal(tableImage.type, 'image/png')
+      assert.ok(tableImage.size > 0)
+      assert.match(Buffer.from(await authedFetch(api, `${api.baseUrl}/v1/table-image?domain=nonexistent`).then((r) => r.arrayBuffer())).toString('utf8'), /table_image_unavailable/)
+
+      const unknownImage = await authedFetch(api, `${api.baseUrl}/v1/table-image`).then((r) => ({ ok: r.ok, status: r.status }))
+      assert.equal(unknownImage.ok, false)
+      assert.equal(unknownImage.status, 404)
     } finally {
       await api.close()
     }

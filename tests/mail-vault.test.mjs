@@ -48,3 +48,21 @@ test('mail vault reports decryption failure without deleting the envelope', asyn
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('mail vault clear() is serialized after a queued save and cannot be undone by it', async () => {
+  const root = await mkdtemp(resolve(tmpdir(), 'theia-mail-vault-clear-'))
+  try {
+    const vault = new MailVault(root, storage)
+    // Interleave: start save(), then clear() before the queued write finishes.
+    const savePending = vault.save({ username: 'student@mail.buct.edu.cn', password: 'queued-secret' })
+    const clear = await vault.clear()
+    await savePending
+    assert.equal(clear.saved, false)
+    // The save must not resurrect the credentials after clear() returned.
+    assert.deepEqual(await vault.readCredentials(), null)
+    assert.equal((await vault.status()).saved, false)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+

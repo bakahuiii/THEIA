@@ -471,7 +471,7 @@ export function useTheiaApp() {
   const executeAdvisorAction = async (item: AdvisorUrgentItem) => {
     const retryableDomains = new Set<SyncRetryDomain>([
       "profile", "terms", "schedule", "exams", "grades", "selected-courses",
-      "academic-progress", "jwglxt-courses", "jwglxt-notices", "theol-courses",
+      "academic-progress", "jwglxt-courses", "jwglxt-notices", "theol-courses", "theol-course-details",
       "assignments", "theol-notices", "mailbox", "academic-calendar", "fitness",
       "school-schedule", "academic-extras", "academic-plan", "graduation-audit",
       "grade-details", "exam-extra", "free-classroom",
@@ -680,7 +680,7 @@ export function useTheiaApp() {
   };
   const loadCourseSelectionCandidates = async (
     blockId: string,
-    target: Pick<SchoolScheduleItem, "courseCode" | "title"> | null = null,
+    target: SchoolScheduleItem | null = null,
     options: Partial<CourseSelectionCatalogPage> = {},
   ) => {
     const requestSequence = ++courseSelectionCandidatesRequestSequence.current;
@@ -695,7 +695,7 @@ export function useTheiaApp() {
         pageSize: result.pageSize,
         total: result.total,
       });
-      if (!result.candidates.length) setMsg("该选课模块暂未返回可选教学班", "info");
+      if (!result.candidates.length) setMsg(result.message || "该选课模块暂未返回可选教学班", "info");
     } catch (error) {
       if (requestSequence !== courseSelectionCandidatesRequestSequence.current) return;
       setError(error);
@@ -705,18 +705,25 @@ export function useTheiaApp() {
       }
     }
   };
+  const schoolScheduleRequestSequence = useRef(0);
   const searchSchoolSchedule = async (query: SchoolScheduleQuery) => {
+    const requestSequence = ++schoolScheduleRequestSequence.current;
     setSchoolScheduleLoading(true);
     setSchoolScheduleError(null);
     setSchoolScheduleRefreshFailed(false);
     try {
-      setSchoolSchedule(await bridge.searchSchoolSchedule(query));
+      const result = await bridge.searchSchoolSchedule(query);
+      if (requestSequence !== schoolScheduleRequestSequence.current) return;
+      setSchoolSchedule(result);
     } catch (error) {
+      if (requestSequence !== schoolScheduleRequestSequence.current) return;
       const text = sanitizeSyncFailure(error);
       setSchoolScheduleError(text);
       setSchoolScheduleRefreshFailed(Boolean(schoolSchedule));
     } finally {
-      setSchoolScheduleLoading(false);
+      if (requestSequence === schoolScheduleRequestSequence.current) {
+        setSchoolScheduleLoading(false);
+      }
     }
   };
   const saveCourseSelectionTarget = async (target: SchoolScheduleItem | null) => {

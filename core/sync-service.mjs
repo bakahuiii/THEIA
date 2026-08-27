@@ -131,6 +131,89 @@ function sourceOutcome(outcomes, source, domain) {
   return outcomes?.[source]?.[domain] || null
 }
 
+const RESOURCE_ID_PARAMETERS = ['resid', 'fileid', 'fileId', 'folderid', 'columnid', 'columnId', 'groupid', 'groupId']
+const VOLATILE_RESOURCE_PARAMETERS = new Set(['jsessionid', 'sessionid', 'session', 'sid', 'token', 'timestamp', '_', 't'])
+
+function courseResourceKey(item) {
+  const sourceKey = String(item?.sourceKey || '').trim()
+  if (sourceKey) return sourceKey
+  try {
+    const url = new URL(String(item?.url || ''))
+    const identifiers = RESOURCE_ID_PARAMETERS
+      .map((name) => [name.toLowerCase(), url.searchParams.get(name)])
+      .filter(([, value]) => value)
+      .map(([name, value]) => `${name}=${value}`)
+    if (identifiers.length) return [String(item?.courseId || ''), String(item?.kind || 'file'), identifiers.join('&')].join(':')
+    for (const name of [...url.searchParams.keys()]) {
+      if (VOLATILE_RESOURCE_PARAMETERS.has(name.toLowerCase())) url.searchParams.delete(name)
+    }
+    url.search = [...url.searchParams.entries()]
+      .sort(([leftName, leftValue], [rightName, rightValue]) => leftName.localeCompare(rightName) || leftValue.localeCompare(rightValue))
+      .map(([name, value]) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`).join('&')
+    return [String(item?.courseId || ''), String(item?.kind || 'file'), url.toString()].join(':')
+  } catch {
+    return String(item?.id || '').trim()
+  }
+}
+
+function mergeCourseResourceRecords(previous, fresh, { complete = false } = {}) {
+  const previousItems = Array.isArray(previous) ? previous : []
+  const freshItems = Array.isArray(fresh) ? fresh : []
+  const merged = new Map()
+  if (!complete) {
+    for (const item of previousItems) {
+      const key = courseResourceKey(item)
+      if (key) merged.set(key, item)
+    }
+  }
+  for (const item of freshItems) {
+    const key = courseResourceKey(item)
+    if (!key) continue
+    merged.set(key, { ...(merged.get(key) || {}), ...item })
+  }
+  return [...merged.values()]
+}
+
+function mergeTheolCourseRecord(previous, fresh) {
+  if (!previous) return fresh
+  const merged = { ...previous, ...fresh }
+  // A successful page can still omit optional sections when THEOL changes its
+  // markup. Keep the last non-empty section until a richer page replaces it.
+  for (const field of ['description', 'courseInfo', 'resourceLinks', 'teachingMaterials', 'assignmentLinks']) {
+    const oldValue = previous[field]
+    const newValue = fresh[field]
+    const newIsEmpty = newValue === null || newValue === undefined
+      || (Array.isArray(newValue) && newValue.length === 0)
+      || (typeof newValue === 'string' && !newValue.trim())
+    const oldIsUseful = (Array.isArray(oldValue) && oldValue.length > 0)
+      || (oldValue && typeof oldValue === 'object' && !Array.isArray(oldValue) && Object.keys(oldValue).length > 0)
+      || (typeof oldValue === 'string' && oldValue.trim())
+    if (newIsEmpty && oldIsUseful) merged[field] = oldValue
+  }
+  // Course details and the personal roster are not authoritative for the
+  // manually crawled resource tree. Preserve that tree and its scan metadata
+  // even when an older parser supplies an empty courseResources field.
+  if (Array.isArray(previous.courseResources)) merged.courseResources = previous.courseResources
+  if (previous.courseResourcesCapturedAt && !fresh.courseResourcesCapturedAt) {
+    merged.courseResourcesCapturedAt = previous.courseResourcesCapturedAt
+  }
+  if (previous.courseResourcesScan && !fresh.courseResourcesScan) {
+    merged.courseResourcesScan = previous.courseResourcesScan
+  }
+  return merged
+}
+
+function mergeTheolCourses(previous, fresh, { retainUnmatched = false } = {}) {
+  const previousById = new Map((Array.isArray(previous) ? previous : [])
+    .filter((item) => item?.id)
+    .map((item) => [String(item.id), item]))
+  const incoming = Array.isArray(fresh) ? fresh : []
+  const merged = incoming.filter((item) => item?.id).map((item) => mergeTheolCourseRecord(previousById.get(String(item.id)), item))
+  if (!retainUnmatched) return merged
+  const incomingIds = new Set(incoming.filter((item) => item?.id).map((item) => String(item.id)))
+  return [...merged, ...(Array.isArray(previous) ? previous.filter((item) => item?.id && !incomingIds.has(String(item.id))) : [])]
+}
+
 function uniqueTheolTaskKey(rawUrl) {
   try {
     const url = new URL(String(rawUrl || ''))
@@ -667,12 +750,21 @@ export class SyncService {
     }
     if (!ready.length) return
     const generation = ready[0].generation
-    const run = this.startSync(
-      ready.map((request) => request.source),
-      generation,
-      Object.fromEntries(ready.map((request) => [request.source, request.domains])),
-      { foreground: ready.some((request) => request.foreground), adapterOptionsBySource: Object.fromEntries(ready.map((request) => [request.source, request.adapterOptions || {}])) },
-    )
+    let run
+    try {
+      run = this.startSync(
+        ready.map((request) => request.source),
+        generation,
+        Object.fromEntries(ready.map((request) => [request.source, request.domains])),
+        { foreground: ready.some((request) => request.foreground), adapterOptionsBySource: Object.fromEntries(ready.map((request) => [request.source, request.adapterOptions || {}])) },
+      )
+    } catch (error) {
+      // startSync can throw synchronously (e.g. an overlapping run claimed the
+      // source in the same tick). The requests were already dequeued above, so
+      // settle them here instead of leaving the callers waiting forever.
+      for (const request of ready) request.reject(error)
+      return
+    }
     for (const request of ready) run.then(request.resolve, request.reject)
   }
 
@@ -824,11 +916,25 @@ export class SyncService {
           ...(scopedRun ? {} : { runId }),
           profile: mergeObjectValue(current.profile, commitResults.jwglxt?.profile, sourceOutcome(commitOutcomes, 'jwglxt', 'profile')),
           terms: mergeSingleSourceCollection(current.terms, commitResults.jwglxt?.terms, sourceOutcome(commitOutcomes, 'jwglxt', 'terms')),
-          courses: mergeById(
-            sourceItems('jwglxt', 'courses', 'courses'),
-            sourceItems('theol', 'courses', 'courses'),
-            current.courses.filter((item) => item.source !== 'jwglxt' && item.source !== 'theol'),
-          ),
+          courses: (() => {
+            const theolCourseOutcome = sourceOutcome(commitOutcomes, 'theol', 'courses')
+            const theolDetailsOutcome = sourceOutcome(commitOutcomes, 'theol', 'course-details')
+            const previousTheol = current.courses.filter((item) => item.source === 'theol')
+            const freshTheol = commitResults.theol?.courses
+            // A details-only run is a partial update: it must enrich the
+            // known "my courses" records without treating the detail page as
+            // an authoritative course roster.
+            const theolCourses = theolCourseOutcome
+              ? mergeTheolCourses(previousTheol, sourceItems('theol', 'courses', 'courses'))
+              : theolDetailsOutcome && Array.isArray(freshTheol)
+                ? mergeTheolCourses(previousTheol, freshTheol, { retainUnmatched: true })
+                : previousTheol
+            return mergeById(
+              sourceItems('jwglxt', 'courses', 'courses'),
+              theolCourses,
+              current.courses.filter((item) => item.source !== 'jwglxt' && item.source !== 'theol'),
+            )
+          })(),
           schedule: mergeScheduleCollection(current.schedule, commitResults.jwglxt?.schedule, sourceOutcome(commitOutcomes, 'jwglxt', 'schedule')),
           grades: mergeSingleSourceCollection(current.grades, commitResults.jwglxt?.grades, sourceOutcome(commitOutcomes, 'jwglxt', 'grades')),
           selectedCourses: mergeTermCollection(current.selectedCourses, commitResults.jwglxt?.selectedCourses, sourceOutcome(commitOutcomes, 'jwglxt', 'selected-courses')),
@@ -888,7 +994,10 @@ export class SyncService {
     let commitQueue = Promise.resolve()
     const queueCommit = (settledSource) => {
       const pending = commitQueue.then(() => commit({ settledSource }))
-      commitQueue = pending
+      // A rejected commit (e.g. a storage failure) must not poison the chain:
+      // later sources would otherwise never commit and their data would be
+      // silently dropped. The calling source still observes its own failure.
+      commitQueue = pending.catch(() => undefined)
       return pending
     }
     const syncSource = async (name, adapter) => {
@@ -1051,6 +1160,101 @@ export class SyncService {
       this.assignmentAbortController = null
       resume({ schedule: false })
     }
+  }
+
+  async retryCourseResources(courseId) {
+    if (this.syncDisabled) throw new SyncDisabledError()
+    const id = String(courseId || '').trim()
+    const current = this.store.snapshot()
+    const course = current.courses.find((item) => item?.source === 'theol' && String(item.id || '') === id)
+    if (!course) throw new Error('请先获取有效的北化在线THEOL课程')
+    if (typeof this.theol.syncCourseResources !== 'function') throw new Error('当前THEOL适配器不支持课程资源获取')
+
+    const runId = randomUUID()
+    const attemptedAt = new Date().toISOString()
+    this.onProgress({ stage: 'course-resources', status: 'syncing', scope: 'domain' })
+    let result
+    let error = null
+    try {
+      result = await this.runTheolInteraction(() => this.theol.syncCourseResources(course))
+    } catch (caught) {
+      error = caught
+    }
+    const completedAt = new Date().toISOString()
+    const scanComplete = (result?.scan?.complete === true
+      && !result?.scan?.truncated
+      && !result?.scan?.resourceLimitReached
+      && !result?.scan?.failedFolders?.length
+      && !result?.errors?.length)
+      || (!result?.scan && !result?.errors?.length && Array.isArray(result?.resources) && result.resources.length > 0)
+    const partialScan = !scanComplete
+    const outcome = sourceDomainOutcome({
+      source: 'theol',
+      runId,
+      attempted: true,
+      succeeded: !error,
+      status: error ? (error instanceof AuthRequiredError ? 'auth-required' : 'failed') : 'succeeded',
+      attemptedAt,
+      completedAt,
+      capturedAt: !error ? result?.capturedAt || completedAt : null,
+      sourceSucceededAt: !error ? completedAt : null,
+      completeness: error ? 'unknown' : (scanComplete ? 'complete' : 'partial'),
+      emptyConfirmed: !error && scanComplete && Array.isArray(result?.resources) && result.resources.length === 0,
+      retainedPrevious: Boolean(course.courseResources?.length && (partialScan || error)),
+      previousRecordCount: Array.isArray(course.courseResources) ? course.courseResources.length : 0,
+      receivedRecordCount: Array.isArray(result?.resources) ? result.resources.length : null,
+      errorCode: error
+        ? failureCode(error)
+        : result?.errors?.length
+          ? 'partial_resource_scan'
+        : partialScan && course.courseResources?.length
+          ? (Array.isArray(result?.resources) && result.resources.length === 0 ? 'unconfirmed_empty_result' : 'partial_resource_scan')
+          : null,
+      parserVersion: result?.parserVersion || null,
+    })
+    let snapshot
+    if (error) {
+      snapshot = await this.trackSyncWrite(this.store.update((state) => ({
+        ...state,
+        sync: {
+          ...state.sync,
+          domains: aggregateDomainProvenance(state.sync.domains, { theol: { 'course-resources': outcome } }, { runId }),
+        },
+      })))
+    } else {
+      snapshot = await this.trackSyncWrite(this.store.update((state) => {
+        const existing = state.courses.find((item) => item?.source === 'theol' && String(item.id || '') === id)
+        if (!existing) return state
+        const resources = mergeCourseResourceRecords(existing.courseResources, result?.resources, { complete: scanComplete })
+        return {
+          ...state,
+          courses: state.courses.map((item) => item === existing ? {
+            ...item,
+            courseResources: resources,
+            courseResourcesCapturedAt: result?.capturedAt || completedAt,
+            courseResourcesScan: result?.scan || {
+              complete: scanComplete,
+              capturedAt: result?.capturedAt || completedAt,
+            },
+          } : item),
+          sync: {
+            ...state.sync,
+            domains: aggregateDomainProvenance(state.sync.domains, { theol: { 'course-resources': outcome } }, { runId }),
+          },
+        }
+      }))
+    }
+    this.onChange(snapshot)
+    this.onProgress({
+      stage: 'course-resources',
+      status: error ? 'error' : 'done',
+      ...(error ? { error: compactError(error) } : {}),
+      ...(outcome.errorCode ? { errorCode: outcome.errorCode } : {}),
+      scope: 'domain',
+    })
+    if (error instanceof AuthRequiredError) this.onAuthRequired(['theol'])
+    if (error) throw error
+    return snapshot
   }
 
   scheduleAssignmentScan(runId) {

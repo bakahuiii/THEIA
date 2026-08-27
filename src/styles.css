@@ -1016,6 +1016,34 @@ svg { flex: 0 0 auto; }
 .course-stats { display: flex; gap: 12px; margin-top: auto; padding: 17px 0 14px; color: #81908b; font-size: 10px; }
 .course-stats span { display: inline-flex; align-items: center; gap: 5px; }
 .course-card .link-button { align-self: flex-start; }
+.course-card-actions { display: flex; align-items: center; gap: 8px; margin-top: auto; padding-top: 14px; }
+.course-material-button { display: inline-flex; align-items: center; gap: 6px; }
+.course-detail-dialog { width: min(720px, calc(100vw - 2rem)); max-height: min(760px, calc(100vh - 2rem)); overflow-y: auto; }
+.course-detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-right: 20px; }
+.course-detail-heading [data-slot="dialog-title"] { color: var(--ink); font-size: 19px; }
+.course-detail-description { margin: 0; color: var(--muted-foreground); line-height: 1.65; }
+.course-detail-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 0; }
+.course-detail-facts > div { padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--subtle); }
+.course-detail-facts dt { color: var(--muted-foreground); font-size: 11px; }
+.course-detail-facts dd { margin: 3px 0 0; color: var(--ink); font-size: 13px; }
+.course-detail-section { display: grid; gap: 9px; padding-top: 13px; border-top: 1px solid var(--line); }
+.course-detail-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.course-detail-section-head h4 { margin: 0; color: var(--ink); font-size: 13px; }
+.course-link-list, .course-resource-list { display: grid; gap: 6px; }
+.course-link-item, .course-resource-item { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 34px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 5px; background: #fff; color: var(--ink); text-align: left; font-size: 12px; }
+.course-link-item { cursor: pointer; }
+.course-link-item:hover, .course-resource-item:hover { border-color: var(--accent); background: var(--subtle); }
+.course-link-item span, .course-resource-item span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.course-material-preview { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; border: 0; padding: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.course-material-preview small { flex: 0 0 auto; color: var(--muted); font-size: 11px; }
+.course-material-preview-text { max-height: 180px; margin: 8px 0 0; padding: 10px; overflow: auto; border: 1px solid var(--line); border-radius: 5px; background: var(--subtle); color: var(--muted-strong); font: 12px/1.6 var(--font-mono, ui-monospace, monospace); white-space: pre-wrap; }
+.course-resource-link { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; border: 0; padding: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.course-resource-download { flex: 0 0 auto; }
+.course-link-list-secondary { margin-top: 2px; }
+.course-detail-empty { margin: 0; color: var(--muted-foreground); font-size: 12px; }
+.course-detail-error { margin: 0; color: #b42318; font-size: 12px; }
+.spin { animation: course-resource-spin .9s linear infinite; }
+@keyframes course-resource-spin { to { transform: rotate(360deg); } }
 
 .segmented { display: inline-flex; gap: 2px; padding: 3px; background: #eaf1ee; border-radius: 6px; }
 .segmented button { min-height: 30px; padding: 0 13px; color: #70807b; background: transparent; border-radius: 4px; font-size: 11px; }
@@ -3318,6 +3346,14 @@ html[data-interface-density="compact"] .exam-row {
 .free-classroom-form-grid label > span, .free-classroom-choice-group legend { color: var(--muted-foreground); font-size: 9px; font-weight: 650; }
 .free-classroom-form-grid input, .free-classroom-form-grid select { width: 100%; min-height: 32px; padding: 0 8px; color: var(--foreground); background: var(--secondary); border: 1px solid var(--border); border-radius: 5px; font-size: 10px; }
 .free-classroom-form-grid input:focus, .free-classroom-form-grid select:focus { border-color: var(--primary); outline: 0; box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 15%, transparent); }
+.settings-inline-status { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; color: var(--muted-foreground); font-size: 11px; }
+.settings-inline-status span { padding: 5px 8px; background: var(--secondary); border: 1px solid var(--border); border-radius: 5px; }
+.settings-form-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+.settings-form-grid label { display: grid; gap: 5px; color: var(--muted-foreground); font-size: 10px; }
+.settings-form-grid input { width: 100%; min-height: 32px; padding: 0 8px; color: var(--foreground); background: var(--secondary); border: 1px solid var(--border); border-radius: 5px; font-size: 11px; }
+.settings-form-grid input:focus { border-color: var(--primary); outline: 0; box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 15%, transparent); }
+.settings-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.settings-help-text { margin: 10px 0 0; color: var(--muted-foreground); font-size: 10px; }
 .free-classroom-choice-group { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; }
 .free-classroom-choice-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .free-classroom-choice-list label { display: inline-flex; align-items: center; gap: 5px; min-width: 35px; min-height: 29px; padding: 0 8px; color: var(--muted-foreground); background: var(--secondary); border: 1px solid var(--border); border-radius: 5px; font-size: 10px; cursor: pointer; }
@@ -5386,6 +5422,7 @@ html[data-app-background="image"] .topbar {
 .communications-pagination .icon-button:disabled { opacity: .42; cursor: not-allowed; }
 
 @media (max-width: 980px) {
+  .settings-form-grid { grid-template-columns: 1fr; }
   .communications-view {
     grid-template-columns: 1fr;
     min-height: 0;
@@ -10208,4 +10245,81 @@ html[data-app-background="image"] .settings-dialog-header {
     var(--card) var(--theia-background-surface-opacity),
     transparent
   );
+}
+
+/* Indoor map layers share the existing map gestures while keeping source and
+ * floor selection visible at the edge of the canvas. */
+.map-building-controls,
+.map-floor-controls {
+  display: grid;
+  gap: 4px;
+  padding: 4px;
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 16px 30px -23px color-mix(in srgb, var(--foreground) 62%, transparent);
+  backdrop-filter: blur(18px) saturate(1.08);
+}
+
+.map-building-controls { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.map-floor-controls { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.map-building-button,
+.map-floor-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 7px;
+  color: var(--muted-foreground);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.map-floor-controls button { padding: 0 8px; font-size: 11px; }
+.map-building-button:hover,
+.map-floor-controls button:hover {
+  color: var(--accent-foreground);
+  background: var(--accent);
+  border-color: color-mix(in srgb, var(--primary) 24%, var(--border));
+}
+
+.map-building-button.active,
+.map-floor-controls button.active {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 14%, var(--card));
+  border-color: color-mix(in srgb, var(--primary) 30%, var(--border));
+}
+
+.map-positioning-status {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 16px 30px -23px color-mix(in srgb, var(--foreground) 62%, transparent);
+  backdrop-filter: blur(18px) saturate(1.08);
+  font-size: 10px;
+}
+
+.map-positioning-status svg { color: var(--muted-foreground); }
+.map-positioning-status small { color: var(--muted-foreground); font-size: 9px; }
+
+@media (max-width: 560px) {
+  .map-control-stack { top: 9px; right: 9px; gap: 6px; }
+  .map-building-button { min-height: 30px; padding-inline: 5px; }
+  .map-positioning-status { right: 9px; bottom: 9px; }
 }

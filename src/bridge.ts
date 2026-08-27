@@ -177,6 +177,28 @@ const webBridge: TheiaBridge = {
   async getActivityLog(): Promise<ActivityLogEntry[]> {
     return [];
   },
+  async getIrisStatus() {
+    return {
+      schema: "theia-iris-companion/v1" as const,
+      enabled: false,
+      configured: false,
+      encryptionAvailable: false,
+      running: false,
+      pid: null,
+      startedAt: null,
+      lastExit: null,
+      lastError: null,
+      visibleProviders: ["theia"],
+      providers: { theia: true },
+    };
+  },
+  async saveIrisSettings() { throw new Error("Iris 设置仅在桌面客户端中可用"); },
+  async openIrisControlPanel() { throw new Error("Iris 控制面板仅在桌面客户端中可用"); },
+  async saveIrisCredentials() { throw new Error("Iris 凭据仅在桌面客户端中可用"); },
+  async clearIrisCredentials() { throw new Error("Iris 凭据仅在桌面客户端中可用"); },
+  async startIris() { throw new Error("Iris companion 仅在桌面客户端中可用"); },
+  async stopIris() { throw new Error("Iris companion 仅在桌面客户端中可用"); },
+  async restartIris() { throw new Error("Iris companion 仅在桌面客户端中可用"); },
   async getAuthStatus() {
     const connected = demo;
     return { jwglxt: { connected }, theol: { connected } };
@@ -235,6 +257,12 @@ const webBridge: TheiaBridge = {
   },
   async retrySyncDomain() {
     throw new Error("单项数据获取仅在桌面客户端中可用");
+  },
+  async refreshCourseResources() {
+    throw new Error("课程资源抓取仅在桌面客户端中可用");
+  },
+  async downloadCourseResource() {
+    throw new Error("课程资源下载仅在桌面客户端中可用");
   },
   async queryFreeClassrooms() {
     throw new Error("空闲教室查询仅在桌面客户端中可用");
@@ -295,6 +323,9 @@ const webBridge: TheiaBridge = {
     throw new Error("Academic calendar assets are available only in the desktop client");
   },
   async openSource(url) {
+    if (typeof url !== "string" || !/^https?:\/\//iu.test(url)) {
+      throw new Error("仅可打开 HTTP(S) 来源链接");
+    }
     window.open(url, "_blank", "noopener,noreferrer");
     return true;
   },

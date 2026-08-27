@@ -87,7 +87,11 @@ export class UltraAdapter {
       case 'delta': return { ...base, delta: event.delta }
       case 'synthesis_start': return { ...base, delta: '\n\n【汇总结果】\n\n' }
       case 'ultra_complete': return { ...base, delta: `\n\n---\n【Ultra 执行完成】\n- 子智能体数: ${event.subAgentCount}\n- Token 使用: ${event.tokenUsage.total}\n` }
-      case 'ultra_error': return { ...base, delta: `\n\n【Ultra 执行失败】${event.error}\n` }
+      case 'ultra_error': return {
+        ...base,
+        delta: `\n\n【Ultra 执行失败】${event.error}\n`,
+        tool: { type: 'error', name: 'ultra', error: String(event.error || 'Ultra 模式执行失败') },
+      }
       default: return null
     }
   }

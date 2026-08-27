@@ -9,6 +9,7 @@ import {
   JWGLXT_EXTRA_DOMAINS,
   JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES,
   JWGLXT_EXTRA_PARSER_VERSION,
+  normalizeFormOptions,
   normalizeJwglxtExtraDomain,
   parseJwglxtExtraJson,
   parseJwglxtExtraPage,
@@ -292,23 +293,47 @@ function filterPlanRows(rows, filters) {
 
 function bitmask(values, maximum = 64) {
   const list = Array.isArray(values) ? values : String(values ?? '').split(',')
-  return list.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value >= 1 && value <= maximum)
-    .reduce((mask, value) => mask + 2 ** (value - 1), 0)
+  return [...new Set(list.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value >= 1 && value <= maximum))]
+    .reduce((mask, value) => mask | (2 ** (value - 1)), 0)
 }
 
 // The N2155 page computes these three values in the browser. Keeping the
 // calculation here makes the query deterministic and avoids opening a second
 // renderer just to click week/day/period cells.
-export function buildFreeClassroomQuery({ term, formValues = {}, weeks, weekdays, periods } = {}) {
+export function buildFreeClassroomQuery({ term, formValues = {}, formOptions = {}, weeks, weekdays, periods } = {}) {
   const values = formValues && typeof formValues === 'object' ? formValues : {}
-  const selectedWeeks = weeks === undefined ? null : weeks
-  const selectedWeekdays = weekdays === undefined ? null : weekdays
-  const selectedPeriods = periods === undefined ? null : periods
+  const options = formOptions && typeof formOptions === 'object' ? formOptions : {}
+  // Empty arrays mean "no explicit selection" — normalize to null so the
+  // endpoint falls back to the page default instead of sending zcd=0 / jcd=0.
+  const selectedWeeks = weeks === undefined || (Array.isArray(weeks) && !weeks.length) ? null : weeks
+  const selectedWeekdays = weekdays === undefined || (Array.isArray(weekdays) && !weekdays.length) ? null : weekdays
+  const selectedPeriods = periods === undefined || (Array.isArray(periods) && !periods.length) ? null : periods
+
+  // Map display names to internal IDs using the page form options.
+  function resolveOption(name, raw) {
+    if (!raw || typeof raw !== 'string') return raw
+    const list = Array.isArray(options[name]) ? options[name] : []
+    const trimmed = String(raw).trim()
+    // If the raw value is already an ID known to the options list, keep it.
+    if (list.some((item) => item.value === trimmed)) return trimmed
+    // Exact label match (whitespace-normalized) first; only fall back to a
+    // whole-label substring match when the input is long enough to be safe
+    // from accidental over-matching (e.g. "一" should not hit "第一教学楼").
+    const normalized = trimmed.replace(/\s+/g, '')
+    const exact = list.find((item) => String(item.label || '').replace(/\s+/g, '') === normalized)
+    if (exact) return exact.value
+    if (normalized.length >= 2) {
+      const partial = list.find((item) => String(item.label || '').replace(/\s+/g, '').includes(normalized))
+      if (partial) return partial.value
+    }
+    return trimmed
+  }
+
   const result = {
     ...safeTermValues(term, values),
-    xqh_id: values.xqh_id || '',
-    lh: values.lh || '',
-    cdlb_id: values.cdlb_id || '',
+    xqh_id: resolveOption('xqh_id', values.xqh_id || ''),
+    lh: resolveOption('lh', values.lh || ''),
+    cdlb_id: resolveOption('cdlb_id', values.cdlb_id || ''),
     cdejlb_id: values.cdejlb_id || '',
     qszws: values.qszws || '',
     jszws: values.jszws || '',
@@ -318,7 +343,7 @@ export function buildFreeClassroomQuery({ term, formValues = {}, weeks, weekdays
   result.zcd = selectedWeeks === null ? (values.zcd ?? 0) : bitmask(selectedWeeks, 64)
   result.xqj = selectedWeekdays === null
     ? (values.xqj || '1,2,3,4,5,6,7')
-    : [...new Set((Array.isArray(selectedWeekdays) ? selectedWeekdays : [selectedWeekdays]).map(Number).filter((value) => value >= 1 && value <= 7))].join(',')
+    : [...new Set((Array.isArray(selectedWeekdays) ? selectedWeekdays : [selectedWeekdays]).map(Number).filter((value) => value >= 1 && value <= 7))].sort((a, b) => a - b).join(',')
   result.jcd = selectedPeriods === null ? (values.jcd ?? 0) : bitmask(selectedPeriods, 32)
   return result
 }
@@ -371,6 +396,7 @@ function mergeExtraDomainValues(left, right, domain) {
     records: [...byId.values()],
     attachments: [...(a.attachments || []), ...(b.attachments || [])],
     filters: [...(a.filters || []), ...(b.filters || [])],
+    options: { ...(a.options || {}), ...(b.options || {}) },
     messages: [...new Set([...(a.messages || []), ...(b.messages || [])])],
     queryStats: {
       attempted: Number(a.queryStats?.attempted || 0) + Number(b.queryStats?.attempted || 0),
@@ -849,6 +875,7 @@ export class JwglxtAdapter {
             ...buildFreeClassroomQuery({
               term,
               formValues: classroomFormValues,
+              formOptions: pageForm.options,
               weeks: selected.weeks,
               weekdays: selected.weekdays,
               periods: selected.periods,
@@ -856,6 +883,16 @@ export class JwglxtAdapter {
             ...queryModel(5000),
           },
         })
+        // Expose the campus/building/classroom-type choices to the renderer so
+        // the free-classroom UI can render selectors that submit real IDs
+        // instead of typed display names.
+        value = mergeExtraDomainValues(value, {
+          options: normalizeFormOptions(pageForm.options),
+          records: [],
+          attachments: [],
+          filters: [],
+          messages: [],
+        }, domain)
       } else if (routeCode === 'N358163' || routeCode === 'N358187') {
         const guid = routeCode === 'N358163'
           ? '58944B9C2CD784DBE053839D04CA5AD7'

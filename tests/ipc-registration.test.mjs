@@ -6,10 +6,12 @@ import {
   registerCourseSelectionIpc,
   registerCourseWorkQueueIpc,
   registerMailboxIpc,
+  registerMotionVenueIpc,
   registerModelRuntimeIpc,
   registerUserDataIpc,
   registerWindowIpc,
 } from '../electron/ipc-registration.mjs'
+import { AuthRequiredError } from '../core/source-client.mjs'
 
 function recorder() {
   const calls = []
@@ -74,6 +76,22 @@ test('capability IPC registration keeps the expected channel groups', () => {
     'theia:get-api-status',
     'theia:validate-model-connection',
     'theia:process-course-work-with-model',
+  ])
+
+  const motion = recorder()
+  registerMotionVenueIpc({
+    ipcMain: motion.ipcMain,
+    adapter: {},
+    store: { snapshot: () => ({ dataCatalog: {} }) },
+    cachedMotionVenueCatalog: () => null,
+    cacheMotionVenueCatalog: () => ({}),
+    cacheMotionVenueStatus: () => ({}),
+    sendSnapshot: () => {},
+  })
+  assert.deepEqual(motion.calls.map((call) => call.channel), [
+    'theia:get-motion-venue-catalog',
+    'theia:refresh-motion-venue-catalog',
+    'theia:query-motion-venue-status',
   ])
 
   const appearance = recorder()
@@ -158,6 +176,49 @@ test('capability IPC registration keeps the expected channel groups', () => {
   ])
 })
 
+test('course-selection reads recover an expired browser session once without replaying a selection task', async () => {
+  const registration = recorder()
+  const diagnostics = []
+  let discoverCalls = 0
+  let sessionRecoveries = 0
+  let startCalls = 0
+  registerCourseSelectionIpc({
+    ipcMain: registration.ipcMain,
+    courseSelectionService: {
+      async discover() {
+        discoverCalls += 1
+        if (discoverCalls === 1) throw new AuthRequiredError('Course selection', 'https://jwglxt.buct.edu.cn/jwglxt/xsxk/')
+        return { available: true, context: { secret: 'never returned' } }
+      },
+      start() { startCalls += 1 },
+    },
+    courseSelectionJournal: {},
+    store: {},
+    cachedSchoolScheduleResult: () => null,
+    schoolScheduleWithProvenance: async () => null,
+    scanSchoolScheduleArchive: async () => [],
+    armCourseSelectionSentinel: async () => {},
+    sendCourseSelectionSnapshot: () => {},
+    courseSelectionSnapshot: () => ({ active: null }),
+    recoverCourseSelectionReadSession: async () => { sessionRecoveries += 1 },
+    writeDiagnostic: (event, fields) => diagnostics.push({ event, fields }),
+  })
+
+  const discover = registration.calls.find((call) => call.channel === 'theia:discover-course-selection').handler
+  const start = registration.calls.find((call) => call.channel === 'theia:start-course-selection').handler
+  assert.deepEqual(await discover(), { available: true, context: undefined })
+  await start(null, {})
+
+  assert.equal(discoverCalls, 2)
+  assert.equal(sessionRecoveries, 1)
+  assert.equal(startCalls, 1)
+  assert.deepEqual(diagnostics.map((entry) => entry.event), [
+    'course_selection.read_auth_recovery_started',
+    'course_selection.read_auth_recovery_succeeded',
+    'course_selection.job_started',
+  ])
+})
+
 test('user data IPC exposes only bounded projection reads', async () => {
   const recorderState = recorder()
   const state = {
@@ -177,4 +238,30 @@ test('user data IPC exposes only bounded projection reads', async () => {
   const pageHandler = recorderState.calls[3].handler
   assert.equal((await overviewHandler()).snapshotRevision, 'r1')
   assert.equal((await pageHandler({}, 'academic-extras', { limit: 1 })).snapshotRevision, 'r1')
+})
+
+test('MOTION catalog refresh preserves the previous cache when every public page fails', async () => {
+  const calls = recorder()
+  const state = { dataCatalog: { cached: true } }
+  let updates = 0
+  registerMotionVenueIpc({
+    ipcMain: calls.ipcMain,
+    adapter: {
+      discover: async () => ({
+        counts: { pages: 0, successfulPages: 0, venues: 0 },
+        errors: [{ message: 'MOTION HTTP 502' }],
+      }),
+    },
+    store: {
+      snapshot: () => state,
+      update: async () => { updates += 1 },
+    },
+    cachedMotionVenueCatalog: (catalog) => catalog,
+    cacheMotionVenueCatalog: () => { throw new Error('must not overwrite a failed refresh') },
+    cacheMotionVenueStatus: () => ({}),
+    sendSnapshot: () => { throw new Error('must not publish a failed refresh') },
+  })
+  const refresh = calls.calls.find((call) => call.channel === 'theia:refresh-motion-venue-catalog')?.handler
+  await assert.rejects(refresh(), /MOTION HTTP 502/)
+  assert.equal(updates, 0)
 })

@@ -63,6 +63,25 @@ function combinedClassInfoOf(fields) {
   return catalogText(firstField(fields, 'jxbzc', 'teachingClassComposition', 'classCompositionText'), 500)
 }
 
+// The school-wide schedule endpoint exposes enough identity to locate a
+// teaching class, but those protocol fields are not part of the visible table.
+// Keep only the small allow-list needed by the course-selection fallback; do
+// not persist dynamic tokens such as xkkz_xh or arbitrary raw response data.
+function scheduleSelectionContext(value, fields) {
+  const nested = value?.selectionContext && typeof value.selectionContext === 'object'
+    ? caseInsensitiveFields(value.selectionContext)
+    : new Map()
+  const allowed = ['rwlx', 'rlkz', 'cdrlkz', 'rlzlkz', 'xxkbj', 'cxbj', 'qz', 'jcxx_id']
+  const context = {}
+  for (const field of allowed) {
+    const nestedValue = firstField(nested, field)
+    const directValue = firstField(fields, field)
+    const selected = nestedValue !== null ? nestedValue : directValue
+    if (selected !== null && selected !== undefined && String(selected) !== '') context[field] = String(selected)
+  }
+  return Object.keys(context).length ? context : null
+}
+
 function catalogAnalysis(value) {
   if (!value || typeof value !== 'object') return null
   try {
@@ -248,6 +267,15 @@ function schoolScheduleItem(value, index, scope) {
     id: catalogText(firstField(fields, 'id'), 240) || `school-schedule:${scope.termId}:${index}:${title}`,
     termId: scope.termId,
     classId: catalogText(firstField(fields, 'classId', 'jxb_id'), 160),
+    // kch_id is the value the selection endpoint calls kch_id. On BUCT it is
+    // normally the same as the visible course code, but retain it separately
+    // because other Zhengfang deployments use an opaque internal id.
+    courseId: catalogText(firstField(fields, 'courseId', 'kch_id'), 160)
+      || catalogText(firstField(fields, 'courseCode', 'kch'), 160),
+    operationId: catalogText(firstField(fields, 'operationId', 'do_jxb_id', 'jxb_ids'), 240),
+    categoryCode: catalogText(firstField(fields, 'categoryCode', 'kklxdm'), 32),
+    jxbzls: catalogText(firstField(fields, 'jxbzls'), 32),
+    selectionContext: scheduleSelectionContext(value, fields),
     courseCode: catalogText(firstField(fields, 'courseCode', 'kch'), 80),
     title,
     className: catalogText(firstField(fields, 'className', 'jxbmc')),
@@ -682,6 +710,20 @@ export function cachedMotionVenueStatus(catalog, query = {}) {
   const key = detailUrl && date && venue ? motionStatusKey({ detailUrl, date, venue }) : null
   const record = key ? source.statuses[key] : Object.values(source.statuses)[0]
   return record ? { ...record.result, cachedAt: record.capturedAt, fromCache: true } : null
+}
+
+export function cachedMotionVenueStatuses(catalog, query = {}) {
+  const source = normalizeDataCatalog(catalog).collections.venueReservations
+  const activity = String(motionVenueText(query.activity, 120) ?? '').toLocaleLowerCase()
+  const date = motionVenueText(query.date, 32)
+  return Object.values(source.statuses)
+    .map((entry) => (entry?.result ? { ...entry.result, cachedAt: entry.capturedAt, fromCache: true } : null))
+    .filter(Boolean)
+    .filter((result) => {
+      const resultActivity = String(motionVenueText(result.query?.activity, 120) ?? '').toLocaleLowerCase()
+      return (!activity || resultActivity.includes(activity)) && (!date || result.query?.date === date)
+    })
+    .sort((left, right) => String(left.query?.venue || '').localeCompare(String(right.query?.venue || ''), 'zh-CN'))
 }
 
 export function motionVenueCacheSummary(catalog) {

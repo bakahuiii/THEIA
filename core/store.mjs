@@ -75,8 +75,16 @@ async function writeAtomic(path, value, { backup = false } = {}) {
   const temp = `${path}.${randomUUID()}.tmp`
   await writeFile(temp, json(value), 'utf8')
   if (backup && existsSync(path)) await copyFile(path, `${path}.bak`)
-  await rm(path, { force: true })
-  await rename(temp, path)
+  // Prefer an atomic overwrite so a crash between rm and rename cannot lose
+  // the previous good file. Only fall back to remove-then-rename when the
+  // platform refuses to replace the existing target.
+  try {
+    await rename(temp, path)
+  } catch (error) {
+    if (!['EEXIST', 'EPERM', 'EACCES'].includes(error?.code) || !existsSync(path)) throw error
+    await rm(path, { force: true })
+    await rename(temp, path)
+  }
 }
 
 function catalogWithoutSchoolSchedule(catalog) {
@@ -440,8 +448,23 @@ export class CampusStore {
   async save() {
     return this.enqueueOperation(async () => {
       await this.loadIfNeeded()
-      const snapshot = this.snapshot()
-      await this.withWriteLock(async () => this.commitSnapshot(snapshot))
+      const base = this.snapshot()
+      const expectedRevision = this.activeManifest?.revision || null
+      await this.withWriteLock(async () => {
+        // Re-read under the lock like update/replace so a concurrent process
+        // commit is not silently clobbered by this instance's in-memory state.
+        const loaded = await this.loadSharded()
+        const latest = loaded ? await this.repairRecoveredSnapshot(loaded) : base
+        const diskRevision = this.activeManifest?.revision || null
+        // The caller's in-memory state was already committed to disk the last
+        // time this instance wrote. When another process advanced the manifest
+        // since then, prefer the newer committed state instead of overwriting
+        // it with this instance's older snapshot.
+        const next = expectedRevision && diskRevision && expectedRevision !== diskRevision
+          ? mergeConcurrentReplacement(base, base, latest)
+          : base
+        await this.commitSnapshot(next)
+      })
       return this.snapshot()
     })
   }

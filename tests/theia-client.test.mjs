@@ -10,12 +10,21 @@ test('THEIA API discovery rejects stale or malformed runtime metadata', async (t
   const root = await mkdtemp(join(tmpdir(), 'theia-client-runtime-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   await writeFile(join(root, 'api-runtime.json'), JSON.stringify({
-    host: '127.0.0.1', port: 8765, pid: 999_999_999, startedAt: new Date().toISOString(),
+    host: '127.0.0.1', port: 8765, pid: 999_999_999, token: 'A'.repeat(32), startedAt: new Date().toISOString(),
   }))
   await assert.rejects(discoverTheiaApi({ dataRoot: root }), /runtime is not running/u)
 
   await writeFile(join(root, 'api-runtime.json'), JSON.stringify({
-    host: '127.0.0.1', port: 8765, pid: process.pid, startedAt: 'invalid',
+    host: '127.0.0.1', port: 8765, pid: process.pid, token: 'A'.repeat(32), startedAt: 'invalid',
   }))
   await assert.rejects(discoverTheiaApi({ dataRoot: root }), /metadata is invalid/u)
+
+test('THEIA API discovery requires a token in the runtime metadata', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'theia-client-token-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await writeFile(join(root, 'api-runtime.json'), JSON.stringify({
+    host: '127.0.0.1', port: 8765, pid: process.pid, startedAt: new Date().toISOString(),
+  }))
+  await assert.rejects(discoverTheiaApi({ dataRoot: root }), /token is missing/u)
+})
 })

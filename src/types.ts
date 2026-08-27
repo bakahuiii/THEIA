@@ -38,7 +38,52 @@ export interface Course {
   sourceUrl?: string | null;
   resourceLinks?: Array<{ title: string; url: string }>;
   assignmentLinks?: Array<{ title: string; url: string }>;
+  courseInfo?: Record<string, string | number | null> | null;
+  teachingMaterials?: TeachingMaterial[];
+  courseResources?: CourseResource[];
+  courseResourcesCapturedAt?: string | null;
+  courseResourcesScan?: CourseResourceScan | null;
   capturedAt?: string;
+}
+
+export interface TeachingMaterial {
+  id: string;
+  courseId: string;
+  title: string;
+  url: string;
+  kind?: "page" | "file" | string;
+  capturedAt?: string;
+  contentPreview?: string | null;
+  fetchedAt?: string | null;
+  fetchStatus?: "succeeded" | "failed" | string;
+  fetchError?: string | null;
+}
+
+export interface CourseResource {
+  id: string;
+  courseId: string;
+  title: string;
+  url: string;
+  kind?: "file" | "folder" | "page" | string;
+  fileName?: string | null;
+  sourceKey?: string;
+  parentFolderId?: string | null;
+  capturedAt?: string;
+  cachedAt?: string | null;
+  cachedBytes?: number | null;
+  cachedFileName?: string | null;
+}
+
+export interface CourseResourceScan {
+  rootUrl?: string | null;
+  visitedFolders?: string[];
+  failedFolders?: string[];
+  truncated?: boolean;
+  resourceLimitReached?: boolean;
+  folderLimit?: number;
+  resourceLimit?: number;
+  complete?: boolean;
+  capturedAt?: string | null;
 }
 
 export interface ScheduleItem {
@@ -383,6 +428,7 @@ export interface AcademicExtraDomain {
   };
   messages?: string[];
   filters: string[];
+  options?: Record<string, Array<{ value: string | null; label: string | null }>>;
   attachments: Array<{
     id: string | null;
     label: string | null;
@@ -656,6 +702,8 @@ export type SyncRetryDomain =
   | "jwglxt-courses"
   | "jwglxt-notices"
   | "theol-courses"
+  | "theol-course-details"
+  | "theol-course-resources"
   | "assignments"
   | "theol-notices"
   | "mailbox"
@@ -1001,7 +1049,6 @@ export interface AdvisorCourseDecision {
   score: number | null;
   scoreBreakdown: Record<string, number | string | null>;
   reasons: string[];
-  evidenceRefs: string[];
   rulesVersion: string;
 }
 
@@ -1010,7 +1057,6 @@ export interface AdvisorCourseDecisionResult {
   snapshotRevision: string;
   rulesVersion: string;
   decisions: AdvisorCourseDecision[];
-  evidence: AdvisorEvidence[];
   proposals: Array<{
     id: string;
     kind: "save-target" | "view-details" | "open-confirmation";
@@ -1155,6 +1201,9 @@ export interface CourseSelectionBlock {
   id: string;
   categoryCode: string;
   title: string;
+  gradeId?: string | null;
+  majorId?: string | null;
+  controlSequence?: string | null;
 }
 
 export interface CourseSelectionCandidate {
@@ -1162,6 +1211,8 @@ export interface CourseSelectionCandidate {
   courseId: string;
   classId?: string | null;
   className?: string | null;
+  /** Number of linked teaching classes returned by Zhengfang. */
+  jxbzls?: string | null;
   operationId: string;
   title: string;
   courseCode?: string | null;
@@ -1172,6 +1223,21 @@ export interface CourseSelectionCandidate {
   capacity?: number | null;
   enrolled?: number | null;
   remainingSeats?: number | null;
+  /** Internal Zhengfang flags used to reproduce the official submit request. */
+  selectionContext?: {
+    kcmc?: string | null;
+    rwlx?: string | null;
+    rlkz?: string | null;
+    cdrlkz?: string | null;
+    rlzlkz?: string | null;
+    xxkbj?: string | null;
+    cxbj?: string | null;
+    qz?: string | null;
+    jcxx_id?: string | null;
+    xklc?: string | null;
+    xkly?: string | null;
+    kklxdm?: string | null;
+  };
   categoryCode: string;
   blockId: string;
   blockTitle?: string | null;
@@ -1184,6 +1250,9 @@ export interface CourseSelectionPortal {
   term: { id: string; year: number; term: string; label: string };
   blocks: CourseSelectionBlock[];
   available: boolean;
+  selectionOpen?: boolean;
+  selectionState?: "open" | "closed" | "unknown" | string;
+  selectionFlags?: Record<string, boolean | null>;
   message?: string | null;
 }
 
@@ -1191,6 +1260,8 @@ export interface CourseSelectionCatalogPage {
   page: number;
   pageSize: number;
   total: number;
+  message?: string | null;
+  responseSignal?: string | null;
 }
 
 export interface CourseSelectionJob {
@@ -1227,11 +1298,27 @@ export interface CourseSelectionJob {
 export interface CourseSelectionSnapshot {
   active: CourseSelectionJob | null;
   jobs?: CourseSelectionJob[];
+  history?: CourseSelectionHistoryEntry[];
   updatedAt: string;
   target?: CourseSelectionTarget | null;
   targets?: CourseSelectionTarget[];
   sentinel?: CourseSelectionSentinel;
   recordUpdatedAt?: string | null;
+}
+
+export interface CourseSelectionHistoryEntry {
+  kind: 'job';
+  at: string;
+  jobId: string | null;
+  status: string | null;
+  candidate: CourseSelectionTarget;
+  attempts: number;
+  lastMessage: string | null;
+  logs: Array<{
+    at: string;
+    level: 'info' | 'warning' | 'success' | 'error' | 'stopped' | string;
+    message: string;
+  }>;
 }
 
 export interface CourseSelectionSentinel {
@@ -1282,6 +1369,27 @@ export interface CourseSelectionTarget {
   id?: string | null;
   termId?: string | null;
   classId?: string | null;
+  /** Internal kch_id from the school-wide schedule, kept separate from courseCode. */
+  courseId?: string | null;
+  /** Selection-module code (for example 01/10/11) when supplied by the source. */
+  categoryCode?: string | null;
+  /** Zhengfang teaching-class composition mode. */
+  jxbzls?: string | null;
+  /** Non-secret flags needed to reproduce the current selection context. */
+  selectionContext?: {
+    kcmc?: string | null;
+    rwlx?: string | null;
+    rlkz?: string | null;
+    cdrlkz?: string | null;
+    rlzlkz?: string | null;
+    xxkbj?: string | null;
+    cxbj?: string | null;
+    qz?: string | null;
+    jcxx_id?: string | null;
+    xklc?: string | null;
+    xkly?: string | null;
+    kklxdm?: string | null;
+  } | null;
   courseCode?: string | null;
   title: string;
   className?: string | null;
@@ -1323,6 +1431,22 @@ export interface SchoolScheduleItem {
   id: string;
   termId: string;
   classId?: string | null;
+  /** Internal kch_id used by the course-selection class lookup. */
+  courseId?: string | null;
+  /** Present only when the source explicitly supplied a submit operation id. */
+  operationId?: string | null;
+  categoryCode?: string | null;
+  jxbzls?: string | null;
+  selectionContext?: {
+    rwlx?: string | null;
+    rlkz?: string | null;
+    cdrlkz?: string | null;
+    rlzlkz?: string | null;
+    xxkbj?: string | null;
+    cxbj?: string | null;
+    qz?: string | null;
+    jcxx_id?: string | null;
+  } | null;
   courseCode?: string | null;
   title: string;
   className?: string | null;
@@ -1470,6 +1594,21 @@ export interface LocalDataCatalog {
   };
 }
 
+export interface IrisCompanionStatus {
+  schema: "theia-iris-companion/v1";
+  enabled: boolean;
+  configured: boolean;
+  encryptionAvailable: boolean;
+  running: boolean;
+  pid: number | null;
+  startedAt: string | null;
+  lastExit: { code: number | null; signal: string | null; at: string } | null;
+  lastError: string | null;
+  visibleProviders: string[];
+  controlUrl?: string;
+  providers: Record<string, boolean>;
+}
+
 export interface TheiaBridge {
   getSnapshot(): Promise<CampusState>;
   getRendererSnapshot(): Promise<CampusState>;
@@ -1500,6 +1639,18 @@ export interface TheiaBridge {
   deleteAdvisorThread(threadId: string): Promise<{ deleted: boolean; threadId: string }>;
   onAdvisorStream(callback: (event: AdvisorStreamEvent) => void): () => void;
   getActivityLog(): Promise<ActivityLogEntry[]>;
+  getIrisStatus(): Promise<IrisCompanionStatus>;
+  openIrisControlPanel(): Promise<{ opened: boolean; url?: string }>;
+  saveIrisSettings(settings: {
+    enabled?: boolean;
+    visibleProviders?: string[];
+    providers?: Record<string, boolean>;
+  }): Promise<IrisCompanionStatus>;
+  saveIrisCredentials(credentials: { appId: string; appSecret: string; ownerOpenid?: string }): Promise<{ saved: boolean; encryptionAvailable: boolean }>;
+  clearIrisCredentials(): Promise<{ saved: boolean; encryptionAvailable: boolean }>;
+  startIris(): Promise<IrisCompanionStatus>;
+  stopIris(): Promise<IrisCompanionStatus>;
+  restartIris(): Promise<IrisCompanionStatus>;
   getAuthStatus(): Promise<AuthStatus>;
   getCredentialStatus(): Promise<CredentialStatus>;
   getAcademicApiCredentialStatus(): Promise<AcademicApiCredentialStatus>;
@@ -1530,7 +1681,7 @@ export interface TheiaBridge {
   discoverCourseSelection(): Promise<CourseSelectionPortal>;
   getCourseSelectionCandidates(
     blockId: string,
-    target?: Pick<SchoolScheduleItem, 'courseCode' | 'title'> | null,
+    target?: SchoolScheduleItem | null,
     options?: Partial<CourseSelectionCatalogPage>,
   ): Promise<{
     portal: CourseSelectionPortal;
@@ -1559,6 +1710,14 @@ export interface TheiaBridge {
   getAcademicCalendarAssets(): Promise<AcademicCalendarAssetsSnapshot>;
   refreshAcademicCalendarAssets(options?: { force?: boolean }): Promise<AcademicCalendarAssetsSnapshot>;
   openSource(url: string): Promise<boolean>;
+  refreshCourseResources(courseId: string): Promise<CampusState>;
+  downloadCourseResource(courseId: string, resourceId: string): Promise<{
+    cached: boolean;
+    bytes?: number;
+    filename?: string;
+    opened?: boolean;
+    snapshot?: CampusState;
+  }>;
   openAcademicAttachment(domain: string, attachmentId: string): Promise<{ cached: boolean }>;
   openAssignmentSource(assignmentId: string): Promise<boolean>;
   openSchedulePdf(): Promise<{

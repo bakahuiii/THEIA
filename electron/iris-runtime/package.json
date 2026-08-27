@@ -1,0 +1,9 @@
+{
+  "name": "theia-embedded-iris-runtime",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tencent-connect/qqbot-nodejs": "1.0.4",
+    "ws": "^8.21.0"
+  }
+}

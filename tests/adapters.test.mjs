@@ -45,6 +45,104 @@ test('THEOL fast sync returns home courses and notices without claiming assignme
   assert.deepEqual(requested, [THEOL_URLS.personal])
 })
 
+test('THEOL course details are opt-in and resource capture is course-scoped', async () => {
+  const courseUrl = 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=101'
+  const resourceUrl = 'https://course.buct.edu.cn/meol/homepage/course/courseResource_stu.jsp?folderid=0&lid=101'
+  const requested = []
+  const adapter = new TheolAdapter({
+    async page(url) {
+      requested.push(url)
+      if (url === THEOL_URLS.personal) return { url, text: `<a href="${courseUrl}">Course One</a>` }
+      if (url === courseUrl) return { url, text: '<input name="lid" value="101"><div>课程资源数：1</div><a href="/meol/common/script/courseResource.jsp?folderid=0&lid=101">课程资源</a>' }
+      return { url: resourceUrl, text: '<a href="/meol/common/script/download.jsp?fileId=9">教学大纲.pdf</a>' }
+    },
+  })
+
+  const fast = await adapter.sync()
+  assert.deepEqual(requested, [THEOL_URLS.personal])
+  const detailed = await adapter.sync({ domains: ['course-details'] })
+  assert.equal(detailed.courses[0].courseInfo.resourceCount, 1)
+  const resources = await adapter.syncCourseResources(detailed.courses[0])
+  assert.equal(resources.resources.length, 1)
+  assert.equal(resources.resources[0].courseId, '101')
+  void fast
+})
+
+test('THEOL detail capture rejects pages without course identity evidence', async () => {
+  const adapter = new TheolAdapter({
+    async page(url) {
+      return { url, text: '<main>课程简介</main>' }
+    },
+  })
+  const result = await adapter.syncCourseDetails([
+    { id: '101', title: 'Course One', source: 'theol', sourceUrl: 'https://course.buct.edu.cn/meol/course/index.jsp' },
+  ])
+  assert.deepEqual(result.courses, [])
+  assert.equal(result.errors.length, 1)
+})
+
+test('THEOL detail failures retain the complete personal roster', async () => {
+  const first = 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=101'
+  const second = 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=102'
+  const adapter = new TheolAdapter({
+    async page(url) {
+      if (url === THEOL_URLS.personal) return { url, text: `<a href="${first}">Course One</a><a href="${second}">Course Two</a>` }
+      if (url === first) return { url, text: '<input name="lid" value="101"><a href="/meol/common/script/courseResource.jsp?folderid=0&lid=101">课程资源</a>' }
+      throw new Error('detail unavailable')
+    },
+  })
+  const result = await adapter.sync({ domains: ['courses', 'course-details'] })
+  assert.deepEqual(result.courses.map((item) => item.id), ['101', '102'])
+  assert.equal(result.domainOutcomes['course-details'].completeness, 'partial')
+})
+
+test('THEOL resource sync follows the frameset mainFrame and nested folders', async () => {
+  const course = { id: '17010', title: '课程资源测试', source: 'theol', sourceUrl: 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=17010', resourceLinks: [{ title: '课程资源', url: 'https://course.buct.edu.cn/meol/common/script/courseResource.jsp?folderid=0&lid=17010' }] }
+  const requested = []
+  const adapter = new TheolAdapter({
+    async page(url) {
+      requested.push(url)
+      if (url.includes('courseResource.jsp')) return { url, text: '<frameset><frame name="mainFrame" src="listview.jsp?groupid=4&lid=17010&folderid=0"></frameset>' }
+      if (url.includes('folderid=0')) return { url, text: '<a href="listview.jsp?acttype=enter&folderid=73222&lid=17010">教学大纲</a>' }
+      return { url, text: '<a href="download_preview.jsp?fileid=9&resid=10&lid=17010">教学大纲.pdf</a>' }
+    },
+  })
+  const result = await adapter.syncCourseResources(course)
+  assert.deepEqual(requested, [
+    course.resourceLinks[0].url,
+    'https://course.buct.edu.cn/meol/common/script/listview.jsp?groupid=4&lid=17010&folderid=0',
+    'https://course.buct.edu.cn/meol/common/script/listview.jsp?acttype=enter&folderid=73222&lid=17010',
+  ])
+  assert.deepEqual(result.resources.map((item) => item.kind), ['folder', 'file'])
+  assert.equal(result.errors.length, 0)
+})
+
+test('THEOL resource sync follows a buildless course column iframe', async () => {
+  const course = {
+    id: '17010', title: '栏目资源测试', source: 'theol',
+    sourceUrl: 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=17010',
+    resourceLinks: [{ title: '课程资源', url: 'https://course.buct.edu.cn/meol/buildless/colUrlStuView.do?columnId=153116' }],
+  }
+  const requested = []
+  const adapter = new TheolAdapter({
+    async page(url) {
+      requested.push(url)
+      if (url.includes('colUrlStuView.do')) {
+        return { url, text: '<iframe name="resInfo" src="/meol/buildless/resFolderViewList.do?folderid=73259&lid=17010&columnId=153116"></iframe>' }
+      }
+      return { url, text: '<h1>1科技论文写作-前言</h1><h2>文件名:1科技论文写作-前言.ppt</h2><iframe src="/meol/common/script/preview/preview.jsp?fileid=376372"></iframe>' }
+    },
+  })
+  const result = await adapter.syncCourseResources(course)
+  assert.deepEqual(requested, [
+    course.resourceLinks[0].url,
+    'https://course.buct.edu.cn/meol/buildless/resFolderViewList.do?folderid=73259&lid=17010&columnId=153116',
+  ])
+  assert.equal(result.resources.length, 1)
+  assert.equal(result.resources[0].title, '1科技论文写作-前言.ppt')
+  assert.equal(result.errors.length, 0)
+})
+
 test('THEOL assignment sync keeps each course and task list strictly serial', async () => {
   const courses = [
     { id: '101', title: 'Course One', source: 'theol', sourceUrl: 'https://course.buct.edu.cn/meol/course?courseId=101' },

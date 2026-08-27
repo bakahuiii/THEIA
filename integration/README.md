@@ -2,12 +2,15 @@
 
 THEIA 为本机集成提供只读回环 API。它绝不会暴露学校密码、Cookie、认证页面、学校原始 HTML 或模型 API 密钥。
 
-桌面客户端运行时，可以从 THEIA 数据目录读取 `api-runtime.json`，也可以调用 `theia-client.mjs` 中的 `discoverTheiaApi()`。服务只绑定 `127.0.0.1`。
+桌面客户端运行时，可以从 THEIA 数据目录读取 `api-runtime.json`，也可以调用 `theia-client.mjs` 中的 `discoverTheiaRuntime()`（返回 `baseUrl` + 每实例 `token`）或 `discoverTheiaApi()`（仅地址）。服务只绑定 `127.0.0.1`。
+
+**本地 API 自 0.6.0 起要求令牌认证**：每次请求必须携带 `Authorization: Bearer <token>`（或 `?token=<token>`），令牌记录在 `api-runtime.json` 的 `token` 字段，每次启动重新生成。无令牌返回 401；任意 `file://` 页面的 `null` Origin 一律拒绝（403），跨站 Origin 的真实请求同样在触达数据前被拒绝。
 
 ```js
 import { fetchTheiaFeed } from './integration/theia-client.mjs'
 
 const feed = await fetchTheiaFeed()
+// fetchTheiaFeed 自动从 api-runtime.json 读取令牌；也可显式传 { baseUrl, token }
 ```
 
 ## Codex / Claude Code 的只读 Agent 接入
@@ -32,7 +35,7 @@ Claude Code 配置：
 claude mcp add --scope user theia -- node H:\work\THEIA\integration\theia-mcp.mjs
 ```
 
-THEIA 桌面客户端需要正在运行并启用本机 API（默认绑定 `127.0.0.1`）。自动发现会同时校验 `api-runtime.json` 的回环地址、端口、启动时间和仍存活的桌面进程；连接器也支持 `THEIA_MCP_API_URL=http://127.0.0.1:<port>` 覆盖 runtime 自动发现，但该值必须是本机回环 HTTP 地址。客户端通过 MCP 的 `initialize`、`tools/list` 和 `tools/call` 完成握手和调用，服务器支持 `2025-06-18`、`2025-03-26`、`2024-11-05`，明确不支持的版本会拒绝初始化。长时间读取可用 `notifications/cancelled` 取消；stdio 解析保持顺序，同时允许取消通知打断正在等待回环 API 的工具请求。日志只写 stderr，stdout 保持纯 JSON-RPC。
+THEIA 桌面客户端需要正在运行并启用本机 API（默认绑定 `127.0.0.1`）。自动发现会同时校验 `api-runtime.json` 的回环地址、端口、令牌、启动时间和仍存活的桌面进程；连接器也支持 `THEIA_MCP_API_URL=http://127.0.0.1:<port>` 覆盖 runtime 自动发现（此时须同时设置 `THEIA_MCP_API_TOKEN=<token>`，令牌与 `api-runtime.json` 一致），但该值必须是本机回环 HTTP 地址。客户端通过 MCP 的 `initialize`、`tools/list` 和 `tools/call` 完成握手和调用，服务器支持 `2025-06-18`、`2025-03-26`、`2024-11-05`，明确不支持的版本会拒绝初始化。长时间读取可用 `notifications/cancelled` 取消；stdio 解析保持顺序，同时允许取消通知打断正在等待回环 API 的工具请求。日志只写 stderr，stdout 保持纯 JSON-RPC。
 
 轻量插件项目位于 `H:\work\theia-buct-advisor`。它优先动态转发到本文件对应的 canonical MCP；找不到完整 THEIA 时才使用显式导入的快照 fallback：
 
@@ -44,7 +47,7 @@ fallback 只接受 `theia-campus-data/v1`，输出会标记 `mode: "lite-fallbac
 
 修改客户端 MCP 配置后请重启 Codex 或 Claude Code；THEIA 的 API 端口是动态发现的，不要把当前 `8765/8766` 端口写死到客户端配置中。
 
-THEIA 桌面端也可以在“设置 -> 数据与接口 -> Codex 与 Claude Code”点击“一键添加 MCP”。它会优先更新当前 Windows 用户的标准 Codex 配置和 Claude Code 用户配置，只改名为 `theia` 的服务器项，并在改写已有配置前创建同目录备份。未检测到客户端或轻量插件目录时不会写入配置。
+THEIA 桌面端也可以在“设置 -> 接口 -> Codex 与 Claude Code”点击“一键添加 MCP”。它会优先更新当前 Windows 用户的标准 Codex 配置和 Claude Code 用户配置，只改名为 `theia` 的服务器项，并在改写已有配置前创建同目录备份。未检测到客户端或轻量插件目录时不会写入配置。
 
 规范化校园 Feed 位于 `GET /v1/feed`，使用 `theia-campus-feed/v1` Schema。`GET /v1/snapshot` 提供完整本地状态，但排除凭据与浏览器会话。
 

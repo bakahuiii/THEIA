@@ -512,6 +512,7 @@ export class AdvisorRuntime {
       containsProfileIdentity: false,
       containsFitness: false,
       containsAttachmentText: false,
+      containsLocalPath: permissionMode === 'full-access',
       estimatedInputUnits: Math.ceil(Buffer.byteLength(canonicalJson(sessionContext), 'utf8') / 4),
       snapshotRevision: versionedSnapshot.revision,
       contextDigest,

@@ -18,11 +18,9 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { bridge } from "../bridge";
-import { EvidenceDrawer } from "../components/advisor/EvidenceDrawer";
 import { EmptyState, formatClock, formatDate, localDateTimeInstant, localDateTimeValue, parseLocalDateTime, type Term } from "../ui/app-shared";
 import type {
   AdvisorCourseDecision,
-  AdvisorEvidence,
   CourseSelectionCandidate,
   CourseSelectionCatalogPage,
   CourseSelectionPortal,
@@ -151,10 +149,8 @@ function advisorCandidateRecord(candidate: CourseSelectionCandidate) {
 
 function DecisionSummary({
   decision,
-  onShowEvidence,
 }: {
   decision: AdvisorCourseDecision;
-  onShowEvidence: (decision: AdvisorCourseDecision) => void;
 }) {
   const match = decision.requirementMatches[0];
   const excluded = decision.score === null;
@@ -216,19 +212,6 @@ function DecisionSummary({
           ))}
         </ul>
       </details>
-      {decision.evidenceRefs.length > 0 && (
-        <button
-          type="button"
-          className="mt-2 inline-flex min-h-7 items-center gap-1.5 rounded-md border border-[var(--line-strong)] px-2 text-[10px] font-semibold text-[var(--ink)] hover:bg-[var(--canvas)]"
-          onClick={(event) => {
-            event.stopPropagation();
-            onShowEvidence(decision);
-          }}
-        >
-          <ShieldCheck size={12} aria-hidden="true" />
-          查看证据
-        </button>
-      )}
     </div>
   );
 }
@@ -271,7 +254,7 @@ export function CourseSelectionView({
   onDiscover: () => void;
   onLoadCandidates: (
     blockId: string,
-    target: Pick<SchoolScheduleItem, "courseCode" | "title"> | null,
+    target: SchoolScheduleItem | null,
     options?: Partial<CourseSelectionCatalogPage>,
   ) => void;
   onSearchSchoolSchedule: (query: SchoolScheduleQuery) => void;
@@ -291,11 +274,6 @@ export function CourseSelectionView({
   const [concurrency, setConcurrency] = useState(2);
   const [candidateKeyword, setCandidateKeyword] = useState("");
   const [advisorDecisions, setAdvisorDecisions] = useState<AdvisorCourseDecision[]>([]);
-  const [advisorEvidence, setAdvisorEvidence] = useState<AdvisorEvidence[]>([]);
-  const [advisorEvidenceSelection, setAdvisorEvidenceSelection] = useState<{
-    title: string;
-    entries: AdvisorEvidence[];
-  } | null>(null);
   const [advisorDecisionInputKey, setAdvisorDecisionInputKey] = useState("");
   const [advisorDecisionRevision, setAdvisorDecisionRevision] = useState("");
   const [advisorDecisionLoading, setAdvisorDecisionLoading] = useState(false);
@@ -314,7 +292,12 @@ export function CourseSelectionView({
     .filter((target): target is CourseSelectionTarget => Boolean(target?.title))
     .map((target) => ({
       id: target.id || `course-selection-target:${target.termId || "unknown"}:${target.courseCode || target.title}`,
-      termId: target.termId || "", classId: target.classId || null, courseCode: target.courseCode || null, title: target.title,
+      termId: target.termId || "", classId: target.classId || null,
+      courseId: target.courseId || target.courseCode || null,
+      categoryCode: target.categoryCode || null,
+      jxbzls: target.jxbzls || null,
+      selectionContext: target.selectionContext || null,
+      courseCode: target.courseCode || null, title: target.title,
       className: target.className || null, teacher: target.teacher || null, time: target.time || null,
       location: target.location || null, credits: target.credits ?? null,
     })), [snapshot.target, snapshot.targets]);
@@ -345,11 +328,23 @@ export function CourseSelectionView({
       || selectionWindows.at(-1)
       || null;
   }, [selectionWindows]);
-  const taskLogs = useMemo(() => (snapshot.jobs || []).flatMap((job) => (job.logs || []).map((entry, index) => ({
-    ...entry,
-    id: `${job.id}:${entry.at}:${index}`,
-    course: job.candidate?.title || job.target?.title || "抢课任务",
-  }))).sort((left, right) => right.at.localeCompare(left.at)), [snapshot.jobs]);
+  const taskLogs = useMemo(() => {
+    const jobs = snapshot.jobs || [];
+    const currentJobIds = new Set(jobs.map((job) => job.id));
+    const live = jobs.flatMap((job) => (job.logs || []).map((entry, index) => ({
+      ...entry,
+      id: `${job.id}:${entry.at}:${index}`,
+      course: job.candidate?.title || job.target?.title || "抢课任务",
+    })));
+    const persisted = (snapshot.history || [])
+      .filter((entry) => !entry.jobId || !currentJobIds.has(entry.jobId))
+      .flatMap((entry) => entry.logs.map((log, index) => ({
+        ...log,
+        id: `${entry.jobId || entry.at}:${log.at}:${index}`,
+        course: entry.candidate?.title || "抢课任务",
+      })));
+    return [...live, ...persisted].sort((left, right) => right.at.localeCompare(left.at));
+  }, [snapshot.history, snapshot.jobs]);
   const selected =
     candidates.find((candidate) => candidate.id === candidateId) || null;
   const saveSchoolTarget = (target: SchoolScheduleItem) => {
@@ -362,6 +357,10 @@ export function CourseSelectionView({
       id: candidate.id,
       termId: candidate.termId || "",
       classId: candidate.classId || null,
+      courseId: candidate.courseId || null,
+      categoryCode: candidate.categoryCode || null,
+      jxbzls: candidate.jxbzls || null,
+      selectionContext: candidate.selectionContext || null,
       courseCode: candidate.courseCode || null,
       title: candidate.title,
       className: candidate.className || null,
@@ -467,7 +466,7 @@ export function CourseSelectionView({
     if (!blockId) return;
     onLoadCandidates(
       blockId,
-      null,
+      schoolTarget,
       { page, pageSize },
     );
   };
@@ -488,8 +487,6 @@ export function CourseSelectionView({
   useEffect(() => {
     const requestId = ++advisorDecisionRequest.current;
     setAdvisorDecisions([]);
-    setAdvisorEvidence([]);
-    setAdvisorEvidenceSelection(null);
     setAdvisorDecisionInputKey("");
     setAdvisorDecisionRevision("");
     if (!candidates.length || !advisorSnapshotRevision) {
@@ -512,13 +509,11 @@ export function CourseSelectionView({
           return;
         }
         setAdvisorDecisions(result.decisions);
-        setAdvisorEvidence(result.evidence);
         setAdvisorDecisionInputKey(advisorCandidateInputKey);
         setAdvisorDecisionRevision(advisorSnapshotRevision);
       } catch {
         if (advisorDecisionRequest.current !== requestId) return;
         setAdvisorDecisions([]);
-        setAdvisorEvidence([]);
         setAdvisorDecisionInputKey("");
         setAdvisorDecisionRevision("");
         setAdvisorDecisionError(true);
@@ -729,9 +724,9 @@ export function CourseSelectionView({
             ) : <div className="selection-plan-empty"><Crosshair size={17} /><span>先从下方全校课表将课程逐门加入抢课目标。</span></div>}
           </div>
           <aside className="selection-live-log" aria-live="polite" aria-label="实时抢课日志">
-            <div className="selection-live-log-head"><span>实时抢课日志</span><small>{taskLogs.length ? `${taskLogs.length} 条` : "等待任务启动"}</small></div>
+            <div className="selection-live-log-head"><span>抢课日志</span><small>{taskLogs.length ? `${taskLogs.length} 条` : "等待任务启动"}</small></div>
             <div className="selection-live-log-list">
-              {taskLogs.length ? taskLogs.map((entry) => <div key={entry.id} className={`selection-live-log-entry ${entry.level}`}><time>{formatClock(entry.at, true)}</time><div><strong>{entry.course}</strong><span>{entry.message}</span></div></div>) : <div className="selection-live-log-empty">开始任务后，这里会显示实际 API 调用结果。</div>}
+              {taskLogs.length ? taskLogs.map((entry) => <div key={entry.id} className={`selection-live-log-entry ${entry.level}`}><time>{formatClock(entry.at, true)}</time><div><strong>{entry.course}</strong><span>{entry.message}</span></div></div>) : <div className="selection-live-log-empty">开始任务后，这里会显示实际 API 调用结果，并在重启后保留最近任务记录。</div>}
             </div>
           </aside>
         </div>
@@ -850,13 +845,6 @@ export function CourseSelectionView({
                               {advisorDecisionByCandidate.has(candidate.id) ? (
                                 <DecisionSummary
                                   decision={advisorDecisionByCandidate.get(candidate.id)!}
-                                  onShowEvidence={(decision) => {
-                                    const references = new Set(decision.evidenceRefs);
-                                    setAdvisorEvidenceSelection({
-                                      title: `${candidate.title} · 排名证据`,
-                                      entries: advisorEvidence.filter((entry) => references.has(entry.id)),
-                                    });
-                                  }}
                                 />
                               ) : advisorDecisionLoading ? (
                                 <span className="inline-flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]">
@@ -1154,12 +1142,6 @@ export function CourseSelectionView({
           </DialogFooter>
         </DialogContent>}
       </Dialog>
-      <EvidenceDrawer
-        open={Boolean(advisorEvidenceSelection)}
-        onOpenChange={(open) => { if (!open) setAdvisorEvidenceSelection(null); }}
-        evidence={advisorEvidenceSelection?.entries || []}
-        title={advisorEvidenceSelection?.title || "选课排名证据"}
-      />
     </div>
   );
 }

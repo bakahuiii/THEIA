@@ -32,6 +32,15 @@ test('JWGLXT uses the rendered school page queue while sharing its browser cooki
   )
 })
 
+test('MOTION venue IPC is wired into the main-process lifecycle', () => {
+  assert.match(mainSource, /import \{ MotionVenueAdapter \} from '\.\.\/core\/adapters\/motion\.mjs'/)
+  assert.match(mainSource, /motionVenueAdapter = new MotionVenueAdapter\(\)/)
+  assert.match(
+    mainSource,
+    /registerMotionVenueIpc\(\{[\s\S]*?adapter: motionVenueAdapter,[\s\S]*?cachedMotionVenueCatalog,[\s\S]*?cacheMotionVenueCatalog,[\s\S]*?cacheMotionVenueStatus,/,
+  )
+})
+
 test('authentication uses source-scoped single-flight actors instead of a shared login queue', () => {
   assert.match(mainSource, /const authActorManager = createAuthActorManager\(/)
   assert.match(mainSource, /const authActors = authActorManager\.actors/)
@@ -111,8 +120,13 @@ test('successful authentication releases its actor before source-scoped synchron
 })
 
 test('authentication continuations are bound to their actor window and epoch', () => {
+  const credentialFill = sourceBetween('async function autoFillSavedCredentials(', '\n\nfunction scheduleCredentialFill(')
   const pollActor = mainSource.match(/async function pollAuthStatus\(actor\) \{[\s\S]*?\n\}/)?.[0] || ''
   assert.match(mainSource, /function isCurrentAuthActor\(actor, window = actor\?\.window\)[\s\S]*?authActorManager\.isCurrent\(actor, window\)/s)
+  assert.match(credentialFill, /isTrustedBuctAuthHostname\(new URL\(frame\.url\)\.hostname\)/)
+  assert.match(mainSource, /hostname === 'buct\.edu\.cn' \|\| hostname\.endsWith\('\.buct\.edu\.cn'\)/)
+  assert.match(credentialFill, /input\.autocomplete/)
+  assert.match(credentialFill, /passwordInput\.form\.requestSubmit\(\)/)
   assert.match(authManagerSource, /actor\.epoch === getEpoch\(\)[\s\S]*?actors\.get\(actor\.source\) === actor[\s\S]*?actor\.window === window/s)
   assert.match(mainSource, /await credentialVault\.readCredentials\(\)\s*if \(!isCurrentAuthActor\(actor, window\) \|\| actor\.epoch !== epoch\) return/s)
   assert.match(mainSource, /await frame\.executeJavaScript\(script\)\s*if \(!isCurrentAuthActor\(actor, window\) \|\| actor\.epoch !== epoch\) return/s)
@@ -243,6 +257,28 @@ test('fitness owns a separate hidden browser and serial executor from THEOL', ()
   assert.doesNotMatch(fitnessSubmit, /syncPageWindow|loadWithSchoolBrowser/)
   assert.match(fitnessSubmitQueue, /fitnessPageQueue\.enqueue\(\(\) => submitWithFitnessBrowser/)
   assert.doesNotMatch(fitnessSubmitQueue, /syncPageJobQueue|submitWithSchoolBrowser/)
+})
+
+test('course selection uses the authenticated JWGLXT browser session', () => {
+  const courseSelection = sourceBetween('courseSelectionService = new CourseSelectionService({', '\n  void armCourseSelectionSentinel')
+  assert.match(courseSelection, /client: academicSessionClient/)
+  assert.doesNotMatch(courseSelection, /courseSelectionClientFactory/)
+})
+
+test('course-selection reads restore the JWGLXT browser session before one retry', () => {
+  const recovery = sourceBetween('async function freshJwglxtBrowserStatus(', '\n\nasync function closeLiveCaptureActors(')
+  assert.match(recovery, /adapter\?\.browserStatus/)
+  assert.match(recovery, /openLoginWindow\(\{[\s\S]*?sources: \['jwglxt'\],[\s\S]*?requireBrowser: true,[\s\S]*?skipSync: true,/)
+  assert.match(recovery, /if \(actor\?\.lifecycle\) await actor\.lifecycle/)
+  assert.match(recovery, /status = await freshJwglxtBrowserStatus\(epoch\)/)
+  assert.match(recovery, /throw new AuthRequiredError\('Course selection'/)
+  assert.match(mainSource, /registerCourseSelectionIpc\(\{[\s\S]*?recoverCourseSelectionReadSession,[\s\S]*?writeDiagnostic,/)
+})
+
+test('startup authentication prioritizes JWGLXT before the serial THEOL actor', () => {
+  const openLogin = sourceBetween('async function openLoginWindow(', '\n\nasync function freshJwglxtBrowserStatus(')
+  assert.match(openLogin, /: \['jwglxt', 'theol'\]/)
+  assert.match(mainSource, /async function autoLoginOnStartup\(\)[\s\S]*?openLoginWindow\(\{ background: true, requireBrowser: true \}\)/s)
 })
 
 test('fitness upgrades only the blocked TYGL HTTP callback before retrying navigation', () => {

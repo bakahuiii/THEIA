@@ -1,0 +1,150 @@
+{
+  "scale": 3.6,
+  "floors": [
+    {
+      "id": "1A",
+      "source": "1A.png",
+      "repaired": "topaz/修复文字/1A-topaz--upscale-3.5x.png",
+      "canvas": {
+        "width": 4918,
+        "height": 2516
+      },
+      "sourceVisibleBox": [
+        211,
+        598,
+        4772,
+        2000
+      ],
+      "targetVisibleBox": [
+        223,
+        612,
+        4835,
+        2020
+      ],
+      "scale": {
+        "x": 1.0111817583863187,
+        "y": 1.0042796005706134
+      },
+      "offset": [
+        10,
+        11
+      ]
+    },
+    {
+      "id": "2A",
+      "source": "2A_.png",
+      "repaired": "topaz/修复文字/2A_-topaz--upscale-3.6x.png",
+      "canvas": {
+        "width": 4820,
+        "height": 2531
+      },
+      "sourceVisibleBox": [
+        152,
+        181,
+        4671,
+        2062
+      ],
+      "targetVisibleBox": [
+        162,
+        191,
+        4702,
+        2077
+      ],
+      "scale": {
+        "x": 1.0046470458065944,
+        "y": 1.0026581605528975
+      },
+      "offset": [
+        9,
+        10
+      ]
+    },
+    {
+      "id": "3A",
+      "source": "3A.png",
+      "repaired": "topaz/修复文字/3A-topaz--upscale-3.6x.png",
+      "canvas": {
+        "width": 4813,
+        "height": 2527
+      },
+      "sourceVisibleBox": [
+        113,
+        278,
+        4655,
+        2014
+      ],
+      "targetVisibleBox": [
+        122,
+        288,
+        4676,
+        2020
+      ],
+      "scale": {
+        "x": 1.0026420079260239,
+        "y": 0.9976958525345622
+      },
+      "offset": [
+        9,
+        11
+      ]
+    },
+    {
+      "id": "4A",
+      "source": "4A_.png",
+      "repaired": "topaz/修复文字/4A_-topaz--upscale-3.6x.png",
+      "canvas": {
+        "width": 4792,
+        "height": 2473
+      },
+      "sourceVisibleBox": [
+        143,
+        172,
+        4736,
+        2022
+      ],
+      "targetVisibleBox": [
+        148,
+        180,
+        4702,
+        2002
+      ],
+      "scale": {
+        "x": 0.991508817766166,
+        "y": 0.9848648648648649
+      },
+      "offset": [
+        6,
+        11
+      ]
+    },
+    {
+      "id": "5A",
+      "source": "5A_.png",
+      "repaired": "topaz/修复文字/5A_-topaz--upscale-3.6x.png",
+      "canvas": {
+        "width": 4835,
+        "height": 2509
+      },
+      "sourceVisibleBox": [
+        149,
+        184,
+        4695,
+        2010
+      ],
+      "targetVisibleBox": [
+        158,
+        191,
+        4716,
+        2016
+      ],
+      "scale": {
+        "x": 1.0026396832380113,
+        "y": 0.9994523548740416
+      },
+      "offset": [
+        9,
+        7
+      ]
+    }
+  ]
+}

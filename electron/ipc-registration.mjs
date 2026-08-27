@@ -239,15 +239,43 @@ export function registerCourseSelectionIpc({
   armCourseSelectionSentinel,
   sendCourseSelectionSnapshot,
   courseSelectionSnapshot,
+  recoverCourseSelectionReadSession = null,
   writeDiagnostic = () => {},
 }) {
+  const readWithSessionRecovery = async (operation, action) => {
+    try {
+      return await operation()
+    } catch (error) {
+      const authRequired = error?.name === 'AuthRequiredError' || Number(error?.code) === 1006
+      if (!authRequired || typeof recoverCourseSelectionReadSession !== 'function') throw error
+      void writeDiagnostic('course_selection.read_auth_recovery_started', { action })
+      await recoverCourseSelectionReadSession()
+      try {
+        const result = await operation()
+        void writeDiagnostic('course_selection.read_auth_recovery_succeeded', { action })
+        return result
+      } catch (retryError) {
+        void writeDiagnostic('course_selection.read_auth_recovery_retry_failed', {
+          action,
+          error: retryError?.name || 'Error',
+        })
+        throw retryError
+      }
+    }
+  }
   ipcMain.handle('theia:get-course-selection', () => courseSelectionSnapshot())
   ipcMain.handle('theia:discover-course-selection', async () => {
-    const portal = await courseSelectionService.discover()
+    const portal = await readWithSessionRecovery(
+      () => courseSelectionService.discover(),
+      'discover',
+    )
     return { ...portal, context: undefined }
   })
   ipcMain.handle('theia:get-course-selection-candidates', async (_event, blockId, target, options) => (
-    courseSelectionService.candidates(String(blockId || ''), target || null, options || {})
+    readWithSessionRecovery(
+      () => courseSelectionService.candidates(String(blockId || ''), target || null, options || {}),
+      'candidates',
+    )
   ))
   ipcMain.handle('theia:search-school-schedule', async (_event, query) => schoolScheduleWithProvenance(query || {}))
   ipcMain.handle('theia:sync-school-schedule-archive', () => scanSchoolScheduleArchive())
@@ -314,6 +342,20 @@ export function registerMotionVenueIpc({
   ipcMain.handle('theia:get-motion-venue-catalog', () => cachedMotionVenueCatalog(store.snapshot().dataCatalog))
   ipcMain.handle('theia:refresh-motion-venue-catalog', async () => {
     const result = await adapter.discover()
+    const errors = Array.isArray(result?.errors) ? result.errors : []
+    const successfulPages = Number(result?.counts?.successfulPages) || 0
+    const venueCount = Array.isArray(result?.venues)
+      ? result.venues.length
+      : Number(result?.counts?.venues) || 0
+    if (errors.length > 0 && successfulPages === 0 && venueCount === 0) {
+      const detail = String(errors[0]?.message || '公开入口不可用').slice(0, 240)
+      void writeDiagnostic('motion.venue_catalog_refresh_failed', {
+        pages: Number(result?.counts?.pages) || 0,
+        errors: errors.length,
+        detail,
+      })
+      throw new Error(`MOTION 场馆目录刷新失败：${detail}`)
+    }
     await store.update((state) => ({
       ...state,
       dataCatalog: cacheMotionVenueCatalog(state.dataCatalog, result, result.capturedAt),

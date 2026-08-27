@@ -4,6 +4,10 @@ import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:f
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { startLocalApi } from '../core/local-api.mjs'
+
+function authedFetch(api, url, init) {
+  return fetch(url, { ...(init || {}), headers: { ...(init?.headers || {}), Authorization: `Bearer ${api.token}` } })
+}
 import { CourseWorkService } from '../core/course-work.mjs'
 import { migrateLegacyDataFiles, rebaseLegacyWorkspacePaths, runtimeDataRoots } from '../core/runtime-paths.mjs'
 import { emptyState } from '../core/schema.mjs'
@@ -424,7 +428,7 @@ test('settings transaction rolls back the full batch when local API restart fail
     assert.deepEqual(mailConfigurations.at(-1), previousSettings.mail)
     assert.deepEqual(published.at(-1).settings, previousSettings)
     assert.equal(JSON.parse(await readFile(resolve(root, 'api-runtime.json'), 'utf8')).port, api.port)
-    assert.equal((await fetch(`${api.baseUrl}/v1/health`)).status, 200)
+    assert.equal((await authedFetch(api, `${api.baseUrl}/v1/health`)).status, 200)
   } finally {
     await api?.close().catch(() => undefined)
     await rm(root, { recursive: true, force: true })

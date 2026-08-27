@@ -336,6 +336,16 @@ export function AdvisorWorkbench({
               : step,
           ));
         }
+        // Ultra 模式整体失败：立即终止运行状态，避免一直转圈
+        if (tool.type === "error" && tool.name === "ultra") {
+          setRunStatus("idle");
+          setBusy(false);
+          setSendingRequestId("");
+          setStreamProgress({ requestId: "", characters: 0, chunks: 0 });
+          setStreamText({ requestId: "", text: "" });
+          setError(tool.error || "Ultra 模式执行失败");
+          activeRequestRef.current = "";
+        }
       }
     });
   }, []);

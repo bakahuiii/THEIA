@@ -8,34 +8,11 @@ import { isPassedGrade } from '../gpa.mjs'
 
 export const COURSE_DECISION_SCHEMA = 'theia-advisor-course-decisions/v1'
 export const COURSE_DECISION_RULES_VERSION = 'theia-advisor-course-decision-rules/v1'
-export const COURSE_DECISION_SCORE_FORMULA_VERSION = 'theia-advisor-course-decision-score/v1'
+export const COURSE_DECISION_SCORE_FORMULA_VERSION = 'theia-advisor-course-decision-score/v2'
 export const COURSE_DECISION_PROPOSAL_KINDS = Object.freeze([
   'save-target',
   'view-details',
   'open-confirmation',
-])
-export const COURSE_DECISION_CANDIDATE_FIELDS = Object.freeze([
-  'id',
-  'courseId',
-  'courseCode',
-  'title',
-  'credits',
-  'category',
-  'categoryCode',
-  'blockTitle',
-  'nature',
-  'termId',
-  'time',
-  'weekday',
-  'period',
-  'weeks',
-  'sessions',
-  'requirementNodeId',
-  'requirementNodeIds',
-  'officialRequirementId',
-  'officialRequirementIds',
-  'requirementCourseId',
-  'requirementCourseIds',
 ])
 
 export const COURSE_DECISION_SCORE_TABLE = Object.freeze({
@@ -55,6 +32,12 @@ export const COURSE_DECISION_SCORE_TABLE = Object.freeze({
     unknown: 0,
   }),
   dataQuality: Object.freeze({ complete: 10, partial: 6, unknown: 0 }),
+  requirementGap: Object.freeze({
+    // Points per missing credit in the matched training-plan node,
+    // capped so a single gap cannot dominate the whole ranking.
+    perCredit: 3,
+    cap: 30,
+  }),
 })
 
 const COMPLETENESS_VALUES = new Set(['complete', 'partial', 'unknown'])
@@ -95,23 +78,6 @@ const DUPLICATE_PRIORITY = Object.freeze({
 const PROPOSAL_PRIORITY = Object.freeze(Object.fromEntries(
   COURSE_DECISION_PROPOSAL_KINDS.map((kind, index) => [kind, index]),
 ))
-const DATA_QUALITY_EVIDENCE_FIELDS = Object.freeze([
-  'availability',
-  'freshness',
-  'completeness',
-  'recordCount',
-  'contentEmptyConfirmed',
-  'lastAttempt.status',
-  'lastAttempt.emptyConfirmed',
-  'lastAttempt.retainedPrevious',
-  'lastAttempt.errorCode',
-])
-const COURSE_DECISION_STORE_DOMAINS = Object.freeze([
-  'academic-progress',
-  'schedule',
-  'grades',
-  'selected-courses',
-])
 
 function array(value) {
   return Array.isArray(value) ? value : []
@@ -148,21 +114,13 @@ function weakestCompleteness(values) {
   return 'complete'
 }
 
-function evidenceRefs(factory, request) {
-  if (typeof factory !== 'function') return []
-  const result = factory(Object.freeze({
-    dataset: request.dataset,
-    entityId: text(request.entityId),
-    fields: uniqueSorted(request.fields || []),
-    domain: request.domain,
-  }))
-  return uniqueSorted(array(Array.isArray(result) ? result : [result])
-    .map((item) => text(item && typeof item === 'object' ? item.id : item))
-    .filter((item) => item && !/^(?:https?|file):/i.test(item)))
-}
-
 function requirementId(node, path) {
   return text(node?.id) || `requirement:${shortDigest({ path, title: text(node?.title) }, 20)}`
+}
+
+function creditNumber(value, fallback) {
+  const number = finiteNumber(value)
+  return number !== null && number >= 0 ? number : fallback
 }
 
 function flattenRequirements(academicProgress) {
@@ -176,12 +134,16 @@ function flattenRequirements(academicProgress) {
     if (!node || typeof node !== 'object' || visited.has(node)) return
     visited.add(node)
     const id = requirementId(node, path)
+    const nested = node?.credits && typeof node.credits === 'object' ? node.credits : {}
     result.push({
       id,
       path: [...path],
       label: text(node.title) || '未命名培养方案节点',
       node,
       courses: array(node.courses),
+      required: creditNumber(node.required ?? nested.required, null),
+      earned: creditNumber(node.earned ?? nested.earned, null),
+      remaining: creditNumber(node.remaining ?? nested.remaining, null),
     })
     array(node.children).forEach((child, index) => visit(child, [...path, index]))
   }
@@ -577,6 +539,16 @@ function effectiveCreditsScore(candidate, bestBasis, duplicateStatus) {
   return Math.max(0, Math.min(15, Math.round(credits * 3 * factor)))
 }
 
+function requirementGapScore(matches, requirementsById) {
+  const best = matches[0]
+  if (!best?.nodeId) return 0
+  const requirement = requirementsById.get(best.nodeId)
+  const remaining = finiteNumber(requirement?.remaining)
+  if (remaining === null || remaining <= 0) return 0
+  const { perCredit, cap } = COURSE_DECISION_SCORE_TABLE.requirementGap
+  return Math.max(0, Math.min(cap, Math.round(remaining * perCredit)))
+}
+
 function dataQualityScore(value) {
   return COURSE_DECISION_SCORE_TABLE.dataQuality[completeness(value)]
 }
@@ -588,23 +560,26 @@ function historyClass(duplicateStatus, history, historyCompleteness) {
   return historyCompleteness === 'complete' ? 'confirmed-no-attempt' : 'unknown'
 }
 
-function scoreDecision({ candidate, matches, scheduleResult, duplicate, history, completenessAxes }) {
+function scoreDecision({ candidate, matches, scheduleResult, duplicate, history, completenessAxes, requirementsById }) {
   const bestBasis = matches[0]?.basis || 'unknown'
   const excluded = ['already-completed', 'currently-selected'].includes(duplicate.status)
   const historyKey = historyClass(duplicate.status, history, completenessAxes.history)
   const overallCompleteness = weakestCompleteness(Object.values(completenessAxes))
+  const gap = requirementGapScore(matches, requirementsById)
   const components = excluded ? {
     requirementMatch: 0,
     scheduleConflict: 0,
     effectiveCredits: 0,
     historyEvidence: 0,
     dataQuality: 0,
+    requirementGap: 0,
   } : {
     requirementMatch: COURSE_DECISION_SCORE_TABLE.requirementMatch[bestBasis],
     scheduleConflict: COURSE_DECISION_SCORE_TABLE.scheduleConflict[scheduleResult.status],
     effectiveCredits: effectiveCreditsScore(candidate, bestBasis, duplicate.status),
     historyEvidence: COURSE_DECISION_SCORE_TABLE.historyEvidence[historyKey],
     dataQuality: dataQualityScore(overallCompleteness),
+    requirementGap: gap,
   }
   const total = Object.values(components).reduce((sum, value) => sum + value, 0)
   const noEvidence = bestBasis === 'unknown'
@@ -612,6 +587,7 @@ function scoreDecision({ candidate, matches, scheduleResult, duplicate, history,
     && historyKey === 'unknown'
     && finiteNumber(candidate?.credits) === null
     && overallCompleteness === 'unknown'
+    && gap === 0
   const unranked = excluded || noEvidence
   return {
     score: unranked ? null : total,
@@ -624,11 +600,24 @@ function scoreDecision({ candidate, matches, scheduleResult, duplicate, history,
   }
 }
 
-function decisionReasons({ candidate, matches, scheduleResult, schoolScheduleComplete, duplicate, history, score }) {
+function decisionReasons({ candidate, matches, scheduleResult, schoolScheduleComplete, duplicate, history, score, requirementsById }) {
   const reasons = []
   const best = matches[0]
   if (best?.basis === 'unknown') reasons.push('当前本地数据不能确认该课程对应的培养方案节点。')
   else reasons.push(`培养方案匹配依据为${MATCH_BASIS_LABELS[best.basis] || '未知依据'}，置信度为${MATCH_CONFIDENCE_LABELS[best.confidence] || '未知'}。`)
+
+  if (best?.nodeId) {
+    const requirement = requirementsById.get(best.nodeId)
+    const remaining = finiteNumber(requirement?.remaining)
+    const required = finiteNumber(requirement?.required)
+    if (remaining !== null && remaining > 0) {
+      reasons.push(`培养方案节点“${requirement?.label || '未命名节点'}”仍缺 ${remaining} 学分，该课程用于补足该缺口。`)
+    } else if (remaining === 0) {
+      reasons.push('该课程对应的培养方案节点学分缺口已补足，当前仅作普通参考。')
+    } else if (required !== null && remaining === null) {
+      reasons.push(`培养方案节点“${requirement?.label || '未命名节点'}”要求 ${required} 学分，但缺口学分未知。`)
+    }
+  }
 
   if (schoolScheduleComplete !== true) {
     reasons.push(scheduleResult.conflicts.length
@@ -700,6 +689,7 @@ export function createCourseDecisions(input, options = {}) {
   if (new Set(ids).size !== ids.length) throw new TypeError('course candidate ids must be unique')
   const rulesVersion = text(options.rulesVersion) || COURSE_DECISION_RULES_VERSION
   const requirementData = flattenRequirements(input.academicProgress)
+  const requirementsById = new Map(requirementData.nodes.map((node) => [node.id, node]))
   const declaredSchoolScheduleComplete = Object.hasOwn(input, 'schoolScheduleComplete')
     ? input.schoolScheduleComplete === true
     : input.schoolSchedule?.complete === true
@@ -754,40 +744,8 @@ export function createCourseDecisions(input, options = {}) {
       duplicate,
       history,
       completenessAxes,
+      requirementsById,
     })
-    const refs = uniqueSorted([
-      ...COURSE_DECISION_STORE_DOMAINS.flatMap((domain) => evidenceRefs(options.evidenceRefFactory, {
-        dataset: 'sync-domain',
-        entityId: domain,
-        fields: DATA_QUALITY_EVIDENCE_FIELDS,
-        domain,
-      })),
-      ...evidenceRefs(options.evidenceRefFactory, {
-        dataset: 'course-selection-candidates',
-        entityId: candidateId,
-        fields: COURSE_DECISION_CANDIDATE_FIELDS,
-        domain: 'course-selection',
-      }),
-      ...matches.filter((match) => match.basis !== 'unknown').flatMap((match) => evidenceRefs(options.evidenceRefFactory, {
-        dataset: 'academic-progress',
-        entityId: match.nodeId,
-        fields: ['id', 'title', 'courses'],
-        domain: 'academic-progress',
-      })),
-      ...scheduleResult.conflicts.flatMap((conflict) => evidenceRefs(options.evidenceRefFactory, {
-        dataset: 'schedule',
-        entityId: conflict.existingId,
-        fields: ['id', 'title', 'termId', 'weekday', 'period', 'weeks'],
-        domain: 'schedule',
-      })),
-      ...history.matched.flatMap((grade) => evidenceRefs(options.evidenceRefFactory, {
-        dataset: 'grades',
-        entityId: text(grade?.id) || `grade:${shortDigest(grade, 16)}`,
-        fields: ['id', 'courseCode', 'courseName', 'score', 'point', 'status'],
-        domain: 'grades',
-      })),
-      ...duplicate.matches.flatMap((match) => evidenceRefs(options.evidenceRefFactory, match.evidence)),
-    ])
     const id = `course-decision:${shortDigest({ candidateId, rulesVersion }, 20)}`
     const publicScheduleConflicts = scheduleResult.conflicts.map((conflict) => Object.freeze({
       ...conflict,
@@ -827,8 +785,8 @@ export function createCourseDecisions(input, options = {}) {
         duplicate,
         history,
         score,
+        requirementsById,
       }),
-      evidenceRefs: refs,
       rulesVersion,
     })
   }).sort(compareDecisions).map((decision, index) => Object.freeze({ ...decision, rank: index + 1 }))

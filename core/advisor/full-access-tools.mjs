@@ -69,7 +69,7 @@ function operation(operations, name) {
  * workspace. The host supplies each operation; the model never receives a
  * filesystem handle, credential, Cookie, Electron object, or raw IPC bridge.
  */
-export function createAdvisorFullAccessTools({ tools, snapshotRevision, operations, signal, permissionMode = 'full-access' } = {}) {
+export function createAdvisorFullAccessTools({ tools, snapshotRevision, operations, signal, permissionMode = 'read-only' } = {}) {
   if (!tools || typeof tools !== 'object') throw new TypeError('Agent full-access tools require a local workspace')
   const revision = text(snapshotRevision, 128)
   const controlled = {

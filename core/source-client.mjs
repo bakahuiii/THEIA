@@ -62,6 +62,15 @@ function isHttpUrl(rawUrl) {
   }
 }
 
+function isElectronSession(value) {
+  // Electron's `session.fetch` cancels a manual redirect unless a native
+  // ClientRequest follows it synchronously. The Session fetch API has no
+  // redirect event hook, so use its follow mode for real Electron sessions;
+  // test doubles and other fetch implementations retain the explicit manual
+  // redirect path below.
+  return value?.constructor?.name === 'Session' && typeof value?.fetch === 'function'
+}
+
 function cookieIdentity(cookie) {
   return [cookie?.name, cookie?.domain || '', cookie?.path || '/'].join('\u0000')
 }
@@ -74,6 +83,9 @@ async function requestCookies(cookieSession, target) {
   // request policy intentionally permits official legacy HTTP endpoints, so
   // resolve the matching HTTPS jar as well and send the same host/path cookie
   // set explicitly. This never broadens the strict *.buct.edu.cn URL policy.
+  // The campus HTTP endpoints (e.g. THEOL mobile pending-task fallback) rely
+  // on the shared secure session cookie to stay authenticated; removing it
+  // here would break those official read-only fallbacks.
   const httpsTarget = new URL(target)
   httpsTarget.protocol = 'https:'
   const httpsCookies = await cookieSession.cookies.get({ url: httpsTarget.toString() })
@@ -121,7 +133,7 @@ async function limitedResponseBuffer(response, { maxBytes, source, url }) {
 }
 
 export class SessionClient {
-  constructor(session, { requestSession = session, timeoutMs = 25_000, pageLoader = null, formLoader = null, binaryLoader = null, onDiagnostic = null } = {}) {
+  constructor(session, { requestSession = session, timeoutMs = 25_000, pageLoader = null, formLoader = null, binaryLoader = null, onDiagnostic = null, redirectMode = null } = {}) {
     this.cookieSession = session
     this.requestSession = requestSession
     this.timeoutMs = timeoutMs
@@ -129,6 +141,7 @@ export class SessionClient {
     this.formLoader = formLoader
     this.binaryLoader = typeof binaryLoader === 'function' ? binaryLoader : null
     this.onDiagnostic = typeof onDiagnostic === 'function' ? onDiagnostic : null
+    this.redirectMode = ['follow', 'manual', 'error'].includes(redirectMode) ? redirectMode : null
   }
 
   diagnostic(event, fields = {}) {
@@ -161,12 +174,20 @@ export class SessionClient {
     headers.delete('Cookie')
     const cookies = await requestCookies(this.cookieSession, target)
     await this.mirrorCookies(cookies)
-    if (cookies.length) headers.set('Cookie', cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; '))
+    const nativeSession = isElectronSession(this.requestSession)
+    const redirectMode = this.redirectMode || (nativeSession ? 'follow' : 'manual')
+    // A native Electron session sends its own scoped cookies when credentials
+    // are included. Avoid copying a Cookie header into a followed redirect,
+    // where it could be presented to a different host. The explicit header is
+    // still required for injected/test sessions and the manual redirect path.
+    if (cookies.length && !(nativeSession && redirectMode === 'follow')) {
+      headers.set('Cookie', cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; '))
+    }
     const response = await this.requestSession.fetch(target, {
       ...init,
       headers,
       credentials: 'include',
-      redirect: 'manual',
+      redirect: redirectMode,
       signal,
     })
     if (REDIRECT_STATUSES.has(response.status)) {

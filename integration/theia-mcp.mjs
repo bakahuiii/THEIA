@@ -12,7 +12,7 @@
 
 import { setTimeout as delay } from 'node:timers/promises'
 import { pathToFileURL } from 'node:url'
-import { discoverTheiaApi } from './theia-client.mjs'
+import { discoverTheiaRuntime } from './theia-client.mjs'
 import { createLocalDocumentsReader, LocalDocumentsError } from './local-docs.mjs'
 import { defaultDataRoot } from '../core/runtime-paths.mjs'
 import { advisorOverviewFromVersionedSnapshot } from '../electron/advisor-overview-service.mjs'
@@ -325,7 +325,7 @@ function assertNotAborted(signal) {
   if (signal?.aborted) throw abortError()
 }
 
-async function fetchJson(fetchImpl, endpoint, path, timeoutMs, signal) {
+async function fetchJson(fetchImpl, endpoint, path, timeoutMs, signal, token) {
   const controller = new AbortController()
   const abortFromCaller = () => controller.abort(signal?.reason)
   if (signal?.aborted) abortFromCaller()
@@ -336,7 +336,7 @@ async function fetchJson(fetchImpl, endpoint, path, timeoutMs, signal) {
     let response
     try {
       response = await fetchImpl(new URL(path, `${endpoint}/`), {
-        headers: { Accept: 'application/json' },
+        headers: { Accept: 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         redirect: 'error',
         signal: controller.signal,
       })
@@ -457,6 +457,7 @@ function assertSnapshotPayload(snapshot, manifest) {
 export function createTheiaSnapshotProvider({
   dataRoot = defaultDataRoot(),
   baseUrl = process.env.THEIA_MCP_API_URL || null,
+  token = process.env.THEIA_MCP_API_TOKEN || null,
   fetchImpl = globalThis.fetch,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   retries = SNAPSHOT_RETRIES,
@@ -465,15 +466,25 @@ export function createTheiaSnapshotProvider({
   const configuredEndpoint = baseUrl ? normalizeLoopbackUrl(baseUrl) : null
   const boundedTimeout = Number.isFinite(Number(timeoutMs)) ? Math.max(250, Math.min(30_000, Number(timeoutMs))) : DEFAULT_TIMEOUT_MS
   const boundedRetries = Number.isFinite(Number(retries)) ? Math.max(0, Math.min(4, Math.trunc(Number(retries)))) : SNAPSHOT_RETRIES
+  let apiToken = typeof token === 'string' && token ? token : null
 
   return async function readCurrentSnapshot({ signal } = {}) {
-    const endpoint = configuredEndpoint || normalizeLoopbackUrl(await discoverTheiaApi({ dataRoot }))
+    let endpoint = configuredEndpoint
+    let bearerToken = apiToken
+    if (!endpoint) {
+      // No explicit baseUrl: auto-discover from the running THEIA runtime file,
+      // which also provides the per-instance token.
+      const runtime = await discoverTheiaRuntime({ dataRoot })
+      endpoint = runtime.baseUrl
+      bearerToken = bearerToken || runtime.token
+    }
+    endpoint = normalizeLoopbackUrl(endpoint)
     let lastRevision = null
     for (let attempt = 0; attempt <= boundedRetries; attempt += 1) {
       assertNotAborted(signal)
-      const firstManifest = await fetchJson(fetchImpl, endpoint, '/v1/data-manifest', boundedTimeout, signal)
-      const snapshot = await fetchJson(fetchImpl, endpoint, '/v1/snapshot', boundedTimeout, signal)
-      const secondManifest = await fetchJson(fetchImpl, endpoint, '/v1/data-manifest', boundedTimeout, signal)
+      const firstManifest = await fetchJson(fetchImpl, endpoint, '/v1/data-manifest', boundedTimeout, signal, bearerToken)
+      const snapshot = await fetchJson(fetchImpl, endpoint, '/v1/snapshot', boundedTimeout, signal, bearerToken)
+      const secondManifest = await fetchJson(fetchImpl, endpoint, '/v1/data-manifest', boundedTimeout, signal, bearerToken)
       const firstRevision = validRevision(firstManifest.revision)
       const secondRevision = validRevision(secondManifest.revision)
       const snapshotRevision = assertSnapshotPayload(snapshot, secondManifest)

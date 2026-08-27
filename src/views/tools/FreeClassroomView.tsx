@@ -67,6 +67,11 @@ export function FreeClassroomView({ state, terms, onOpenSource }: { state: Campu
       if (derivedWeek) setWeek(derivedWeek);
     }
   };
+
+  const campusOptions = useMemo(() => domain?.options?.xqh_id || [], [domain]);
+  const buildingOptions = useMemo(() => domain?.options?.lh || [], [domain]);
+  const typeOptions = useMemo(() => domain?.options?.cdlb_id || [], [domain]);
+
   const query = async () => {
     if (!termId || !weekdays.length || !periods.length) return;
     setLoading(true);
@@ -78,9 +83,9 @@ export function FreeClassroomView({ state, terms, onOpenSource }: { state: Campu
         weeks: [week],
         weekdays,
         periods,
-        campus: campus.trim() || undefined,
-        building: building.trim() || undefined,
-        classroomType: classroomType.trim() || undefined,
+        campus: campus || undefined,
+        building: building || undefined,
+        classroomType: classroomType || undefined,
         minSeats: minSeats ? Number(minSeats) : undefined,
         maxSeats: maxSeats ? Number(maxSeats) : undefined,
       });
@@ -102,9 +107,9 @@ export function FreeClassroomView({ state, terms, onOpenSource }: { state: Campu
           <label><span>学期</span><select value={termId} onChange={(event) => setTermId(event.target.value)}><option value="">请选择学期</option>{terms.map((term) => <option key={term.id} value={term.id}>{term.label}</option>)}</select></label>
           <label><span>日期</span><input type="date" value={date} onChange={(event) => chooseDate(event.target.value)} /></label>
           <label><span>周次</span><select value={week} onChange={(event) => setWeek(Number(event.target.value))}>{WEEKS.map((item) => <option key={item} value={item}>第 {item} 周</option>)}</select></label>
-          <label><span>校区（可选）</span><input value={campus} onChange={(event) => setCampus(event.target.value)} placeholder="如：北校区" /></label>
-          <label><span>教学楼（可选）</span><input value={building} onChange={(event) => setBuilding(event.target.value)} placeholder="如：主楼" /></label>
-          <label><span>教室类别（可选）</span><input value={classroomType} onChange={(event) => setClassroomType(event.target.value)} placeholder="如：普通教室" /></label>
+          <label><span>校区（可选）</span><select value={campus} onChange={(event) => setCampus(event.target.value)}><option value="">全部校区</option>{campusOptions.map((option) => <option key={option.value ?? option.label} value={option.value ?? ""}>{option.label ?? option.value}</option>)}</select></label>
+          <label><span>教学楼（可选）</span><select value={building} onChange={(event) => setBuilding(event.target.value)}><option value="">全部教学楼</option>{buildingOptions.map((option) => <option key={option.value ?? option.label} value={option.value ?? ""}>{option.label ?? option.value}</option>)}</select></label>
+          <label><span>教室类别（可选）</span><select value={classroomType} onChange={(event) => setClassroomType(event.target.value)}><option value="">全部类别</option>{typeOptions.map((option) => <option key={option.value ?? option.label} value={option.value ?? ""}>{option.label ?? option.value}</option>)}</select></label>
           <label><span>最少座位（可选）</span><input type="number" min="0" max="500" value={minSeats} onChange={(event) => setMinSeats(event.target.value)} /></label>
           <label><span>最多座位（可选）</span><input type="number" min="0" max="500" value={maxSeats} onChange={(event) => setMaxSeats(event.target.value)} /></label>
         </div>
@@ -115,7 +120,7 @@ export function FreeClassroomView({ state, terms, onOpenSource }: { state: Campu
       </section>
       <section className="free-classroom-results" aria-label="空闲教室结果">
         <div className="free-classroom-results-head"><div><strong>查询结果</strong><small>{domain?.capturedAt ? `最近查询 ${formatDate(domain.capturedAt)}` : "尚未查询"}</small></div>{domain?.sourceUrl && <button type="button" className="academic-records-source" onClick={() => onOpenSource(domain.sourceUrl || "")}><Building2 size={13} />来源页面</button>}</div>
-        {records.length ? <div className="free-classroom-table-wrap"><table className="free-classroom-table"><thead><tr><th>教室</th><th>校区</th><th>教学楼</th><th>类别</th><th>座位</th><th>星期</th><th>节次</th></tr></thead><tbody>{records.map((record) => <tr key={record.id}><td><strong>{field(record, ["classroom", "cdmc", "cdbh", "room"])}</strong></td><td>{field(record, ["campus", "xqmc", "xiaoqu"])}</td><td>{field(record, ["building", "lh", "jxlmc", "教学楼"])}</td><td>{field(record, ["classroomType", "cdlbmc", "cdlb_id"])}</td><td>{field(record, ["capacity", "zws", "qszws"])}</td><td>{field(record, ["weekday", "xqj", "xqjmc"])}</td><td>{field(record, ["periods", "period", "jc", "jcs"])}</td></tr>)}</tbody></table></div> : <EmptyState icon={CalendarDays} title="请选择条件后查询" detail="教务系统只会在点击查询后返回与当前筛选对应的空闲教室。" />}
+        {records.length ? <div className="free-classroom-table-wrap"><table className="free-classroom-table"><thead><tr><th>教室</th><th>校区</th><th>教学楼</th><th>类别</th><th>座位</th></tr></thead><tbody>{records.map((record) => <tr key={record.id}><td><strong>{field(record, ["classroom", "cdmc", "cdbh", "room"])}</strong></td><td>{field(record, ["campus", "xqmc", "xiaoqu"])}</td><td>{field(record, ["jxlmc", "building", "lh", "教学楼"])}</td><td>{field(record, ["classroomType", "cdlbmc", "cdlb_id"])}</td><td>{field(record, ["capacity", "zws", "qszws"])}</td></tr>)}</tbody></table></div> : <EmptyState icon={CalendarDays} title="请选择条件后查询" detail="教务系统只会在点击查询后返回与当前筛选对应的空闲教室。" />}
       </section>
     </div>
   );

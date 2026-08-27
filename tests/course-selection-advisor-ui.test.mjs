@@ -54,10 +54,11 @@ test('renderer delegates completeness to the one-snapshot main-process authority
 })
 
 test('ranking evidence returned by the frozen service snapshot is reachable in the UI', () => {
-  assert.match(source, /setAdvisorEvidence\(result\.evidence\)/)
-  assert.match(source, /decision\.evidenceRefs/)
-  assert.match(source, /<EvidenceDrawer/)
-  assert.match(source, /查看证据/)
+  assert.match(source, /decision\.reasons\.map/)
+  assert.match(source, /查看排名理由/)
+  assert.doesNotMatch(source, /setAdvisorEvidence\(result\.evidence\)/)
+  assert.doesNotMatch(source, /decision\.evidenceRefs/)
+  assert.doesNotMatch(source, /EvidenceDrawer/)
 })
 
 test('ranking lifecycle is stale-safe and falls back to source order after failure', () => {
@@ -97,4 +98,15 @@ test('candidate catalog accepts only the latest in-flight request', () => {
   assert.match(loader, /setCourseSelectionPortal\(result\.portal\)/)
   assert.match(loader, /setCourseSelectionCandidates\(result\.candidates\)/)
   assert.match(loader, /setCourseSelectionCatalogPage\(\{/)
+})
+
+test('school-wide targets retain lookup identity through the renderer boundary', () => {
+  assert.match(source, /target: SchoolScheduleItem \| null/)
+  assert.match(source, /courseId: target\.courseId \|\| target\.courseCode/)
+  assert.match(source, /categoryCode: target\.categoryCode/)
+  assert.match(source, /jxbzls: target\.jxbzls/)
+  assert.match(source, /selectionContext: target\.selectionContext/)
+  assert.match(source, /schoolTarget,\n      \{ page, pageSize \}/)
+  assert.match(source, /courseId: candidate\.courseId/)
+  assert.match(hookSource, /target: SchoolScheduleItem \| null = null/)
 })

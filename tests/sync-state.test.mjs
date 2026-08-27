@@ -2300,3 +2300,54 @@ test('assignment retry reuses the THEOL scan without starting either platform sy
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('one failed source commit does not poison later source commits', async () => {
+  const root = await mkdtemp(resolve(tmpdir(), 'theia-commit-resilience-'))
+  try {
+    const store = new CampusStore(root)
+    await store.load()
+    const originalUpdate = store.update.bind(store)
+    let updateCalls = 0
+    // Fail the first source commit (update #2: after the initial
+    // lastStartedAt write) so only one source's commit rejects.
+    store.update = async (fn) => {
+      updateCalls += 1
+      if (updateCalls === 2) throw new Error('injected storage failure')
+      return originalUpdate(fn)
+    }
+    const service = new SyncService({
+      store,
+      jwglxt: {
+        async sync() {
+          return {
+            courses: [{ id: 'jw-1', title: '教务课程', source: 'jwglxt' }],
+            schedule: [], exams: [], grades: [], selectedCourses: [], notices: [],
+            errors: [], source: { connected: true },
+          }
+        },
+        async status() { return { connected: true } },
+      },
+      theol: {
+        async sync() {
+          return {
+            assignments: [{
+              id: 'th-1', title: '作业 1', courseName: 'THEOL 课程', status: 'pending',
+              dueAt: '2026-09-01T00:00:00.000Z', capturedAt: new Date().toISOString(), source: 'theol',
+            }],
+            courses: [], notices: [], errors: [], source: { connected: true },
+          }
+        },
+        async status() { return { connected: true } },
+      },
+    })
+    await assert.rejects(service.syncNow(), /injected storage failure/u)
+    // The second source's commit still ran even though the first failed:
+    // a rejected commit must not poison the shared commit chain.
+    const snapshot = store.snapshot()
+    assert.equal(snapshot.assignments.some((item) => item.id === 'th-1'), true,
+      'theol assignments must survive a jwglxt commit failure')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+

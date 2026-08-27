@@ -74,11 +74,13 @@ export function AdvisorMessage({ message }: { message: AdvisorThreadMessage }) {
   const answer = message.response;
   const usage = answer?.usage;
   const visibleText = visibleAnswerText(answer?.displayText || answer?.rawText);
+  const inputTokens = finiteTokenCount(usage?.inputTokens);
   const outputTokens = finiteTokenCount(usage?.outputTokens);
   const cachedInputTokens = finiteTokenCount(usage?.cachedInputTokens);
   const cacheWriteInputTokens = finiteTokenCount(usage?.cacheWriteInputTokens);
   const cacheStatus = normalizeCacheStatus(usage?.cacheStatus);
   const hasCacheUsage = cacheStatus !== "unknown" || cachedInputTokens !== null || cacheWriteInputTokens !== null;
+  const showTokenUsage = (inputTokens !== null && inputTokens > 0) || (outputTokens !== null && outputTokens > 0);
   return (
     <article className="advisor-v2-message is-assistant">
       <span className="advisor-v2-message-avatar is-assistant" aria-hidden="true"><Bot className="size-4" /></span>
@@ -88,11 +90,14 @@ export function AdvisorMessage({ message }: { message: AdvisorThreadMessage }) {
         <div className="advisor-v2-message-meta">
           <Clock3 className="size-3" aria-hidden="true" />
           <span>{formatMessageTime(message.at)}</span>
-          {usage && outputTokens !== null && outputTokens > 0 && (
+          {usage && showTokenUsage && (
             <>
               <span aria-hidden="true">·</span>
               <Coins className="size-3" aria-hidden="true" />
-              <span>{outputTokens.toLocaleString()} tokens{usage.estimated ? " · 估算" : ""}</span>
+              <span>
+                {inputTokens !== null && inputTokens > 0 ? `输入 ${inputTokens.toLocaleString()} · ` : ""}
+                {outputTokens !== null ? `输出 ${outputTokens.toLocaleString()} tokens${usage.estimated ? " · 估算" : ""}` : ""}
+              </span>
             </>
           )}
           {usage && hasCacheUsage && (
