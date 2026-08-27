@@ -18,7 +18,7 @@
     "dev": "node scripts/dev.mjs",
     "dev:web": "node scripts/dev-web.mjs",
     "desktop": "node scripts/dev.mjs",
-    "build": "tsc -b && vite build",
+    "build": "node scripts/build-campus-grid.mjs && tsc -b && vite build",
     "lint": "eslint .",
     "test": "node --test --test-concurrency=4 tests/*.test.mjs",
     "cli": "node cli/theia-cli.mjs",

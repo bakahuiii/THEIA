@@ -1,4 +1,4 @@
-import { CalendarDays, Download, MapPin, UserRound, X } from "lucide-react";
+import { CalendarDays, Download, MapPin, Navigation, UserRound, X } from "lucide-react";
 import {
   useEffect,
   useMemo,
@@ -16,6 +16,7 @@ import {
   occursInWeek,
 } from "../ui/calendar";
 import type { AcademicCalendar, ScheduleItem } from "../types";
+import { buildingDefByKey, resolveRoomToBuilding } from "../map/campus-buildings";
 
 type SchedulePopover = {
   items: ScheduleItem[];
@@ -129,12 +130,14 @@ export function ScheduleView({
   calendar,
   onExportPdf,
   exportingPdf,
+  onOpenMap,
 }: {
   items: ScheduleItem[];
   terms: Term[];
   calendar?: AcademicCalendar | null;
   onExportPdf: () => void;
   exportingPdf: boolean;
+  onOpenMap?: (buildingKey: string, room: string) => void;
 }) {
   const days = DAY_LABELS;
   const [termFilter, setTermFilter] = useState(
@@ -354,22 +357,37 @@ export function ScheduleView({
             </button>
           </div>
           <div className="schedule-popover-list">
-            {popover.items.map((item) => (
-              <article className="popover-course" key={item.id}>
-                <strong>{item.title}</strong>
-                <small>{item.weeks || "周次待定"}</small>
-                <div>
-                  <span>
-                    <UserRound size={14} />
-                    {item.teacher || "教师待定"}
-                  </span>
-                  <span>
-                    <MapPin size={14} />
-                    {item.room || "教室待定"}
-                  </span>
-                </div>
-              </article>
-            ))}
+            {popover.items.map((item) => {
+              const buildingKey = resolveRoomToBuilding(item.room);
+              const buildingDef = buildingDefByKey(buildingKey);
+              return (
+                <article className="popover-course" key={item.id}>
+                  <strong>{item.title}</strong>
+                  <small>{item.weeks || "周次待定"}</small>
+                  <div>
+                    <span>
+                      <UserRound size={14} />
+                      {item.teacher || "教师待定"}
+                    </span>
+                    <span>
+                      <MapPin size={14} />
+                      {item.room || "教室待定"}
+                    </span>
+                  </div>
+                  {buildingKey && onOpenMap && (
+                    <button
+                      type="button"
+                      className="popover-course-nav"
+                      onClick={() => onOpenMap(buildingKey, item.room || "")}
+                      title={`在地图上定位${buildingDef?.name ?? buildingKey}`}
+                    >
+                      <Navigation size={13} />
+                      去{buildingDef?.label ?? buildingKey}
+                    </button>
+                  )}
+                </article>
+              );
+            })}
           </div>
         </div>,
           document.body,

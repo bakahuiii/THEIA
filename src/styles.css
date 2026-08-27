@@ -2461,6 +2461,26 @@ input,
   font-size: 11px;
 }
 
+.popover-course-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: start;
+  min-height: 28px;
+  padding: 0 10px;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--border));
+  border-radius: 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.popover-course-nav:hover {
+  background: color-mix(in srgb, var(--primary) 18%, var(--card));
+  border-color: var(--primary);
+}
+
 /* Preferences is a full desktop surface, not another route in the workspace. */
 [data-slot="dialog-overlay"] {
   z-index: 490 !important;
@@ -10322,4 +10342,307 @@ html[data-app-background="image"] .settings-dialog-header {
   .map-control-stack { top: 9px; right: 9px; gap: 6px; }
   .map-building-button { min-height: 30px; padding-inline: 5px; }
   .map-positioning-status { right: 9px; bottom: 9px; }
+}
+
+/* ---- Campus map navigation & marking ---- */
+
+.map-nav-bar {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 180px);
+}
+
+.map-nav-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 10px 0 12px;
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--card) 94%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 16px 30px -23px color-mix(in srgb, var(--foreground) 62%, transparent);
+  backdrop-filter: blur(18px) saturate(1.08);
+  font-size: 12px;
+}
+
+.map-nav-status svg { color: var(--primary); }
+
+.map-nav-clear {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  color: var(--muted-foreground);
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.map-nav-clear:hover { color: var(--foreground); background: color-mix(in srgb, var(--primary) 10%, transparent); }
+
+.map-nav-notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 8px 0 14px;
+  color: #c73a3f;
+  background: #fff5f5;
+  border: 1px solid #f5c6c7;
+  border-radius: 10px;
+  font-size: 12px;
+  box-shadow: 0 16px 30px -23px color-mix(in srgb, var(--foreground) 62%, transparent);
+}
+
+.map-nav-notice button {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  color: #c73a3f;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.map-nav-notice button:hover { background: #fae7e7; }
+
+.map-route-distance { color: var(--primary); font-size: 10px; }
+
+/* Building markers on the campus sheet */
+
+.map-building-marker {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  color: #1f6f4a;
+  background: rgba(255, 255, 255, 0.94);
+  border: 2px solid #2f9e6e;
+  border-radius: 999px;
+  box-shadow: 0 4px 12px rgba(24, 57, 48, 0.22);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  z-index: 3;
+  white-space: nowrap;
+}
+
+.map-building-marker.is-target { border-color: #e5484d; color: #c73a3f; background: #fff5f5; }
+.map-building-marker.is-start { border-color: #22a06b; color: #16794c; background: #f2fbf7; }
+.map-building-marker svg { flex: 0 0 auto; }
+
+.map-marker-badge {
+  padding: 0 5px;
+  font-size: 9px;
+  line-height: 16px;
+  color: #fff;
+  background: #e5484d;
+  border-radius: 999px;
+}
+
+.map-marker-label { max-width: 96px; overflow: hidden; text-overflow: ellipsis; }
+
+/* Route overlay */
+
+.map-route-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.map-route-line {
+  stroke: #3b82f6;
+  stroke-width: 7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+  opacity: 0.9;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35));
+}
+
+/* Marking candidate crosshair */
+
+.map-marking-candidate {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  color: #e5484d;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.map-marking-candidate::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 26px;
+  height: 26px;
+  transform: translate(-50%, -50%);
+  border: 2px dashed #e5484d;
+  border-radius: 50%;
+}
+
+/* Building selector overlay */
+
+.map-marker-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  background: rgba(15, 32, 28, 0.35);
+  backdrop-filter: blur(2px);
+}
+
+.map-marker-selector {
+  display: grid;
+  gap: 12px;
+  width: min(420px, calc(100% - 32px));
+  padding: 18px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-float);
+}
+
+.map-marker-selector > strong { font-size: 14px; }
+
+.map-marker-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.map-marker-option {
+  min-height: 36px;
+  padding: 0 6px;
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--primary) 8%, var(--card));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.map-marker-option:hover { border-color: var(--primary); }
+.map-marker-option.selected { background: color-mix(in srgb, var(--primary) 18%, var(--card)); border-color: var(--primary); }
+
+/* Navigation selector (start / end) */
+
+.map-nav-selector { position: relative; }
+
+.map-nav-selector-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  display: grid;
+  gap: 8px;
+  width: 230px;
+  padding: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-float);
+  z-index: 12;
+}
+
+.map-nav-selector-dropdown label {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+
+.map-nav-selector-dropdown select {
+  width: 100%;
+  min-height: 30px;
+  padding: 0 8px;
+  color: var(--foreground);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-size: 12px;
+}
+
+.map-nav-selector-hint {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  width: 220px;
+  padding: 10px 12px;
+  color: var(--muted-foreground);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-float);
+  font-size: 11px;
+  z-index: 12;
+}
+
+/* Mark list */
+
+.map-mark-list {
+  display: grid;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #dce3e1;
+  border-radius: 8px;
+  box-shadow: var(--shadow-float);
+}
+
+.map-mark-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 110px;
+  padding: 2px 4px 2px 8px;
+  color: #263d4e;
+  font-size: 11px;
+}
+
+.map-mark-delete {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  color: #89939b;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.map-mark-delete:hover { color: #c73a3f; background: #fae7e7; }
+
+html.dark .map-mark-list { background: rgba(24, 36, 40, 0.92); border-color: #2a3f46; }
+html.dark .map-mark-item { color: var(--foreground); }
+
+/* Marking mode hint */
+
+.map-stage.marking-active .map-sheet { cursor: crosshair; }
+.map-stage.marking-active .map-sheet img { pointer-events: auto; }
+
+@media (max-width: 560px) {
+  .map-nav-bar { left: 9px; top: 9px; max-width: calc(100% - 130px); }
+  .map-marker-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }

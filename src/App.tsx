@@ -11,6 +11,7 @@ import { viewTitles } from "./ui/navigation";
 import { DashboardView } from "./views/DashboardView";
 import { ScheduleView } from "./views/ScheduleView";
 import { CampusMapView } from "./views/CampusMapView";
+import { requestCampusNavigation } from "./map/navigation-bus";
 import { ExamsView } from "./views/ExamsView";
 import { GradesView } from "./views/GradesView";
 import { AcademicProgressView } from "./views/AcademicProgressView";
@@ -171,6 +172,10 @@ export default function App() {
             calendar={state.dataCatalog.collections.academicCalendar.calendar}
             onExportPdf={() => void app.exportSchedulePdf()}
             exportingPdf={app.exportingSchedulePdf}
+            onOpenMap={(buildingKey, room) => {
+              app.setView("map");
+              requestCampusNavigation({ buildingKey, room });
+            }}
           />
         )}
         {app.view === "map" && <CampusMapView />}
