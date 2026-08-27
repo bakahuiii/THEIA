@@ -27,6 +27,7 @@ THEIA 有三种不同边界，不能互相替代：
   "host": "127.0.0.1",
   "port": 8765,
   "baseUrl": "http://127.0.0.1:8765",
+  "token": "pA3v...（每次启动重新生成的 32 字节 base64url）",
   "startedAt": "2026-08-12T02:30:00.000Z"
 }
 ```
@@ -44,8 +45,9 @@ const feed = await fetchTheiaFeed({ timeoutMs: 5_000 })
 ### 2.2 协议、安全和通用规则
 
 - 仅接受 `GET`、`HEAD` 和受限来源的 CORS 预检 `OPTIONS`。其他方法返回 `405` 和 `{"error":"read_only_api"}`。
-- 服务没有 token，也没有远程认证；安全边界是 loopback 绑定。因此**不得**反向代理、端口转发、绑定 `0.0.0.0`、暴露公网，或把返回内容上传到第三方。
-- `OPTIONS` 只允许 `theia:`、`http(s)://127.0.0.1` 与 `http(s)://localhost` 的 `Origin`。没有匹配来源时返回 `403` / `origin_not_allowed`。普通无 `Origin` 的本机脚本请求仍可读取数据。
+- 服务自 0.6.0 起要求**每实例令牌**：每次请求必须携带 `Authorization: Bearer <token>` 或 `?token=<token>`（令牌在 `api-runtime.json` 的 `token` 字段，每次启动重新生成），否则返回 `401` / `unauthorized`。`theia-client.mjs` 的 `discoverTheiaRuntime` / `fetchTheiaFeed` 会自动附加令牌。
+- 安全边界是 loopback 绑定 + 令牌。因此**不得**反向代理、端口转发、绑定 `0.0.0.0`、暴露公网，或把返回内容上传到第三方。
+- `OPTIONS` 只允许 `theia:`、`http(s)://127.0.0.1` 与 `http(s)://localhost` 的 `Origin`。没有匹配来源时返回 `403` / `origin_not_allowed`。**`null` Origin（任意 `file://` 页面）一律拒绝**；带非白名单 `Origin` 的真实请求（含 `POST /v1/agent/chat`）同样返回 `403`（CSRF 防护）。普通无 `Origin` 的本机脚本请求仍需携带令牌。
 - 响应带 `Cache-Control: no-store`、`X-Content-Type-Options: nosniff`；JSON 默认是 `application/json; charset=utf-8`。
 - `HEAD` 与等价 `GET` 使用相同状态码和头部，但无 body。不要把 `Content-Length` 为非零误判为有 `HEAD` body。
 - 所有时间字段是 ISO-8601 UTC 字符串；数据值可能为 `null`、缺失或空数组。空不等于“学校系统明确没有该项”，也可能代表未同步、无权限或解析失败。
@@ -71,6 +73,10 @@ const feed = await fetchTheiaFeed({ timeoutMs: 5_000 })
 | `GET /v1/school-schedule?...` | `{ schema, updatedAt, summary, item }` | 仅读本地全校排课缓存，详见下文。 |
 | `GET /v1/venue-catalog` | `{ schema, updatedAt, item }` | 仅读本地 MOTION 公开校区、项目和场馆目录。 |
 | `GET /v1/venue-status?detailUrl=...&date=...&venue=...` | `{ schema, updatedAt, summary, item }` | 仅读本地 MOTION 状态缓存；没有匹配的日期/场馆组时 `item: null`。 |
+| `GET /v1/venue-statuses?activity=...&date=...` | `{ schema, updatedAt, summary, item }` | 实时读取 MOTION 场馆状态；每次请求都重新拉取公开页面，失败时回退缓存。 |
+| `GET /v1/motion-table-image?activity=...&date=...&title=...` | `image/png` | 场馆状态表图片；每次实时拉取并渲染，失败用缓存。 |
+| `GET /v1/free-classroom-image?periods=...&weekdays=...&weeks=...&termId=...&title=...` | `image/png` | 空闲教室图片；有缓存则用缓存，无缓存才实时查询教务系统。 |
+| `GET /v1/table-image?domain=...&title=...&limit=...` | `image/png` | 教务资料表格图片（如 `free-classroom`）。 |
 | `GET /v1/academic-progress` | `{ schema, updatedAt, notModified, item }` | 培养方案 / 学分进度树。 |
 | `GET /v1/calendar.ics` | `text/calendar` | 考试和作业截止日的 ICS。 |
 | `GET /v1/{collection}` | 集合包装对象 | 支持的 `collection` 见 2.4。 |
@@ -143,7 +149,13 @@ const feed = await fetchTheiaFeed({ timeoutMs: 5_000 })
 
 #### MOTION 场馆缓存
 
-`/v1/venue-catalog` 返回 `dataCatalog.collections.venueReservations` 的目录投影。`/v1/venue-status` 使用 `detailUrl`、`date` 和 `venue` 对最近成功状态做精确键控；它不会因为 API 查询而重新请求学校页面。MOTION 适配器只使用匿名 `GET` 和白名单页面，不读取 Cookie，不提交预约表单；完整边界与耗时基准见 [MOTION 场馆状态](../guides/MOTION_VENUE_STATUS.md)。
+`/v1/venue-catalog` 返回 `dataCatalog.collections.venueReservations` 的目录投影。`/v1/venue-status` 使用 `detailUrl`、`date` 和 `venue` 对最近成功状态做精确键控；它不会因为 API 查询而重新请求学校页面。
+
+`/v1/venue-statuses` 与 `/v1/motion-table-image` 则**每次请求都实时拉取**公开页面（场馆状态变化最快，不以缓存代替实时），失败时才回退缓存。MOTION 适配器只使用匿名 `GET` 和白名单页面，不读取 Cookie，不提交预约表单；完整边界与耗时基准见 [MOTION 场馆状态](../guides/MOTION_VENUE_STATUS.md)。
+
+#### 空闲教室图片
+
+`/v1/free-classroom-image` 把空闲教室渲染为 `image/png`，支持 `periods`（如 `3,4`，对应节次位掩码）、`weekdays`、`weeks`、`termId` 和 `title`。教室每天基本不变，因此**有本地缓存时直接使用缓存**，没有缓存才实时查询教务系统。图片内按教学楼分组，阶梯教室（教室名含“阶”）排在普通教室之前，组内按教室名升序；底部标注数据读取时间。
 
 #### CSV 与 ICS
 

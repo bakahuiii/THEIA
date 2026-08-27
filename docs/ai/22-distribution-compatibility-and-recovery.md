@@ -9,9 +9,12 @@ so an AI maintainer can load it without reading the whole security design.
 - Official campus source URLs accept both `http:` and `https:` but only for
   `buct.edu.cn` and its subdomains. Credentials, arbitrary protocols, lookalike
   hosts, and redirects outside that allowlist remain rejected.
-- The loopback API still binds to `127.0.0.1` and remains read-only. Electron
-  `file:` renderers may send the literal `Origin: null`; that exact origin is
-  accepted for CORS. No public bind or wildcard origin was added.
+- The loopback API binds to `127.0.0.1`, remains read-only, and since 0.6.0
+  requires a per-instance token (`Authorization: Bearer <token>` or `?token=<token>`,
+  written to `api-runtime.json`). The literal `Origin: null` of any `file:` page is
+  deliberately **not** accepted: packaged renderers read data through IPC, and a
+  foreign `Origin` on a real request is rejected with 403 before touching data.
+  No public bind or wildcard origin was added.
 - IPC still requires the active main window, the exact main frame process and
   routing identity, and a local application renderer. During startup only, an
   empty or `about:blank` frame URL is tolerated. Set `THEIA_STRICT_IPC=1` to

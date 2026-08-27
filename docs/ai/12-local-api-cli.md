@@ -4,7 +4,9 @@
 
 `core/local-api.mjs` binds only to `127.0.0.1`. It is read-only. Do not add public listeners, write endpoints, proxy forwarding or permissive CORS.
 
-The active port is in `api-runtime.json`. Default port is `8765`; a small local fallback range is used if occupied.
+**Every request requires the per-instance token** written to `api-runtime.json` (field `token`, regenerated on every THEIA start). Pass it as `Authorization: Bearer <token>` or `?token=<token>`; requests without it get `401 unauthorized`. The `null` origin (any local `file://` page) is deliberately **not** authorized — packaged renderers read data through IPC, not this HTTP API. Real browser requests with a foreign `Origin` are rejected with `403 origin_not_allowed` before touching data (CSRF guard); only loopback web origins (`http://127.0.0.1:*`, `http://localhost:*`) and `theia:` pass CORS.
+
+The active port and token are in `api-runtime.json`. Default port is `8765`; a small local fallback range is used if occupied. CLI/scripts inside the repo that need the loopback API use `integration/theia-client.mjs` (`discoverTheiaRuntime` / `fetchTheiaFeed`), which attach the token automatically.
 
 ## API Contract
 

@@ -62,14 +62,18 @@ THEIA 在“学习工具”中新增了“场馆状态”标签页，用于读�
 - `statuses`：按 `detailUrl + date + venue` 键控的最近状态结果；
 - `lastRefreshedAt`、`source`、`parserVersion`：来源和新鲜度元数据。
 
-桌面客户端运行时，本地 API 提供两个只读端点：
+桌面客户端运行时，本地 API 提供只读端点：
 
 ```text
 GET /v1/venue-catalog
 GET /v1/venue-status?detailUrl=<详情页>&date=YYYY-MM-DD&venue=<场馆组>
+GET /v1/venue-statuses?activity=<项目>&date=YYYY-MM-DD
+GET /v1/motion-table-image?activity=<项目>&date=YYYY-MM-DD&title=...
 ```
 
-两个端点只返回本地缓存投影。`/v1/venue-status` 没有匹配缓存时返回 HTTP 200 且 `item: null`，不会为了填充结果而替客户端发起任意网络请求。API 仍只绑定 `127.0.0.1`，方法限制为 `GET`、`HEAD` 和受限 `OPTIONS`。
+`/v1/venue-catalog` 与 `/v1/venue-status` 只返回本地缓存投影。`/v1/venue-status` 没有匹配缓存时返回 HTTP 200 且 `item: null`，不会为了填充结果而替客户端发起任意网络请求。
+
+`/v1/venue-statuses` 与 `/v1/motion-table-image` 则**每次请求都实时拉取**公开页面（场馆状态变化最快），失败时才回退缓存。API 仍只绑定 `127.0.0.1`，方法限制为 `GET`、`HEAD` 和受限 `OPTIONS`。
 
 ## 查询耗时
 

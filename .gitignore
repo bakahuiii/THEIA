@@ -18,6 +18,7 @@ test-results/
 .satellite-mercator-*/
 .satellite-tiles-*/
 .session-inspection-*/
+.renderer-diagnostic-*/
 release-bin-selection/
 scripts/__pycache__/
 src/*.bak
@@ -28,3 +29,8 @@ src/*.bak
 .satellite-sample.jpg
 .theia-changping-campus-map.*.jpg
 canvas-image-*.png
+.tmp-*
+.tmp-autocoursegrabber/
+.tmp-raw-probe-profile*/
+.tmp-school-raw-probe*/
+.tmp-zhengfangjy/
