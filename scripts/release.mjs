@@ -14,7 +14,8 @@ function npmCommand() {
 
 function run(command, args, { cwd = PROJECT_ROOT } = {}) {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, { cwd, env: process.env, stdio: 'inherit' })
+    const shell = process.platform === 'win32' && /\.(?:cmd|bat)$/i.test(command)
+    const child = spawn(command, args, { cwd, env: process.env, stdio: 'inherit', shell })
     child.once('error', reject)
     child.once('close', (code, signal) => {
       if (code === 0) resolvePromise()
