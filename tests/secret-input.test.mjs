@@ -29,7 +29,10 @@ test('shared secret input reveals only the current controlled value without subm
   assert.match(component, /disabled=\{disabled \|\| loading \|\| !hasSecret\}/)
   assert.match(component, /const secret = await onRevealSaved\(\)/)
   assert.match(component, /setRevealedSavedValue\(null\)/)
-  assert.match(component, /readOnly=\{revealedSavedValue !== null/)
+  assert.match(component, /const handleChange = \(event: ChangeEvent<HTMLInputElement>\) => \{/)
+  assert.match(component, /onChange=\{handleChange\}/)
+  assert.doesNotMatch(component, /readOnly=\{revealedSavedValue !== null/)
+  assert.match(component, /readOnly=\{inputProps\.readOnly\}/)
 })
 
 test('all five settings secrets use the shared visibility control', () => {

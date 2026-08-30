@@ -350,7 +350,14 @@ export function createSourcePageRuntime({
     return syncPageQueue.enqueue(() => submitWithSchoolBrowser(url, values, options), { priority: 0 })
   }
 
-  async function loadBinaryWithSchoolBrowser(rawUrl, { signal = null } = {}) {
+  async function loadBinaryWithSchoolBrowser(rawUrl, {
+    signal = null,
+    timeoutMs = 25_000,
+    method = 'GET',
+    headers = {},
+    body,
+    referer = null,
+  } = {}) {
     return syncPageQueue.enqueue(async () => {
       const url = permittedSourceUrl(rawUrl)
       if (signal?.aborted) throw new Error('Background binary navigation aborted')
@@ -360,21 +367,52 @@ export function createSourcePageRuntime({
         window = getSyncPageWindow()
       }
       if (!window || window.isDestroyed()) throw new Error('Background school browser is unavailable')
-      const payload = JSON.stringify({ url })
-      const result = await window.webContents.executeJavaScript(`(async ({ url }) => {
-        const response = await fetch(url, { credentials: 'include' })
-        const buffer = new Uint8Array(await response.arrayBuffer())
-        let binary = ''
-        const chunkSize = 0x8000
-        for (let index = 0; index < buffer.length; index += chunkSize) {
-          binary += String.fromCharCode(...buffer.subarray(index, Math.min(index + chunkSize, buffer.length)))
+      const requestMethod = String(method || 'GET').toUpperCase()
+      const requestHeaders = { ...(headers || {}) }
+      let requestReferer = referer ? String(referer) : ''
+      for (const [name, value] of Object.entries(requestHeaders)) {
+        if (String(name).toLowerCase() !== 'referer') continue
+        if (!requestReferer) requestReferer = String(value || '')
+        delete requestHeaders[name]
+      }
+      const payload = JSON.stringify({
+        url,
+        timeoutMs: Math.max(1_000, Number(timeoutMs) || 25_000),
+        method: requestMethod,
+        headers: requestHeaders,
+        body: body === undefined ? null : String(body),
+        referer: requestReferer || null,
+      })
+      let timeout
+      const result = await Promise.race([
+        window.webContents.executeJavaScript(`(async ({ url, timeoutMs, method, headers, body, referer }) => {
+        const abortController = new AbortController()
+        const timeout = setTimeout(() => abortController.abort(), timeoutMs)
+        const request = { method, credentials: 'include', headers: headers || {} }
+        if (referer) request.referrer = referer
+        if (body !== null && !['GET', 'HEAD'].includes(method)) request.body = body
+        request.signal = abortController.signal
+        try {
+          const response = await fetch(url, request)
+          const buffer = new Uint8Array(await response.arrayBuffer())
+          let binary = ''
+          const chunkSize = 0x8000
+          for (let index = 0; index < buffer.length; index += chunkSize) {
+            binary += String.fromCharCode(...buffer.subarray(index, Math.min(index + chunkSize, buffer.length)))
+          }
+          const contentType = response.headers.get('content-type') || ''
+          const text = /html|text\\//i.test(contentType) && buffer.length <= 1024 * 1024
+            ? new TextDecoder().decode(buffer)
+            : ''
+          return { url: response.url, status: response.status, contentType, base64: btoa(binary), text }
+        } finally {
+          clearTimeout(timeout)
         }
-        const contentType = response.headers.get('content-type') || ''
-        const text = /html|text\\//i.test(contentType) && buffer.length <= 1024 * 1024
-          ? new TextDecoder().decode(buffer)
-          : ''
-        return { url: response.url, status: response.status, contentType, base64: btoa(binary), text }
-      })(${payload})`)
+      })(${payload})`),
+        new Promise((_, reject) => {
+          timeout = setTimeout(() => reject(new Error('Background binary request timed out')), Math.max(1_000, Number(timeoutMs) || 25_000) + 1_000)
+        }),
+      ]).finally(() => clearTimeout(timeout))
       return {
         url: result?.url || url,
         status: Number(result?.status || 0),

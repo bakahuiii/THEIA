@@ -30,6 +30,15 @@
   gap: 8px;
 }
 
+.schedule-toolbar-actions {
+  min-width: 0;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
 .view-toolbar .term-selector-group {
   flex: 0 1 auto;
 }
@@ -141,7 +150,7 @@
 .schedule-pdf-button {
   min-height: 34px;
   flex: 0 0 auto;
-  margin-left: auto;
+  margin-left: 0;
   padding: 0 12px;
   color: var(--primary);
   background: color-mix(in srgb, var(--primary) 11%, var(--card));
@@ -154,6 +163,23 @@
   color: var(--primary-foreground);
   background: var(--primary);
   border-color: var(--primary);
+}
+
+.schedule-directory-button {
+  min-height: 34px;
+  flex: 0 0 auto;
+  padding: 0 11px;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--secondary) 78%, var(--card));
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  font-weight: 600;
+}
+
+.schedule-directory-button:hover:not(:disabled) {
+  color: var(--foreground);
+  background: var(--accent);
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
 }
 
 /* Overview is intentionally a fitted desktop canvas. It does not become a scroll view. */
@@ -765,11 +791,16 @@
   }
 
   .view-toolbar .exam-visibility-toggle,
-  .schedule-pdf-button {
+  .schedule-toolbar-actions {
     margin-left: 0;
   }
 
-  .schedule-pdf-button {
+  .schedule-toolbar-actions {
+    width: 100%;
+  }
+
+  .schedule-toolbar-actions > button {
+    flex: 1 1 0;
     justify-content: center;
   }
 
@@ -878,4 +909,3 @@ html[data-app-background="image"] .workspace {
 html[data-app-background="image"] .topbar {
   background: color-mix(in srgb, var(--background) 72%, transparent);
 }
-

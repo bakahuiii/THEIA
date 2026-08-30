@@ -28,6 +28,7 @@ test('browser fallback rejects desktop mutations instead of reporting false succ
     'clearModelApiKey',
     'updateSettings',
     'openDataDirectory',
+    'openScheduleDirectory',
   ]) {
     const body = methodBody(name)
     assert.match(body, /throw new Error\(/, name)

@@ -37,6 +37,7 @@ test('JWGLXT uses the rendered school page queue while sharing its browser cooki
     foundationSource,
     /(?:const )?sessionClient = new SessionClient\(schoolSession, \{\s*pageLoader: smokeFile \? null : loadSchoolPage,\s*formLoader: smokeFile \? null : submitSchoolForm,/s,
   )
+  assert.match(mainSource, /getSessionClient: \(\) => sessionClient,\s*getAcademicSessionClient: \(\) => academicSessionClient,/s)
   const sourceStatus = sourceBetween('  function sourceStatus(source) {', '\n\n  function freshSourceStatus(source) {', authStatusSource)
   assert.match(sourceStatus, /const epoch = getAuthEpoch\(\)/)
   assert.match(
@@ -221,7 +222,7 @@ test('source-page opens reuse a verified browser session without a hidden probe'
 })
 
 test('source-page authentication re-probes the first page after actor completion', () => {
-  const sourceWindow = sourceBetween('async function openAuthenticatedSourceWindow(', '\n\nasync function waitForSchedulePdfButton(', sourceActionsRuntimeSource)
+  const sourceWindow = sourceBetween('async function openAuthenticatedSourceWindow(', '\n\nasync function waitForSchedulePdfContext(', sourceActionsRuntimeSource)
   assert.match(sourceWindow, /if \(verified\) \{[\s\S]*?show: false[\s\S]*?inspectLoadedSourcePage/s)
   assert.match(sourceWindow, /for \(let attempt = 0; attempt < 3; attempt \+= 1\)/)
   assert.match(sourceWindow, /setTimeout\(resolveDelay, 250\)/)
@@ -239,9 +240,11 @@ test('one CAS login verifies both campus applications before the user sync', () 
   assert.match(verification, /freshSourceStatus\('jwglxt'\)[\s\S]*?freshSourceStatus\('theol'\)/s)
   assert.match(verification, /rememberVerifiedSession\(source, status\.url \|\| getSourceSessionUrl\(source\), epoch\)/)
   assert.match(verification, /await getSyncOrchestrator\(\)\.syncForegroundCampusData\(\)/)
-  assert.match(finishActor, /actor\.authenticated && actor\.userInitiated && isCampusSource/)
+  assert.match(finishActor, /const unifiedVerification = actor\.authenticated && actor\.userInitiated && isCampusSource/)
+  assert.match(finishActor, /: actor\.userInitiated && isCampusSource\s*\?\s*getUnifiedVerificationPromise\(actor\.epoch\)/)
+  assert.match(finishActor, /if \(!actor\.authenticated[\s\S]*?await unifiedVerification[\s\S]*?return/s)
   assert.match(finishActor, /if \(isCampusSource && !unifiedVerification\)/)
-  assert.match(finishActor, /if \(unifiedVerification\) await unifiedVerification/)
+  assert.match(finishActor, /if \(unifiedVerification && !hasPendingCampusActor\) await unifiedVerification/)
   assert.match(authStatusSource, /authPending: true/)
 })
 
@@ -362,7 +365,7 @@ test('only an explicit user login re-enables sync after logout', () => {
   assert.match(openLogin, /assertAuthEpoch\(expectedEpoch, \{ allowLoggedOut: userInitiated \}\)/)
   assert.match(openLogin, /if \(userInitiated\) \{\s*syncService\.enable\(\)\s*setExplicitlyLoggedOut\(false\)\s*await getCourseWorkQueue\(\)\?\.setEnabled\(true\)\s*\}/s)
   assert.doesNotMatch(openLogin, /if \(!background\)/)
-  assert.match(loginIpc, /const epoch = getAuthEpoch\(\)[\s\S]*?await waitForSchoolProxy\(\)[\s\S]*?assertAuthEpoch\(epoch, \{ allowLoggedOut: true \}\)[\s\S]*?openLoginWindow\(\{ expectedEpoch: epoch, userInitiated: true \}\)/)
+  assert.match(loginIpc, /const epoch = getAuthEpoch\(\)[\s\S]*?await waitForSchoolProxy\(\)[\s\S]*?assertAuthEpoch\(epoch, \{ allowLoggedOut: true \}\)[\s\S]*?const actors = await openLoginWindow\(\{ expectedEpoch: epoch, userInitiated: true \}\)[\s\S]*?await Promise\.allSettled\(\(actors \|\| \[\]\)\.map\(\(actor\) => actor\?\.lifecycle \|\| Promise\.resolve\(\)\)\)/)
 })
 
 test('auth epoch guard rejects stale continuations even for an explicit login', () => {

@@ -3,6 +3,7 @@ import {
   useEffect,
   useId,
   useState,
+  type ChangeEvent,
   type InputHTMLAttributes,
   type ReactNode,
 } from "react";
@@ -47,6 +48,11 @@ export function SecretInput({
     if (hasValue) setRevealedSavedValue(null);
   }, [hasValue]);
 
+  const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
+    if (revealedSavedValue !== null) setRevealedSavedValue(null);
+    inputProps.onChange?.(event);
+  };
+
   const toggleVisibility = async () => {
     if (revealed) {
       setRevealed(false);
@@ -89,8 +95,9 @@ export function SecretInput({
           className="secret-input"
           type={revealed ? "text" : "password"}
           value={displayedValue}
-          readOnly={revealedSavedValue !== null || inputProps.readOnly}
+          readOnly={inputProps.readOnly}
           disabled={disabled}
+          onChange={handleChange}
         />
         <button
           className="secret-input-toggle"

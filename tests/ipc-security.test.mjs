@@ -133,6 +133,8 @@ test('trusted IPC rejects unregistered channels, invalid schemas, and oversized 
   assert.doesNotThrow(() => validateIpcArguments('theia:cancel-course-work-job', ['job-1']))
   assert.doesNotThrow(() => validateIpcArguments('theia:open-data-directory', []))
   assert.throws(() => validateIpcArguments('theia:open-data-directory', ['C:\\']), /expected 0 arguments/)
+  assert.doesNotThrow(() => validateIpcArguments('theia:open-schedule-directory', []))
+  assert.throws(() => validateIpcArguments('theia:open-schedule-directory', ['C:\\']), /expected 0 arguments/)
   assert.doesNotThrow(() => validateIpcArguments('theia:install-mcp-clients', []))
   assert.throws(() => validateIpcArguments('theia:install-mcp-clients', ['unexpected']), /expected 0 arguments/)
   assert.doesNotThrow(() => validateIpcArguments('theia:read-saved-secret', ['unified-password']))

@@ -143,6 +143,7 @@ export interface TheiaBridge {
   openAcademicAttachment(domain: string, attachmentId: string): Promise<{ cached: boolean }>;
   openAssignmentSource(assignmentId: string): Promise<boolean>;
   openSchedulePdf(): Promise<{ canceled: boolean; filePath?: string; bytes?: number }>;
+  openScheduleDirectory(): Promise<{ opened: boolean; path: string }>;
   getCourseWorkQueue(): Promise<CourseWorkQueueSnapshot>;
   setCourseWorkQueueEnabled(enabled: boolean): Promise<CourseWorkQueueSnapshot>;
   enqueueCourseWork(request: {

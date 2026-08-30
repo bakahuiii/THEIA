@@ -60,6 +60,48 @@ test('GitHub updater publishes available, downloading, downloaded and install st
   assert.equal(getQuitCalls(), 1)
 })
 
+test('GitHub updater treats a missing latest.yml release asset as not available', async () => {
+  const updater = new EventEmitter()
+  updater.checkForUpdates = async () => {
+    updater.emit('checking-for-update')
+    throw new Error('Cannot find latest.yml in the latest release artifacts (https://github.com/bakahuiii/THEIA/releases/download/v0.6.1/latest.yml): HttpError 404')
+  }
+  const statuses = []
+  const runtime = createGithubUpdateRuntime({
+    autoUpdater: updater,
+    currentVersion: '0.6.1',
+    enabled: true,
+    platform: 'win32',
+    sendStatus: (status) => statuses.push(status),
+  })
+
+  await runtime.checkForUpdates()
+
+  assert.equal(statuses.at(-1).state, 'not-available')
+  assert.equal(statuses.at(-1).error, null)
+})
+
+test('GitHub updater keeps missing metadata as an error when the release is newer', async () => {
+  const updater = new EventEmitter()
+  updater.checkForUpdates = async () => {
+    updater.emit('checking-for-update')
+    throw new Error('Cannot find latest.yml in the latest release artifacts (https://github.com/bakahuiii/THEIA/releases/download/v0.6.1/latest.yml): HttpError 404')
+  }
+  const statuses = []
+  const runtime = createGithubUpdateRuntime({
+    autoUpdater: updater,
+    currentVersion: '0.6.0',
+    enabled: true,
+    platform: 'win32',
+    sendStatus: (status) => statuses.push(status),
+  })
+
+  await runtime.checkForUpdates()
+
+  assert.equal(statuses.at(-1).state, 'error')
+  assert.match(statuses.at(-1).error, /Cannot find latest\.yml/)
+})
+
 test('GitHub updater stays unsupported outside packaged Windows builds', async () => {
   const statuses = []
   const runtime = createGithubUpdateRuntime({

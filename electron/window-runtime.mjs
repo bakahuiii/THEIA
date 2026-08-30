@@ -1,4 +1,5 @@
 import { resolve } from 'node:path'
+import { readFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 
 export function createWindowRuntime({
@@ -46,26 +47,27 @@ export function createWindowRuntime({
   }
 
   async function createSplashWindow() {
-    // Inline branded splash — no external files so it works in both dev and
-    // packaged mode without worrying about asar/dist asset paths.
+    const splashImage = `data:image/jpeg;base64,${(await readFile(resolve(import.meta.dirname, 'assets/theia-splash-library.jpg'))).toString('base64')}`
     const html = `<!DOCTYPE html>
   <html lang="zh-CN">
   <head><meta charset="utf-8"><title>THEIA 正在启动</title>
   <style>
   *{margin:0;padding:0;box-sizing:border-box}
-  html,body{width:100%;height:100%;background:#131920;color:#e8e8e8;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;user-select:none}
-  .mark{width:96px;height:96px;margin-bottom:24px;background:#1e2a36;border-radius:24px;display:flex;align-items:center;justify-content:center;font-size:48px;font-weight:700;color:#5b9cf5;opacity:0;animation:fadeIn .6s ease-out forwards}
-  .wordmark{font-size:28px;font-weight:600;letter-spacing:4px;opacity:0;animation:fadeIn .6s ease-out .2s forwards}
-  .status{margin-top:28px;font-size:14px;color:#8899aa;opacity:0;animation:fadeIn .6s ease-out .4s forwards}
-  .spinner{width:24px;height:24px;border:3px solid #2a3a4a;border-top-color:#5b9cf5;border-radius:50%;margin-top:16px;animation:spin .8s linear infinite, fadeIn .6s ease-out .5s forwards;opacity:0}
-  @keyframes fadeIn{to{opacity:1}}
+  html,body{width:100%;height:100%;background:#131920;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;overflow:hidden;user-select:none}
+  .splash{position:relative;width:100%;height:100%;overflow:hidden;background:#131920}
+  .splash-image{position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:cover;object-position:center}
+  .splash-shade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(9,16,30,.04) 45%,rgba(9,16,30,.66) 100%);pointer-events:none}
+  .status-line{position:absolute;left:18px;right:18px;bottom:16px;display:flex;align-items:center;gap:9px;width:max-content;max-width:calc(100% - 36px);padding:8px 11px;border:1px solid rgba(255,255,255,.24);border-radius:999px;background:rgba(8,14,26,.48);box-shadow:0 8px 22px rgba(4,9,18,.22);backdrop-filter:blur(8px);color:rgba(255,255,255,.92);font-size:12px;line-height:1.2}
+  .status{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.5)}
+  .spinner{flex:0 0 auto;width:13px;height:13px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
   </style></head>
   <body>
-  <div class="mark">T</div>
-  <div class="wordmark">THEIA</div>
-  <div class="status">正在启动 THEIA…</div>
-  <div class="spinner"></div>
+  <main class="splash">
+    <img class="splash-image" src="${splashImage}" alt="北化图书馆" draggable="false">
+    <div class="splash-shade"></div>
+    <div class="status-line"><span class="spinner" aria-hidden="true"></span><span class="status">正在启动 THEIA…</span></div>
+  </main>
   </body></html>`
     const splash = new BrowserWindow({
       width: 460,
@@ -194,7 +196,7 @@ export function createWindowRuntime({
             'cancelAdvisorRequest', 'deleteAdvisorThread', 'onAdvisorStream',
             'getCourseSelection', 'discoverCourseSelection', 'getCourseSelectionCandidates', 'getCachedSchoolSchedule',
             'saveCourseSelectionTarget', 'removeCourseSelectionTarget', 'setCourseSelectionSentinel', 'startCourseSelection', 'stopCourseSelection',
-            'openSource', 'openAcademicAttachment', 'openSchedulePdf', 'refreshCourseResources', 'downloadCourseResource', 'exportData', 'getApiStatus', 'updateSettings',
+            'openSource', 'openAcademicAttachment', 'openSchedulePdf', 'openScheduleDirectory', 'refreshCourseResources', 'downloadCourseResource', 'exportData', 'getApiStatus', 'updateSettings',
             'getCredentialStatus', 'saveCredentials', 'clearCredentials',
             'getAcademicApiCredentialStatus', 'saveAcademicApiCredentials', 'clearAcademicApiCredentials',
             'getMailCredentialStatus', 'saveMailCredentials', 'clearMailCredentials', 'refreshMailbox',

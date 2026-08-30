@@ -43,6 +43,7 @@ export function createAuthRuntime({
   createSourceWindow,
   closeWindowAndWait,
   assertAuthEpoch,
+  getUnifiedAuthVerification = () => null,
   requestUnifiedAuthVerification,
   broadcastAuthStatus,
   diagnosticUrl,
@@ -83,6 +84,14 @@ export function createAuthRuntime({
     for (let index = pendingSourceOpens.length - 1; index >= 0; index -= 1) {
       if (pendingSourceOpens[index].source === source) pendingSourceOpens.splice(index, 1)
     }
+  }
+
+  function getUnifiedVerificationPromise(epoch) {
+    const verification = getUnifiedAuthVerification?.()
+    if (!verification || verification.epoch !== epoch || verification.settled) return null
+    return verification.promise && typeof verification.promise.then === 'function'
+      ? verification.promise
+      : null
   }
 
   async function autoFillSavedCredentials(actor) {
@@ -457,13 +466,23 @@ export function createAuthRuntime({
     if (actor.invalidated || actor.epoch !== getAuthEpoch() || isExplicitlyLoggedOut()) return
     const isCampusSource = actor.source === 'jwglxt' || actor.source === 'theol'
     // A user-facing CAS login may finish one service before the other service's
-    // redirect has completed. Defer its data refresh until both page checks have
-    // settled so one shared identity produces one coherent snapshot.
+    // redirect has completed. Start the shared verification immediately, but
+    // only await it from the final pending campus actor. The actor manager
+    // serializes lifecycles, so awaiting here from the first actor would keep
+    // the second actor queued until the verification timeout expires.
     const unifiedVerification = actor.authenticated && actor.userInitiated && isCampusSource
       ? requestUnifiedAuthVerification({ epoch: actor.epoch, sync: true, reason: 'user-login' })
-      : null
+      : actor.userInitiated && isCampusSource
+        ? getUnifiedVerificationPromise(actor.epoch)
+        : null
+    const hasPendingCampusActor = [...authPendingSources].some((source) => source === 'jwglxt' || source === 'theol')
     await broadcastAuthStatus({ sources: [actor.source] })
-    if (!actor.authenticated || actor.epoch !== getAuthEpoch() || isExplicitlyLoggedOut()) return
+    if (!actor.authenticated || actor.epoch !== getAuthEpoch() || isExplicitlyLoggedOut()) {
+      if (!actor.authenticated && actor.epoch === getAuthEpoch() && !isExplicitlyLoggedOut() && unifiedVerification && !hasPendingCampusActor) {
+        await unifiedVerification
+      }
+      return
+    }
     const recovery = authRecovery[actor.source]
     recovery.lastAt = Date.now()
     recovery.failures = 0
@@ -504,7 +523,7 @@ export function createAuthRuntime({
         }
       }
     }
-    if (unifiedVerification) await unifiedVerification
+    if (unifiedVerification && !hasPendingCampusActor) await unifiedVerification
     if (actor.epoch === getAuthEpoch() && !isExplicitlyLoggedOut()) {
       await flushPendingSourceOpens(actor.source, actor.epoch)
       if (actor.source === 'jwglxt') syncOrchestrator.scheduleAcademicStaticPrefetch({ reason: actor.skipSync ? 'source_open' : 'authenticated' })

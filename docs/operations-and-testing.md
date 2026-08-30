@@ -193,7 +193,7 @@ npm run smoke:packaged
 
 P0 顾问底座的最小最终门槛依次为 `npm test`、`npm run lint`、`npm run build`、`npm run dist:unpacked`、`npm run smoke:packaged`。packaged smoke 必须使用隔离临时数据、保持学校与模型网络为零，并实际穿过 preload bridge 检查 advisor overview schema、snapshot revision 及 DataQuality revision 一致。`smoke:packaged` 只接受显式的 `THEIA.exe` 产物，等待子进程 `close`、拒绝超时/非零退出，并把未处理异常和拒绝写入作为失败；未先重新执行 `dist:unpacked` 的旧产物不能视为当前版本验收。
 
-`dist:unpacked` 用于检查未安装产物；`dist:source` 通过白名单生成 `THEIA-<version>-source.zip`，其中包含源码、构建配置、锁文件、测试、文档、运行时视觉资产与逐文件 SHA-256 清单，不包含依赖、构建输出、凭据提取器、本机辅助脚本、缓存或现场数据；`dist:installer` 生成 x64 NSIS 安装器后会自动运行 `dist:source`；`smoke:packaged` 用于已打包应用的基本启动检查，并会实际加载离线校历 OCR worker、WASM core 与简体中文模型。打包前确认版本、图标、构建产物目录和现有用户数据策略。安装器配置为不在卸载时删除 app data，但发布验证仍要确认升级/卸载不会意外移除 `%APPDATA%\THEIA`。
+`dist:unpacked` 用于检查未安装产物；`dist:source` 通过白名单生成 `THEIA-<version>-source.zip`，其中包含源码、构建配置、锁文件、测试、文档、运行时视觉资产与逐文件 SHA-256 清单，不包含依赖、构建输出、凭据提取器、本机辅助脚本、缓存或现场数据；`dist:installer` 会依次生成 x64 NSIS 安装器、`latest.yml`、blockmap 和源码归档，运行 packaged smoke 后自动推送当前分支、创建 `v<version>` 标签并上传 GitHub Release；`smoke:packaged` 用于已打包应用的基本启动检查，并会实际加载离线校历 OCR worker、WASM core 与简体中文模型。打包前确认版本、图标、构建产物目录和现有用户数据策略。安装器配置为不在卸载时删除 app data，但发布验证仍要确认升级/卸载不会意外移除 `%APPDATA%\THEIA`。
 
 打包通过后仍需做针对性的人工检查：
 

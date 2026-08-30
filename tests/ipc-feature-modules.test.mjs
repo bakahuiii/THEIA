@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { access, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { registerAuthIpc } from '../electron/auth-ipc.mjs'
@@ -90,7 +90,7 @@ test('course-work IPC keeps its handlers in one duplicate-checked feature module
   assert.notEqual(request[1].dataRoot, 'wrong-config-field')
 })
 
-test('data export IPC writes local JSON and opens only the injected data root', async () => {
+test('data export IPC writes local JSON and opens bounded local directories', async () => {
   const root = await mkdtemp(join(process.env.TEMP || process.cwd(), 'theia-ipc-module-'))
   try {
     const outputPath = join(root, 'export.json')
@@ -115,7 +115,10 @@ test('data export IPC writes local JSON and opens only the injected data root', 
     assert.deepEqual(JSON.parse(await readFile(outputPath, 'utf8')), { schema: 'test', courses: [] })
     const openedResult = await ipcMain.handlers.get('theia:open-data-directory')()
     assert.equal(openedResult.path, join(root, 'data'))
-    assert.deepEqual(opened, [join(root, 'data')])
+    const scheduleDirectory = await ipcMain.handlers.get('theia:open-schedule-directory')()
+    assert.equal(scheduleDirectory.path, join(root, 'THEIA', '课表'))
+    await access(scheduleDirectory.path)
+    assert.deepEqual(opened, [join(root, 'data'), scheduleDirectory.path])
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -141,6 +144,10 @@ test('auth IPC keeps login recovery and credential access behind injected servic
     status: () => ({ saved: true }),
     readCredentials: async () => ({ password: 'mail-secret', protocolPassword: 'protocol-secret' }),
   }
+  let releaseLoginLifecycle
+  const loginLifecycle = new Promise((resolve) => {
+    releaseLoginLifecycle = resolve
+  })
   registerAuthIpc({
     ipcMain,
     store: { snapshot: () => ({ settings: { academicApiEnabled: true } }) },
@@ -153,13 +160,22 @@ test('auth IPC keeps login recovery and credential access behind injected servic
     assertAuthEpoch: (epoch, options) => calls.push(['assert', epoch, options]),
     waitForSchoolProxy: async () => calls.push('proxy-ready'),
     getStatus: () => ({ jwglxt: { connected: true } }),
-    openLoginWindow: async (options) => { calls.push(['login', options]); return { opened: true } },
+    openLoginWindow: async (options) => { calls.push(['login', options]); return [{ opened: true, authenticated: true, lifecycle: loginLifecycle }] },
   })
 
   assert.equal((await ipcMain.handlers.get('theia:read-saved-secret')(null, 'mail-protocol-password')), 'protocol-secret')
   assert.deepEqual(await ipcMain.handlers.get('theia:get-academic-api-credential-status')(), { saved: false, enabled: true })
   await ipcMain.handlers.get('theia:clear-credentials')()
-  assert.deepEqual(await ipcMain.handlers.get('theia:login')(), { opened: true })
+  const login = ipcMain.handlers.get('theia:login')()
+  let resolved = false
+  login.then(() => {
+    resolved = true
+  })
+  await Promise.resolve()
+  assert.equal(resolved, false)
+  releaseLoginLifecycle()
+  assert.equal(await login, undefined)
+  assert.equal(resolved, true)
   assert.deepEqual(recovery.jwglxt, { failures: 0, lastAt: 0, inFlight: false })
   assert.deepEqual(calls, [
     'clear-attempts',

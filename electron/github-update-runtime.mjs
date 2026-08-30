@@ -33,6 +33,29 @@ function normalizeError(error) {
   return String(error || '更新检查失败')
 }
 
+function comparableVersion(value) {
+  return String(value ?? '').trim().replace(/^v/iu, '')
+}
+
+function releaseVersionFromMetadataError(error) {
+  const text = normalizeError(error)
+  return text.match(/\/download\/v?([^/\s]+)\/latest(?:-[a-z]+)?\.yml\b/iu)?.[1] || null
+}
+
+function isMissingLatestMetadataError(error, currentVersion) {
+  const text = normalizeError(error).toLowerCase()
+  const missing = (
+    /cannot find latest(?:-[a-z]+)?\.yml in the latest release artifacts/i.test(text)
+    || (/latest(?:-[a-z]+)?\.yml/i.test(text) && /\b404\b/.test(text))
+  )
+  if (!missing) return false
+  const releaseVersion = releaseVersionFromMetadataError(error)
+  return Boolean(
+    releaseVersion
+    && comparableVersion(releaseVersion) === comparableVersion(currentVersion),
+  )
+}
+
 function readReleaseDate(info) {
   const value = info?.releaseDate || info?.releaseDateString || null
   return typeof value === 'string' && value.trim() ? value : null
@@ -130,6 +153,10 @@ export function createGithubUpdateRuntime({
 
   const onError = (error) => {
     checking = false
+    if (isMissingLatestMetadataError(error, currentVersion)) {
+      onUpdateNotAvailable()
+      return
+    }
     publish({
       state: UPDATE_STATES.error,
       error: normalizeError(error),

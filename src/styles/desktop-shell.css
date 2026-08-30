@@ -1124,6 +1124,68 @@ input,
   white-space: nowrap;
 }
 
+.about-android {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 13px 15px;
+  background: color-mix(in srgb, var(--accent) 24%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--primary) 14%, var(--border));
+  border-radius: 14px;
+}
+
+.about-android-icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 11%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--border));
+  border-radius: 10px;
+}
+
+.about-android-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.about-android-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.about-android-heading strong {
+  color: var(--foreground);
+  font-size: 11px;
+}
+
+.about-android-heading span {
+  color: var(--primary);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.about-android-copy p,
+.about-android-copy small {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.about-android-link {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
 .about-footer {
   display: flex;
   justify-content: space-between;
@@ -1144,6 +1206,15 @@ input,
   .about-update {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .about-android {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .about-android-link {
+    grid-column: 2;
+    justify-self: start;
   }
 }
 

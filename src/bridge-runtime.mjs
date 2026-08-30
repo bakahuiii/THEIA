@@ -5,6 +5,7 @@ const subscriptionMethods = new Set([
   "onSyncProgress",
   "onSnapshot",
   "onAuthStatus",
+  "onUpdateStatus",
   "onCourseSelection",
   "onNewMail",
   "onAppearanceMode",

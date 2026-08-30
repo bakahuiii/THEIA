@@ -60,4 +60,12 @@ export function registerDataExportIpc({
     if (outcome) throw new Error(outcome)
     return { opened: true, path: directory }
   })
+
+  ipcMain.handle('theia:open-schedule-directory', async () => {
+    const directory = resolve(getDocumentsDirectory(), 'THEIA', '课表')
+    await mkdir(directory, { recursive: true })
+    const outcome = await shell.openPath(directory)
+    if (outcome) throw new Error(outcome)
+    return { opened: true, path: directory }
+  })
 }

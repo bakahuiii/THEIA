@@ -45,7 +45,11 @@ export function registerAuthIpc({
     }
     await waitForSchoolProxy()
     assertAuthEpoch(epoch, { allowLoggedOut: true })
-    return openLoginWindow({ expectedEpoch: epoch, userInitiated: true })
+    const actors = await openLoginWindow({ expectedEpoch: epoch, userInitiated: true })
+    await Promise.allSettled((actors || []).map((actor) => actor?.lifecycle || Promise.resolve()))
+    if (!(actors || []).some((actor) => actor?.authenticated)) {
+      throw new Error('统一身份认证未完成，请检查凭据或在认证页面完成验证后重试')
+    }
   })
   ipcMain.handle('theia:clear-academic-api-credentials', async () => ({
     ...(await academicApiVault.clear()),

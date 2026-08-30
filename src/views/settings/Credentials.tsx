@@ -26,9 +26,9 @@ export function CredentialForm({ status, onStatus, onSaved, onMessage, className
       const next = await bridge.saveCredentials({ username, password });
       onStatus(next);
       setPassword("");
-      onSaved?.();
-      onMessage("凭据已由当前 Windows 账户加密保存，正在连接学校统一身份认证。");
+      onMessage("凭据已由当前 Windows 账户加密保存，正在连接学校统一身份认证并刷新校园数据。");
       await bridge.login();
+      onSaved?.();
     } catch (error) {
       onMessage(error instanceof Error ? error.message : String(error));
     } finally {

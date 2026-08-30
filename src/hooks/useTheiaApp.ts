@@ -429,10 +429,16 @@ export function useTheiaApp() {
   const sync = async () => {
     if (!hasSession) {
       try {
+        if (credentials.saved) {
+          setSyncing(true);
+          setSyncProgress("正在恢复学校统一身份认证会话");
+          setMsg(null);
+        }
         await requestLogin();
-        if (credentials.saved) setMsg("正在恢复学校统一身份认证会话");
       } catch (error) {
         showDataError(error);
+      } finally {
+        if (credentials.saved) setSyncing(false);
       }
       return;
     }
@@ -543,6 +549,14 @@ export function useTheiaApp() {
       setError(error);
     } finally {
       setExportingSchedulePdf(false);
+    }
+  };
+  const openScheduleDirectory = async () => {
+    try {
+      await bridge.openScheduleDirectory();
+      setMsg("已打开课表 PDF 文件夹。", "success");
+    } catch (error) {
+      setError(error);
     }
   };
   const runCourseWork = async (
@@ -916,6 +930,7 @@ export function useTheiaApp() {
     academicDomainRefreshing,
     refreshAcademicDomain,
     exportSchedulePdf,
+    openScheduleDirectory,
     prepareCourseWork,
     processCourseWorkWithModel,
     generateNotes,

@@ -3,8 +3,48 @@ import { resolve } from 'node:path'
 import { MAX_ATTACHMENT_RESPONSE_BYTES } from '../core/source-client.mjs'
 import { JWGLXT_URLS } from '../core/adapters/jwglxt.mjs'
 import { parseJwHomepage } from '../core/parsers/jwglxt.mjs'
-import { isPermittedSourceDownloadUrl } from '../core/source-url-policy.mjs'
 import { htmlLooksLikeLogin } from '../core/util.mjs'
+
+const SCHEDULE_PDF_POLICY_URL = new URL('kbdy/bjkbdy_cxXnxqsfkz.html?gnmkdm=N2151', JWGLXT_URLS.base).toString()
+const SCHEDULE_PDF_URL = new URL('kbcx/xskbcx_cxXsShcPdf.html?doType=table', JWGLXT_URLS.base).toString()
+
+function schedulePdfSemesterNumber(termCode, label = '') {
+  const knownCode = { 3: '1', 12: '2', 16: '3' }[String(termCode)]
+  if (knownCode) return knownCode
+  return String(label).match(/(?:第|\b)\s*([1-3])\s*(?:学期|semester)?/iu)?.[1] || String(termCode)
+}
+
+export function buildSchedulePdfRequestValues({ values = {}, labels = {} } = {}) {
+  const xnm = String(values.xnm || '').trim()
+  const xqm = String(values.xqm || '').trim()
+  if (!xnm || !xqm) throw new Error('课表页面未提供当前学期，无法输出 PDF')
+  const yearNumber = Number(xnm)
+  const yearLabel = String(labels.xnm || values.xnmc || '').trim()
+    || (Number.isInteger(yearNumber) ? `${xnm}-${yearNumber + 1}` : xnm)
+  const semesterLabel = String(labels.xqm || values.xqmmc || '').trim()
+  return {
+    xm: '导出',
+    xnm,
+    xqm,
+    xnmc: yearLabel,
+    xqmmc: schedulePdfSemesterNumber(xqm, semesterLabel),
+    jgmc: String(values.jgmc || 'undefined'),
+    xxdm: String(values.xxdm || ''),
+    'xszd.sj': 'true',
+    'xszd.cd': 'true',
+    'xszd.js': 'true',
+    'xszd.jszc': 'false',
+    'xszd.jxb': 'true',
+    'xszd.xkbz': 'true',
+    'xszd.kcxszc': 'true',
+    'xszd.zhxs': 'true',
+    'xszd.zxs': 'true',
+    'xszd.khfs': 'true',
+    'xszd.xf': 'true',
+    'xszd.skfsmc': 'false',
+    kzlx: 'dy',
+  }
+}
 
 /**
  * Owns user-facing campus source windows and source-bound actions. Browser
@@ -23,8 +63,8 @@ export function createSourceActionsRuntime({
   getSyncService,
   getFitnessRuntime,
   getCredentialVault,
-  getSchoolSession,
   getSessionClient,
+  getAcademicSessionClient,
   getAuthEpoch,
   openLoginWindow,
   verifiedStatus,
@@ -141,34 +181,81 @@ async function openAuthenticatedSourceWindow(rawUrl, title = '学校原站', { p
   }
 }
 
-async function waitForSchedulePdfButton(window, timeoutMs = 30_000) {
+async function readSchedulePdfContext(window) {
+  return window.webContents.executeJavaScript(`(() => {
+    const wanted = new Set(['xnm', 'xqm', 'xnmc', 'xqmmc', 'jgmc', 'xxdm'])
+    const values = {}
+    const labels = {}
+    const requestValues = {}
+    const setRequestValue = (name, value) => {
+      requestValues[name] = value === undefined || value === null ? '' : value
+    }
+    const form = document.querySelector('#ajaxForm')
+    const controls = [...(form || document).querySelectorAll('input[name], select[name], textarea[name]')]
+    for (const control of controls) {
+      const name = String(control.name || '')
+      if (!wanted.has(name) || control.disabled) continue
+      if ((control.type === 'checkbox' || control.type === 'radio') && !control.checked) continue
+      if (control.tagName === 'SELECT') {
+        const option = control.selectedOptions?.[0]
+        values[name] = String(option?.value ?? '')
+        labels[name] = String(option?.textContent || '').replace(/\\s+/g, ' ').trim()
+      } else {
+        values[name] = String(control.value ?? '')
+      }
+    }
+    const xsxx = globalThis.xsxx && typeof globalThis.xsxx === 'object' ? globalThis.xsxx : null
+    const xszd = globalThis.xszd && typeof globalThis.xszd === 'object' ? globalThis.xszd : null
+    if (xsxx) {
+      for (const [name, key] of [
+        ['xnm', 'XNM'], ['xqm', 'XQM'], ['xnmc', 'XNMC'], ['xqmmc', 'XQMMC'],
+        ['jgmc', 'JGMC'], ['xm', 'XM'], ['xxdm', 'XXDM'],
+      ]) setRequestValue(name, xsxx[key])
+      for (const [name, key] of [
+        ['modelList[0].xnm', 'XNM'], ['modelList[0].xqm', 'XQM'],
+        ['modelList[0].xnmc', 'XNMC'], ['modelList[0].xqmmc', 'XQMMC'],
+        ['modelList[0].xh_id', 'XH_ID'], ['modelList[0].xh', 'XH'],
+        ['modelList[0].xm', 'XM'], ['modelList[0].bjmc', 'BJMC'],
+      ]) setRequestValue(name, xsxx[key])
+    }
+    const displayFields = [
+      'sj', 'cd', 'js', 'jszc', 'jxb', 'jxbzc', 'xkrs', 'xkbz', 'kcxszc',
+      'zhxs', 'zxs', 'khfs', 'ksfs', 'xf', 'skfsmc', 'kch', 'zfj', 'cxbj',
+      'kcxz', 'kcbj', 'kczxs', 'bklxdjmc', 'zyhxkcbj', 'cdlbmc', 'ktmc',
+      'qqqh', 'skpthyh',
+    ]
+    if (xszd) for (const name of displayFields) setRequestValue('xszd.' + name, xszd[name])
+    for (const name of ['xsdm', 'kclbdm', 'kclxdm']) {
+      setRequestValue(name, document.getElementById(name)?.value || '')
+      setRequestValue('modelList[0].' + name, document.getElementById(name)?.value || '')
+    }
+    setRequestValue('kzlx', 'dy')
+    const currentUrl = String(location.href || '')
+    return {
+      values,
+      labels,
+      requestValues,
+      ready: Boolean(values.xnm && values.xqm && xsxx?.XNM && xsxx?.XQM && xsxx?.XNMC && xsxx?.XQMMC && xszd),
+      loggedIn: !/experimental-auth-endpoint|(?:^|\\/)login(?:[._/?#]|$)/i.test(location.hostname + location.pathname),
+      url: currentUrl,
+    }
+  })()`)
+}
+
+async function waitForSchedulePdfContext(window, timeoutMs = 12_000) {
   const startedAt = Date.now()
   while (Date.now() - startedAt < timeoutMs) {
     if (window.isDestroyed()) throw new Error('课表原站窗口已关闭')
     try {
-      const state = await window.webContents.executeJavaScript(`(() => {
-        const button = document.querySelector('#shcPDF')
-        return { ready: Boolean(button), visible: Boolean(button && button.getClientRects().length), loggedIn: !/experimental-auth-endpoint|login/i.test(location.hostname + location.pathname) }
-      })()`)
-      if (state.ready && state.visible) return state
+      const state = await readSchedulePdfContext(window)
+      if (state.ready) return state
       if (!state.loggedIn) throw new Error('教务系统会话已失效，请重新认证')
     } catch (error) {
       if (String(error?.message || error).includes('会话已失效')) throw error
     }
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 400))
   }
-  throw new Error('课表页面加载超时，未找到“输出PDF”按钮')
-}
-
-async function waitForSchedulePdfPopup(window, timeoutMs = 15_000) {
-  const startedAt = Date.now()
-  while (Date.now() - startedAt < timeoutMs) {
-    if (window.isDestroyed()) return null
-    const url = await window.webContents.executeJavaScript('window.__theiaSchedulePdfUrl || null').catch(() => null)
-    if (url) return String(url)
-    await new Promise((resolveDelay) => setTimeout(resolveDelay, 300))
-  }
-  return null
+  throw new Error('课表页面加载超时，未读取到当前学期')
 }
 
 async function openSchedulePdf(expectedEpoch = getAuthEpoch()) {
@@ -193,89 +280,81 @@ async function openSchedulePdf(expectedEpoch = getAuthEpoch()) {
     assertAuthEpoch(epoch)
   }
   assertAuthEpoch(epoch)
-  const window = await openAuthenticatedSourceWindow(JWGLXT_URLS.schedule, 'THEIA · 教务系统课表')
-  if (!window) {
-    verifiedSessions.jwglxt = null
-    const credentials = await getCredentialVault().status().catch(() => ({ saved: false }))
-    if (credentials?.saved) {
-      await openLoginWindow({ background: true, sources: ['jwglxt'], expectedEpoch: epoch, requireBrowser: true, skipSync: true })
-    } else await openLoginWindow({ sources: ['jwglxt'], expectedEpoch: epoch })
-    assertAuthEpoch(epoch)
-    throw new Error('教务系统浏览器会话未连接，请完成认证后重试')
-  }
-  assertAuthEpoch(epoch)
-  await writeDiagnostic('schedule.pdf_page_opened', { url: diagnosticUrl(window.webContents.getURL() || JWGLXT_URLS.schedule) })
-  await waitForSchedulePdfButton(window)
-  const outputDirectory = resolve(getDocumentsDirectory(), 'THEIA', '课表')
-  await mkdir(outputDirectory, { recursive: true })
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').replace('Z', '')
-  const outputPath = resolve(outputDirectory, `THEIA-课表-${timestamp}.pdf`)
-  let cancelDownload = () => {}
-  const download = new Promise((resolveDownload, rejectDownload) => {
-    let settled = false
-    const finish = (callback, value) => {
-      if (settled) return
-      settled = true
-      getSchoolSession().removeListener('will-download', onWillDownload)
-      clearTimeout(timeout)
-      callback(value)
-    }
-    const timeout = setTimeout(() => finish(rejectDownload, new Error('教务系统 PDF 下载超时')), 45_000)
-    cancelDownload = () => finish(resolveDownload, null)
-    const onWillDownload = (_event, item, webContents) => {
-      if (webContents && webContents.id !== window.webContents.id) return
-      const downloadUrl = item.getURL?.() || ''
-      if (!isPermittedSourceDownloadUrl(downloadUrl)) {
-        item.cancel()
-        void writeDiagnostic('schedule.pdf_download_blocked', { url: diagnosticUrl(downloadUrl) })
-        finish(rejectDownload, new Error('课表 PDF 下载地址不属于校园网'))
-        return
-      }
-      const declaredBytes = item.getTotalBytes()
-      if (declaredBytes > MAX_ATTACHMENT_RESPONSE_BYTES) {
-        item.cancel()
-        finish(rejectDownload, new Error('课表 PDF 超过 32 MB 限制'))
-        return
-      }
-      try { item.setSavePath(outputPath) } catch (error) { finish(rejectDownload, error); return }
-      void writeDiagnostic('schedule.pdf_download_started', { path: outputPath, url: diagnosticUrl(downloadUrl) })
-      item.on('updated', () => {
-        if (item.getReceivedBytes() <= MAX_ATTACHMENT_RESPONSE_BYTES) return
-        item.cancel()
-        finish(rejectDownload, new Error('课表 PDF 超过 32 MB 限制'))
-      })
-      item.once('done', (_doneEvent, state) => {
-        if (state !== 'completed') return finish(rejectDownload, new Error(`教务系统 PDF 下载未完成：${state}`))
-        finish(resolveDownload, { filePath: outputPath, bytes: item.getReceivedBytes() })
-      })
-    }
-    getSchoolSession().on('will-download', onWillDownload)
-  })
+  let window = null
   try {
-    await window.webContents.executeJavaScript(`(() => {
-      window.__theiaSchedulePdfUrl = null
-      window.open = (url) => { window.__theiaSchedulePdfUrl = String(url || ''); return null }
-      const button = document.querySelector('#shcPDF')
-      if (!button) throw new Error('未找到输出PDF按钮')
-      button.click()
-      return true
-    })()`)
-    const firstResult = await Promise.race([download, waitForSchedulePdfPopup(window)])
-    const popupUrl = typeof firstResult === 'string' ? firstResult : null
-    const result = popupUrl
-      ? await (async () => {
-        try {
-          const pdfUrl = permittedSourceUrl(new URL(popupUrl, window.webContents.getURL() || JWGLXT_URLS.schedule).toString())
-          const downloaded = await getSessionClient().binary(pdfUrl, { source: '教务系统课表 PDF' })
-          const bytes = downloaded.buffer
-          if (!bytes.subarray(0, 5).equals(Buffer.from('%PDF-'))) throw new Error('教务系统课表返回的不是有效 PDF')
-          await writeFile(outputPath, bytes)
-          return { filePath: outputPath, bytes: bytes.length, url: downloaded.url }
-        } finally {
-          cancelDownload()
+    window = await openAuthenticatedSourceWindow(JWGLXT_URLS.schedule, 'THEIA · 教务系统课表')
+    if (!window) {
+      verifiedSessions.jwglxt = null
+      const credentials = await getCredentialVault().status().catch(() => ({ saved: false }))
+      if (credentials?.saved) {
+        const actors = await openLoginWindow({ background: true, sources: ['jwglxt'], expectedEpoch: epoch, requireBrowser: true, skipSync: true })
+        assertAuthEpoch(epoch)
+        const actor = actors?.find?.((candidate) => candidate?.source === 'jwglxt')
+        if (actor?.lifecycle) await actor.lifecycle
+        assertAuthEpoch(epoch)
+        if (actor?.authenticated) {
+          window = await openAuthenticatedSourceWindow(JWGLXT_URLS.schedule, 'THEIA · 教务系统课表', { verified: true })
+          assertAuthEpoch(epoch)
         }
-      })()
-      : firstResult || await download
+      } else await openLoginWindow({ sources: ['jwglxt'], expectedEpoch: epoch })
+    }
+    if (!window) {
+      assertAuthEpoch(epoch)
+      throw new Error('教务系统浏览器会话未连接，请完成认证后重试')
+    }
+    assertAuthEpoch(epoch)
+    const pageUrl = permittedSourceUrl(window.webContents.getURL() || JWGLXT_URLS.schedule)
+    await writeDiagnostic('schedule.pdf_page_opened', { url: diagnosticUrl(pageUrl) })
+    const context = await waitForSchedulePdfContext(window)
+    assertAuthEpoch(epoch)
+    const values = context.requestValues || buildSchedulePdfRequestValues(context)
+    const body = new URLSearchParams(values).toString()
+    await writeDiagnostic('schedule.pdf_request_started', {
+      url: diagnosticUrl(SCHEDULE_PDF_URL),
+      xnm: values.xnm,
+      xqm: values.xqm,
+    })
+    const academicClient = getAcademicSessionClient?.() || getSessionClient()
+    const policyResult = await academicClient.form(SCHEDULE_PDF_POLICY_URL, values, {
+      source: '教务系统课表 PDF 权限',
+      referer: pageUrl,
+    })
+    const policyText = String(policyResult || '').trim()
+    if (/^"?true"?$/iu.test(policyText)) {
+      throw new Error('教务系统未开放当前学期课表 PDF 导出')
+    }
+    if (!/^"?false"?$/iu.test(policyText)) {
+      throw new Error(`教务系统课表 PDF 权限检查返回异常：${policyText.slice(0, 80)}`)
+    }
+    assertAuthEpoch(epoch)
+    const downloaded = await academicClient.binary(SCHEDULE_PDF_URL, {
+      source: '教务系统课表 PDF',
+      maxBytes: MAX_ATTACHMENT_RESPONSE_BYTES,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      body,
+      referer: pageUrl,
+    })
+    assertAuthEpoch(epoch)
+    const bytes = downloaded.buffer
+    await writeDiagnostic('schedule.pdf_response_received', {
+      url: diagnosticUrl(downloaded.url || SCHEDULE_PDF_URL),
+      status: Number(downloaded.status || 200),
+      contentType: downloaded.headers?.get?.('content-type') || '',
+      bytes: bytes.length,
+      prefixHex: bytes.subarray(0, 16).toString('hex'),
+    })
+    if (!bytes.subarray(0, 5).equals(Buffer.from('%PDF-'))) throw new Error('教务系统课表返回的不是有效 PDF')
+    const outputDirectory = resolve(getDocumentsDirectory(), 'THEIA', '课表')
+    await mkdir(outputDirectory, { recursive: true })
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').replace('Z', '')
+    const outputPath = resolve(outputDirectory, `THEIA-课表-${timestamp}.pdf`)
+    await writeDiagnostic('schedule.pdf_download_started', { path: outputPath, url: diagnosticUrl(downloaded.url || SCHEDULE_PDF_URL) })
+    await writeFile(outputPath, bytes)
+    const result = { filePath: outputPath, bytes: bytes.length, url: downloaded.url }
     const file = await open(result.filePath, 'r')
     try {
       const header = Buffer.alloc(5)
@@ -290,8 +369,13 @@ async function openSchedulePdf(expectedEpoch = getAuthEpoch()) {
     await writeDiagnostic('schedule.pdf_download_completed', { path: result.filePath, bytes: result.bytes })
     return { canceled: false, ...result }
   } catch (error) {
-    await writeDiagnostic('schedule.pdf_download_failed', { error: diagnosticError(error), url: diagnosticUrl(window.webContents.getURL()) })
+    const url = window && !window.isDestroyed()
+      ? window.webContents.getURL() || JWGLXT_URLS.schedule
+      : JWGLXT_URLS.schedule
+    await writeDiagnostic('schedule.pdf_download_failed', { error: diagnosticError(error), url: diagnosticUrl(url) })
     throw error
+  } finally {
+    if (window) await closeWindowAndWait(window)
   }
 }
 
@@ -570,8 +654,7 @@ async function openSourceWindow(rawUrl, { title = '学校原站', expectedEpoch 
     createSourceWindow,
     inspectLoadedSourcePage,
     openAuthenticatedSourceWindow,
-    waitForSchedulePdfButton,
-    waitForSchedulePdfPopup,
+    waitForSchedulePdfContext,
     openSchedulePdf,
     openCourseWorkWindow,
     attachFileToSourceWindow,

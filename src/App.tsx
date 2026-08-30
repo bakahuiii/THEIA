@@ -2,6 +2,7 @@ import { bridge, isDesktop } from "./bridge";
 import { useState } from "react";
 import theiaMark from "./assets/theia-mark.png";
 import { useTheiaApp } from "./hooks/useTheiaApp";
+import { useGithubUpdateStatus } from "./hooks/useGithubUpdateStatus";
 import { useAppearance } from "./hooks/useAppearance";
 import { usePersonalization } from "./hooks/usePersonalization";
 import { TitleBar } from "./layout/TitleBar";
@@ -29,6 +30,7 @@ import { TooltipProvider } from "./components/ui/tooltip";
 
 export default function App() {
   const app = useTheiaApp();
+  const updateStatus = useGithubUpdateStatus();
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("appearance");
   useAppearance(); // apply stored dark/light mode on mount
   const personalization = usePersonalization();
@@ -116,6 +118,7 @@ export default function App() {
         messageKind={app.messageKind}
         syncFailure={app.syncFailure}
         syncFreshness={app.syncFreshness}
+        updateStatus={updateStatus}
         paletteOpen={app.paletteOpen}
         paletteQuery={app.paletteQuery}
         paletteItems={app.paletteItems}
@@ -170,6 +173,7 @@ export default function App() {
             terms={app.visibleTerms}
             calendar={state.dataCatalog.collections.academicCalendar.calendar}
             onExportPdf={() => void app.exportSchedulePdf()}
+            onOpenPdfDirectory={() => void app.openScheduleDirectory()}
             exportingPdf={app.exportingSchedulePdf}
           />
         )}

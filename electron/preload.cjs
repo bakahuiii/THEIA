@@ -75,6 +75,7 @@ const api = {
   openAssignmentSource: (assignmentId) => ipcRenderer.invoke('theia:open-assignment-source', assignmentId),
   getFitnessScore: (year, options) => ipcRenderer.invoke('theia:get-fitness-score', year, options),
   openSchedulePdf: () => ipcRenderer.invoke('theia:open-schedule-pdf'),
+  openScheduleDirectory: () => ipcRenderer.invoke('theia:open-schedule-directory'),
   getCourseWorkQueue: () => ipcRenderer.invoke('theia:get-course-work-queue'),
   setCourseWorkQueueEnabled: (enabled) => ipcRenderer.invoke('theia:set-course-work-queue-enabled', enabled),
   enqueueCourseWork: (request) => ipcRenderer.invoke('theia:enqueue-course-work', request),

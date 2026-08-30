@@ -6,11 +6,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import JSZip from 'jszip'
 import { collectSourceFiles, isForbiddenSourcePath, verifySourceArchive } from '../scripts/package-source.mjs'
+import { renderReleaseDocument } from '../scripts/release.mjs'
 import { stripJpegMetadata } from '../scripts/strip-jpeg-metadata.mjs'
 
 test('Windows packaging writes THEIA executable metadata and unpacks the offline OCR runtime', async () => {
   const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
-  assert.equal(packageJson.version, '0.6.1')
+  assert.equal(packageJson.version, '0.6.3')
   assert.equal(packageJson.build.productName, 'THEIA')
   assert.equal(packageJson.build.appId, 'io.github.bakahuiii.theia')
   assert.equal(packageJson.build.nsis.guid, '2467e4eb-7496-532c-ab2c-b64234a36eb3')
@@ -54,7 +55,7 @@ test('packaging excludes credential extractors and accidental runtime data from 
 test('release packaging also creates a filtered, buildable source archive', async () => {
   const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
   assert.equal(packageJson.scripts['dist:source'], 'node scripts/package-source.mjs')
-  assert.match(packageJson.scripts['dist:installer'], /&& npm run dist:source$/)
+  assert.equal(packageJson.scripts['dist:installer'], 'node scripts/release.mjs')
 
   const paths = (await collectSourceFiles()).map((entry) => entry.path)
   for (const required of [
@@ -66,6 +67,7 @@ test('release packaging also creates a filtered, buildable source archive', asyn
     'electron/main.mjs',
     'electron/advisor-upgrade-rule.mjs',
     'scripts/package-source.mjs',
+    'scripts/release.mjs',
     'scripts/advisor-benchmark-corpus.mjs',
     'scripts/benchmark-advisor.mjs',
     'scripts/strip-jpeg-metadata.mjs',
@@ -91,6 +93,24 @@ test('release packaging also creates a filtered, buildable source archive', asyn
     assert.equal(paths.includes(forbidden), false, forbidden)
   }
   assert.equal(paths.some(isForbiddenSourcePath), false)
+})
+
+test('automatic release notes keep artifact checksums and publish state explicit', () => {
+  const draft = renderReleaseDocument('# THEIA v0.6.3\n\n## 本次更新\n\n- 功能', {
+    version: '0.6.3',
+    artifacts: [{ name: 'THEIA-0.6.3-x64-win.exe', description: '安装包', bytes: 123, sha256: 'ABC123' }],
+    sourcePending: true,
+  })
+  assert.match(draft, /THEIA-0\.6\.3-x64-win\.exe.*123 bytes.*ABC123/)
+  assert.match(draft, /THEIA-0\.6\.3-source\.zip.*将在安装包验证通过后生成/)
+  const published = renderReleaseDocument(draft, {
+    version: '0.6.3',
+    artifacts: [{ name: 'THEIA-0.6.3-source.zip', description: '源码归档', bytes: 456, sha256: 'DEF456' }],
+    published: true,
+    releaseUrl: 'https://github.com/bakahuiii/THEIA/releases/tag/v0.6.3',
+  })
+  assert.match(published, /DEF456/)
+  assert.match(published, /GitHub Release：https:\/\/github\.com\/bakahuiii\/THEIA\/releases\/tag\/v0\.6\.3/)
 })
 
 test('source archive verification rejects implicit directories and rewritten paths', async (context) => {

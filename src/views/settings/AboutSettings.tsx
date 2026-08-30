@@ -1,22 +1,10 @@
-import { Braces, Database, Download, HeartHandshake, RefreshCw, RotateCw, ShieldCheck } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Braces, Database, Download, ExternalLink, HeartHandshake, RefreshCw, RotateCw, ShieldCheck, Smartphone } from "lucide-react";
 import { bridge } from "../../bridge";
+import { useGithubUpdateStatus } from "../../hooks/useGithubUpdateStatus";
 import theiaMark from "../../assets/theia-mark.png";
 import type { CampusState, GithubUpdateStatus } from "../../types";
 
-function defaultUpdateStatus(version: string): GithubUpdateStatus {
-  return {
-    supported: false,
-    state: "unsupported",
-    currentVersion: version || "web",
-    availableVersion: null,
-    releaseName: null,
-    releaseDate: null,
-    lastCheckedAt: null,
-    progress: null,
-    error: null,
-  };
-}
+const ANDROID_PROJECT_URL = "https://github.com/bakahuiii/THEIA-Android";
 
 function formatUpdateTime(value: string | null) {
   if (!value) return "尚未检查";
@@ -49,29 +37,13 @@ export function AboutSettings({
   state: CampusState;
   apiBase: string;
 }) {
-  const [updateStatus, setUpdateStatus] = useState<GithubUpdateStatus>(() => defaultUpdateStatus(state.appVersion || "web"));
-
-  useEffect(() => {
-    let active = true;
-    const sync = async () => {
-      try {
-        const next = await bridge.getUpdateStatus();
-        if (active) setUpdateStatus(next);
-      } catch {
-        if (active) setUpdateStatus(defaultUpdateStatus(state.appVersion || "web"));
-      }
-    };
-    void sync();
-    const unsubscribe = bridge.onUpdateStatus?.((next) => {
-      if (active) setUpdateStatus(next);
-    });
-    return () => {
-      active = false;
-      unsubscribe?.();
-    };
-  }, [state.appVersion]);
+  const updateStatus = useGithubUpdateStatus(state.appVersion || "web");
 
   const checking = updateStatus.state === "checking" || updateStatus.state === "downloading";
+  const downloading = updateStatus.state === "downloading";
+  const updatePercent = Number.isFinite(updateStatus.progress?.percent)
+    ? Math.max(0, Math.min(100, updateStatus.progress?.percent || 0))
+    : 0;
   const canInstall = updateStatus.supported && updateStatus.state === "downloaded";
   const primaryLabel = canInstall ? "重启并安装更新" : checking ? "检查中" : "检查更新";
 
@@ -124,7 +96,7 @@ export function AboutSettings({
           <HeartHandshake size={17} />
           <span>
             <strong>版本</strong>
-            <small>THEIA {state.appVersion || "0.6.1"}</small>
+            <small>THEIA {state.appVersion || "0.6.3"}</small>
           </span>
         </div>
       </div>
@@ -135,6 +107,24 @@ export function AboutSettings({
           <small>{describeUpdate(updateStatus)}</small>
           <span>当前版本：THEIA {updateStatus.currentVersion}</span>
           <span>上次检查：{formatUpdateTime(updateStatus.lastCheckedAt)}</span>
+          {(updateStatus.state === "checking" || updateStatus.state === "available" || downloading) && (
+            <div className={`about-update-progress ${downloading ? "" : "is-indeterminate"}`}>
+              <div className="about-update-progress-label">
+                <span>{downloading ? "下载进度" : "更新准备"}</span>
+                <strong>{downloading ? `${Math.round(updatePercent)}%` : "进行中"}</strong>
+              </div>
+              <div
+                className="about-update-progress-track"
+                role="progressbar"
+                aria-label="更新下载进度"
+                aria-valuenow={downloading ? Math.round(updatePercent) : undefined}
+                aria-valuemin={0}
+                aria-valuemax={100}
+              >
+                <i style={downloading ? { width: `${updatePercent}%` } : undefined} />
+              </div>
+            </div>
+          )}
         </div>
         <div className="about-update-actions">
           <button
@@ -148,6 +138,30 @@ export function AboutSettings({
           </button>
         </div>
       </div>
+
+      <section className="about-android" aria-labelledby="about-android-title">
+        <div className="about-android-icon" aria-hidden="true">
+          <Smartphone size={19} />
+        </div>
+        <div className="about-android-copy">
+          <div className="about-android-heading">
+            <strong id="about-android-title">THEIA-Android</strong>
+            <span>Android 10+</span>
+          </div>
+          <p>独立的 Capacitor Android 客户端，提供课表、成绩、考试、作业、学业进度、地图和公开场馆查询。</p>
+          <small>只读校园数据，不执行选课、申请、上传、预约等学校侧操作。</small>
+        </div>
+        <a
+          className="secondary-button about-android-link"
+          href={ANDROID_PROJECT_URL}
+          target="_blank"
+          rel="noreferrer"
+          title="打开 THEIA-Android 项目"
+        >
+          <ExternalLink size={15} />
+          查看 Android 项目
+        </a>
+      </section>
 
       <div className="about-footer">
         <span>THEIA Campus Client</span>

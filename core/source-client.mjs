@@ -319,13 +319,34 @@ export class SessionClient {
     return (await this.request(url, init, options)).text
   }
 
-  async binary(url, { source = 'school attachment', maxBytes = MAX_ATTACHMENT_RESPONSE_BYTES } = {}) {
+  async binary(url, {
+    source = 'school attachment',
+    maxBytes = MAX_ATTACHMENT_RESPONSE_BYTES,
+    method = 'GET',
+    headers = {},
+    body,
+    referer = null,
+  } = {}) {
+    const requestMethod = String(method || 'GET').toUpperCase()
+    const requestReferer = referer ? permittedSourceUrl(referer) : null
+    const requestHeaders = new Headers(headers || {})
+    if (requestReferer) requestHeaders.set('Referer', requestReferer)
+    const requestInit = { method: requestMethod, headers: requestHeaders }
+    if (body !== undefined) requestInit.body = body
     if (this.binaryLoader && !isHttpUrl(url)) {
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), this.timeoutMs)
       try {
         const target = permittedSourceUrl(url)
-        const result = await this.binaryLoader(target, { source, signal: controller.signal })
+        const result = await this.binaryLoader(target, {
+          source,
+          signal: controller.signal,
+          timeoutMs: this.timeoutMs,
+          method: requestMethod,
+          headers: Object.fromEntries(requestHeaders.entries()),
+          body,
+          referer: requestReferer,
+        })
         const buffer = Buffer.isBuffer(result?.buffer) ? result.buffer : Buffer.from(result?.buffer || '')
         const limit = Math.max(1, Math.min(MAX_ATTACHMENT_RESPONSE_BYTES, Number(maxBytes) || MAX_ATTACHMENT_RESPONSE_BYTES))
         if (buffer.length > limit) {
@@ -350,7 +371,7 @@ export class SessionClient {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), this.timeoutMs)
     try {
-      const { response, url: finalUrl } = await this.fetchCampus(url, {}, { source, signal: controller.signal })
+      const { response, url: finalUrl } = await this.fetchCampus(url, requestInit, { source, signal: controller.signal })
       const limit = Math.max(1, Math.min(MAX_ATTACHMENT_RESPONSE_BYTES, Number(maxBytes) || MAX_ATTACHMENT_RESPONSE_BYTES))
       const buffer = await limitedResponseBuffer(response, { maxBytes: limit, source, url: finalUrl })
       if (!response.ok) throw new SourceRequestError(`${source} 请求失败 (${response.status})`, { source, status: response.status, url: finalUrl })

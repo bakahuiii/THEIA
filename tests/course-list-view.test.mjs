@@ -6,6 +6,10 @@ const coursesViewSource = await readFile(
   new URL('../src/views/CoursesView.tsx', import.meta.url),
   'utf8',
 )
+const courseMaterialDialogSource = await readFile(
+  new URL('../src/views/courses/CourseMaterialDialog.tsx', import.meta.url),
+  'utf8',
+)
 const appSharedSource = await readFile(
   new URL('../src/ui/app-shared.tsx', import.meta.url),
   'utf8',
@@ -40,6 +44,14 @@ test('course page limits categories and cards to THEOL courses', () => {
     /const values = useMemo\(\s*\(\) => theolCourses\s*\.map/s,
   )
   assert.match(coursesViewSource, /连接北化在线THEOL并同步后即可查看/)
+})
+
+test('course details use an in-app material dialog', () => {
+  assert.match(coursesViewSource, /const \[selectedMaterial, setSelectedMaterial\]/)
+  assert.match(coursesViewSource, /<CourseMaterialDialog/)
+  assert.match(coursesViewSource, /course-info-button/)
+  assert.match(courseMaterialDialogSource, /course-material-preview-text/)
+  assert.match(courseMaterialDialogSource, /打开学校原站/)
 })
 
 test('THEOL source label uses the user-facing platform name', () => {

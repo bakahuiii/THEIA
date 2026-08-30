@@ -856,5 +856,5 @@ test('loopback API streams locally cached academic-calendar assets', async () =>
   }
 })
 test('normalizing an older snapshot reports the current application version', () => {
-  assert.equal(normalizeState({ appVersion: '0.1.0' }).appVersion, '0.6.1')
+  assert.equal(normalizeState({ appVersion: '0.1.0' }).appVersion, '0.6.3')
 })

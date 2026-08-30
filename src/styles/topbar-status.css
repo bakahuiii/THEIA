@@ -74,3 +74,105 @@
   .topbar-sync-banner { display: none; }
 }
 
+/* Auto-updater progress is fixed to the viewport so it never reflows the
+ * current page or hides the data being displayed during a background download. */
+.github-update-indicator {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 90;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 11px;
+  width: min(360px, calc(100vw - 32px));
+  padding: 13px 14px;
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--card) 97%, var(--primary));
+  border: 1px solid color-mix(in srgb, var(--primary) 36%, var(--border));
+  border-radius: 14px;
+  box-shadow: 0 18px 44px -20px color-mix(in srgb, var(--foreground) 34%, transparent), 0 0 0 1px color-mix(in srgb, var(--primary) 8%, transparent);
+  animation: github-update-indicator-in .22s var(--ease-out) both;
+}
+
+.github-update-indicator-icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 14%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--primary) 26%, var(--border));
+  border-radius: 10px;
+}
+
+.github-update-indicator-body { min-width: 0; display: grid; gap: 5px; }
+.github-update-indicator-heading { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+.github-update-indicator-heading strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.github-update-indicator-heading span { flex: 0 0 auto; color: var(--primary); font-size: 10px; font-variant-numeric: tabular-nums; }
+.github-update-indicator p { margin: 0; color: var(--muted-foreground); font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
+
+.github-update-progress,
+.about-update-progress-track {
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--primary) 12%, var(--muted));
+  border-radius: 999px;
+}
+
+.github-update-progress i,
+.about-update-progress-track i {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary), var(--success, #55c7a1));
+  border-radius: inherit;
+  transition: width .28s var(--ease-out);
+}
+
+.github-update-progress.is-indeterminate i,
+.about-update-progress.is-indeterminate .about-update-progress-track i {
+  width: 38%;
+  animation: github-update-progress-slide 1.2s ease-in-out infinite;
+}
+
+.github-update-indicator-meta {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  color: var(--muted-foreground);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.github-update-indicator-meta span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.github-update-indicator-meta strong { color: var(--primary); font-weight: 700; }
+.github-update-indicator.is-downloaded .github-update-indicator-icon { color: var(--success, #55c7a1); background: color-mix(in srgb, var(--success, #55c7a1) 13%, var(--card)); }
+.github-update-indicator.is-downloaded { border-color: color-mix(in srgb, var(--success, #55c7a1) 34%, var(--border)); }
+.github-update-indicator.is-error .github-update-indicator-icon { color: var(--destructive); background: color-mix(in srgb, var(--destructive) 12%, var(--card)); }
+.github-update-indicator.is-error { border-color: color-mix(in srgb, var(--destructive) 34%, var(--border)); }
+
+.about-update-progress { display: grid; gap: 5px; margin-top: 3px; }
+.about-update-progress-label { display: flex; justify-content: space-between; gap: 10px; color: var(--muted-foreground); font-size: 9px; }
+.about-update-progress-label strong { color: var(--primary); font-variant-numeric: tabular-nums; }
+
+@keyframes github-update-indicator-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes github-update-progress-slide {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(290%); }
+}
+
+@media (max-width: 720px) {
+  .github-update-indicator { right: 12px; bottom: 12px; width: min(360px, calc(100vw - 24px)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .github-update-indicator { animation: none; }
+  .github-update-progress.is-indeterminate i,
+  .about-update-progress.is-indeterminate .about-update-progress-track i { animation: none; width: 100%; }
+}
+

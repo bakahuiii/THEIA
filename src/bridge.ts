@@ -367,6 +367,9 @@ const webBridge: TheiaBridge = {
       "Schedule PDF output is available only in the desktop client",
     );
   },
+  async openScheduleDirectory() {
+    throw new Error("课表 PDF 文件夹仅在桌面客户端中可用");
+  },
   async getCourseWorkQueue() {
     return { schema: "theia-course-work-queue/v1", enabled: false, updatedAt: new Date().toISOString(), jobs: [] };
   },

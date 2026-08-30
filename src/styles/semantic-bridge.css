@@ -384,6 +384,11 @@ body,
   background: var(--info-soft);
 }
 
+.schedule-directory-button {
+  color: var(--muted-foreground);
+  background: var(--secondary);
+}
+
 .course-slot,
 .requirement-course-table th,
 .data-table th {

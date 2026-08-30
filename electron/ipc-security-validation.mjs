@@ -132,7 +132,7 @@ const NO_ARGUMENT_CHANNELS = [
   'theia:get-academic-calendar-assets', 'theia:window-minimize',
   'theia:window-maximize', 'theia:window-close', 'theia:window-is-maximized',
   'theia:zoom:get', 'theia:select-app-background',
-  'theia:appearance-presets:get', 'theia:open-schedule-pdf',
+  'theia:appearance-presets:get', 'theia:open-schedule-pdf', 'theia:open-schedule-directory',
   'theia:get-model-status', 'theia:clear-model-api-key', 'theia:get-api-status',
   'theia:validate-model-connection', 'theia:summarize-notices',
   'theia:stop-course-selection', 'theia:cancel-model-requests',

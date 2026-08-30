@@ -239,6 +239,7 @@ html.dark[data-app-background="image"] :is(
   [data-slot="select-trigger"],
   .week-picker,
   .schedule-pdf-button,
+  .schedule-directory-button,
   .segmented,
   .segmented button.active,
   .settings-dialog-close,

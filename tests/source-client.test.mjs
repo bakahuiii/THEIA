@@ -346,16 +346,38 @@ test('session client can read HTTPS attachments through a rendered binary loader
     { cookies: { get: async () => [] } },
     {
       binaryLoader: async (url, options) => {
-        calls.push({ url, signal: Boolean(options.signal) })
+        calls.push({
+          url,
+          signal: Boolean(options.signal),
+          method: options.method,
+          headers: options.headers,
+          body: options.body,
+          referer: options.referer,
+        })
         return { url, status: 200, buffer: Buffer.from('%PDF-rendered') }
       },
       requestSession: { fetch: async () => { throw new Error('direct fetch should not run') } },
     },
   )
 
-  const result = await client.binary('https://jwglxt.buct.edu.cn/jwglxt/plan.pdf')
+  const result = await client.binary('https://jwglxt.buct.edu.cn/jwglxt/plan.pdf', {
+    method: 'POST',
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    body: 'xnm=2026&xqm=3',
+    referer: 'https://jwglxt.buct.edu.cn/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html',
+  })
   assert.equal(result.buffer.toString(), '%PDF-rendered')
-  assert.deepEqual(calls, [{ url: 'https://jwglxt.buct.edu.cn/jwglxt/plan.pdf', signal: true }])
+  assert.deepEqual(calls, [{
+    url: 'https://jwglxt.buct.edu.cn/jwglxt/plan.pdf',
+    signal: true,
+    method: 'POST',
+    headers: {
+      'referer': 'https://jwglxt.buct.edu.cn/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html',
+      'x-requested-with': 'XMLHttpRequest',
+    },
+    body: 'xnm=2026&xqm=3',
+    referer: 'https://jwglxt.buct.edu.cn/jwglxt/kbcx/xskbcx_cxXskbcxIndex.html',
+  }])
 })
 
 test('session client rejects non-campus attachment URLs before reading cookies or fetching', async () => {
@@ -397,6 +419,45 @@ test('session client validates every attachment redirect before issuing the next
     cookie: 'SESSION=secret',
     redirect: 'manual',
   }])
+})
+
+test('session client sends a form body for POST binary responses', async () => {
+  let observed
+  const client = new SessionClient(
+    { cookies: { get: async () => [] } },
+    {
+      requestSession: {
+        fetch: async (_url, init) => {
+          observed = {
+            method: init.method,
+            body: init.body,
+            contentType: new Headers(init.headers).get('Content-Type'),
+            referer: new Headers(init.headers).get('Referer'),
+          }
+          return new Response(Buffer.from('%PDF-test'), {
+            status: 200,
+            headers: { 'Content-Type': 'application/pdf' },
+          })
+        },
+      },
+    },
+  )
+
+  const result = await client.binary('https://jwglxt.buct.edu.cn/jwglxt/export', {
+    source: 'schedule PDF',
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'xnm=2026&xqm=3',
+    referer: 'https://jwglxt.buct.edu.cn/jwglxt/kbcx/schedule',
+  })
+
+  assert.equal(result.buffer.toString(), '%PDF-test')
+  assert.deepEqual(observed, {
+    method: 'POST',
+    body: 'xnm=2026&xqm=3',
+    contentType: 'application/x-www-form-urlencoded',
+    referer: 'https://jwglxt.buct.edu.cn/jwglxt/kbcx/schedule',
+  })
 })
 
 test('session client follows campus redirects and rebuilds cookies for each host', async () => {

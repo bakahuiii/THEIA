@@ -1,4 +1,4 @@
-import { CalendarDays, Download, MapPin, UserRound, X } from "lucide-react";
+import { CalendarDays, Download, FolderOpen, MapPin, UserRound, X } from "lucide-react";
 import {
   useEffect,
   useMemo,
@@ -128,12 +128,14 @@ export function ScheduleView({
   terms,
   calendar,
   onExportPdf,
+  onOpenPdfDirectory,
   exportingPdf,
 }: {
   items: ScheduleItem[];
   terms: Term[];
   calendar?: AcademicCalendar | null;
   onExportPdf: () => void;
+  onOpenPdfDirectory: () => void;
   exportingPdf: boolean;
 }) {
   const days = DAY_LABELS;
@@ -420,18 +422,28 @@ export function ScheduleView({
             </label>
           )}
         </div>
-        <button
-          className="secondary-button schedule-pdf-button"
-          onClick={onExportPdf}
-          disabled={exportingPdf}
-          title="调用教务系统原生输出 PDF"
-        >
-          <Download
-            size={17}
-            className={exportingPdf ? "spinning" : undefined}
-          />
-          {exportingPdf ? "正在输出" : "输出 PDF"}
-        </button>
+        <div className="schedule-toolbar-actions">
+          <button
+            className="secondary-button schedule-pdf-button"
+            onClick={onExportPdf}
+            disabled={exportingPdf}
+            title="调用教务系统原生输出 PDF"
+          >
+            <Download
+              size={17}
+              className={exportingPdf ? "spinning" : undefined}
+            />
+            {exportingPdf ? "正在输出" : "输出 PDF"}
+          </button>
+          <button
+            className="secondary-button schedule-directory-button"
+            onClick={onOpenPdfDirectory}
+            title="打开课表 PDF 所在文件夹"
+          >
+            <FolderOpen size={17} />
+            <span>打开本地文件夹</span>
+          </button>
+        </div>
       </div>
 
       <section

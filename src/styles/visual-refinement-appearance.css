@@ -196,6 +196,7 @@ html[data-app-background="image"] .quick-actions button,
 html[data-app-background="image"] [data-slot="select-trigger"],
 html[data-app-background="image"] .week-picker,
 html[data-app-background="image"] .schedule-pdf-button,
+html[data-app-background="image"] .schedule-directory-button,
 html[data-app-background="image"] .segmented,
 html[data-app-background="image"] .segmented button.active,
 html[data-app-background="image"] .settings-dialog-close,
@@ -827,4 +828,3 @@ html[data-app-background="image"] .map-zoom-hud {
     grid-column: 1 / -1;
   }
 }
-

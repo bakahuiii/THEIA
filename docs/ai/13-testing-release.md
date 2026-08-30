@@ -39,7 +39,7 @@ git diff --check
 
 ## 打包
 
-仅用户要求时运行：
+`dist:installer` 是发布命令，会在所有验证通过后自动推送当前提交、创建版本标签并上传 GitHub Release；运行前需要干净的已提交工作树和已登录的 GitHub CLI。
 
 ```powershell
 npm run dist:unpacked

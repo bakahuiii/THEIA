@@ -4,6 +4,7 @@ import {
   Download,
   ExternalLink,
   FileText,
+  Info,
   GraduationCap,
   LoaderCircle,
   MapPin,
@@ -30,7 +31,24 @@ import {
   DialogDescription,
   DialogTitle,
 } from "../components/ui/dialog";
+import {
+  CourseMaterialDialog,
+  type CourseMaterialSelection,
+} from "./courses/CourseMaterialDialog";
 import type { CampusState, Course, CourseResource } from "../types";
+
+const COURSE_INFO_FIELD_LABELS = Object.freeze({
+  department: "所属院系",
+  enrolled: "选课人数",
+  resourceCount: "课程资源数",
+  videoCount: "视频资源数",
+  noticeCount: "课程通知数",
+  assignmentCount: "课程作业数",
+});
+
+function courseInfoFieldLabel(key: string) {
+  return COURSE_INFO_FIELD_LABELS[key as keyof typeof COURSE_INFO_FIELD_LABELS] || key;
+}
 
 function normalizeCourseValue(value?: string | null) {
   return String(value || "")
@@ -112,10 +130,10 @@ export function CoursesView({
   const [termId, setTermId] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("__all__");
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
+  const [selectedMaterial, setSelectedMaterial] = useState<CourseMaterialSelection | null>(null);
   const [refreshingCourseId, setRefreshingCourseId] = useState<string | null>(null);
   const [resourceError, setResourceError] = useState<string | null>(null);
   const [downloadingResourceId, setDownloadingResourceId] = useState<string | null>(null);
-  const [previewMaterialId, setPreviewMaterialId] = useState<string | null>(null);
   const theolCourses = useMemo(
     () => courses.filter((course) => course.source === "theol"),
     [courses],
@@ -160,6 +178,10 @@ export function CoursesView({
   const courseInfoEntries = selectedCourse?.courseInfo
     ? Object.entries(selectedCourse.courseInfo).filter(([, value]) => value !== null && value !== undefined && String(value).trim())
     : [];
+  const courseInfoDetails = courseInfoEntries.map(([key, value]) => ({
+    label: courseInfoFieldLabel(key),
+    value: String(value),
+  }));
   const refreshResources = async (course: Course) => {
     setRefreshingCourseId(course.id);
     setResourceError(null);
@@ -235,7 +257,7 @@ export function CoursesView({
                 {termIds.length > 1 && <small>等 {termIds.length} 个学期</small>}
               </footer>
               <div className="course-card-actions">
-                <button type="button" className="link-button course-material-button" onClick={() => { setResourceError(null); setPreviewMaterialId(null); setSelectedCourseId(course.id); }}>
+                <button type="button" className="link-button course-material-button" onClick={() => { setResourceError(null); setSelectedMaterial(null); setSelectedCourseId(course.id); }}>
                   <FileText size={14} /> 课程资料
                 </button>
               </div>
@@ -260,7 +282,7 @@ export function CoursesView({
           if (!open) {
             setSelectedCourseId(null);
             setResourceError(null);
-            setPreviewMaterialId(null);
+            setSelectedMaterial(null);
           }
         }}
       >
@@ -277,41 +299,80 @@ export function CoursesView({
             </div>
             {selectedCourse.description && <p className="course-detail-description">{selectedCourse.description}</p>}
             {courseInfoEntries.length > 0 && (
-              <dl className="course-detail-facts">
-                {courseInfoEntries.map(([key, value]) => (
-                  <div key={key}>
-                    <dt>{({ department: "所属院系", enrolled: "选课人数", resourceCount: "课程资源数", videoCount: "视频资源数", noticeCount: "课程通知数", assignmentCount: "课程作业数" } as Record<string, string>)[key] || key}</dt>
-                    <dd>{String(value)}</dd>
-                  </div>
-                ))}
-              </dl>
+              <>
+                <div className="course-detail-section-head">
+                  <h4>课程基本信息</h4>
+                  <button
+                    type="button"
+                    className="link-button course-info-button"
+                    onClick={() => {
+                      setSelectedMaterial({
+                        kind: "course-info",
+                        title: selectedCourse.title,
+                        url: selectedCourse.sourceUrl || selectedLinks[0]?.url || null,
+                        sourceLabel: selectedCourse.sourceUrl
+                          ? "课程主页 · 基本信息"
+                          : "课程基本资料 · 内置查看",
+                        preview: selectedCourse.description || null,
+                        details: courseInfoDetails,
+                      })
+                    }}
+                  >
+                    <Info size={14} /> 查看完整基本信息
+                  </button>
+                </div>
+                <dl className="course-detail-facts">
+                  {courseInfoDetails.map((item) => (
+                    <div key={item.label}>
+                      <dt>{item.label}</dt>
+                      <dd>{item.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </>
             )}
             <section className="course-detail-section">
               <div className="course-detail-section-head">
-                <h4>课程基本资料</h4>
+                <h4>课程资料</h4>
                 {selectedCourse.sourceUrl && <button type="button" className="icon-button" title="打开课程主页" aria-label="打开课程主页" onClick={() => void onOpenSource(selectedCourse.sourceUrl!)}><ExternalLink size={15} /></button>}
               </div>
-              {previewLinks.length ? (
-                <div className="course-link-list">
-                  {previewLinks.map((link) => {
-                    const material = "id" in link ? link as { id: string; contentPreview?: string | null } : null;
-                    const materialId = material?.id || link.url;
-                    const hasPreview = Boolean(material?.contentPreview);
-                    return <div className="course-link-item" key={`${link.title}:${link.url}`}>
-                      <FileText size={15} />
-                      <button type="button" className="course-material-preview" onClick={() => hasPreview ? setPreviewMaterialId(previewMaterialId === materialId ? null : materialId) : void onOpenSource(link.url)}><span>{link.title}</span>{hasPreview && <small>{previewMaterialId === materialId ? "收起预览" : "预览"}</small>}</button>
-                      <button type="button" className="icon-button" title="打开学校原站" aria-label="打开学校原站" onClick={() => void onOpenSource(link.url)}><ExternalLink size={13} /></button>
-                    </div>;
-                  })}
-                </div>
-              ) : <p className="course-detail-empty">暂未发现教学大纲、教学日历等入口。</p>}
-              {previewMaterialId && (() => {
-                const material = previewLinks.find((link) => "id" in link && String((link as { id: string }).id) === previewMaterialId) as { contentPreview?: string | null } | undefined;
-                return material?.contentPreview
-                  ? <pre className="course-material-preview-text">{material.contentPreview}</pre>
-                  : null;
-              })()}
-              {otherLinks.length > 0 && <div className="course-link-list course-link-list-secondary">{otherLinks.slice(0, 12).map((link) => <button type="button" className="course-link-item" key={`${link.title}:${link.url}`} onClick={() => void onOpenSource(link.url)}><ExternalLink size={14} /><span>{link.title}</span></button>)}</div>}
+             {previewLinks.length ? (
+               <div className="course-link-list">
+                 {previewLinks.map((link) => {
+                   const material = "id" in link
+                     ? link as {
+                       id: string;
+                       contentPreview?: string | null;
+                       fetchedAt?: string | null;
+                       fetchStatus?: string | null;
+                       fetchError?: string | null;
+                     }
+                     : null;
+                   const hasPreview = Boolean(material?.contentPreview);
+                   return <div className="course-link-item" key={link.title + ":" + link.url}>
+                     <FileText size={15} />
+                     <button type="button" className="course-material-preview" onClick={() => {
+                       setSelectedMaterial({
+                         kind: "teaching-material",
+                         title: link.title,
+                         url: link.url,
+                         sourceLabel: material?.fetchedAt
+                           ? "课程资料 · " + (material.fetchStatus === "succeeded" ? "已抓取" : "抓取失败")
+                           : "课程资料 · 内置查看",
+                         preview: material?.contentPreview || null,
+                         details: [
+                           material?.fetchStatus ? { label: "抓取状态", value: material.fetchStatus } : null,
+                           material?.fetchedAt ? { label: "抓取时间", value: material.fetchedAt } : null,
+                           material?.fetchError ? { label: "抓取错误", value: material.fetchError } : null,
+                         ].filter((item): item is { label: string; value: string } => Boolean(item)),
+                       })
+                     }}><span>{link.title}</span><small>{hasPreview ? "预览" : "详情"}</small></button>
+                     <button type="button" className="icon-button" title="打开学校原站" aria-label="打开学校原站" onClick={() => void onOpenSource(link.url)}><ExternalLink size={13} /></button>
+                   </div>;
+                 })}
+               </div>
+             ) : <p className="course-detail-empty">暂未发现教学大纲、教学日历等入口。</p>}
+             {otherLinks.length > 0 && <div className="course-link-list course-link-list-secondary">{otherLinks.slice(0, 12).map((link) => <div className="course-link-item" key={link.title + ":" + link.url}><FileText size={15} /><button type="button" className="course-material-preview" onClick={() => setSelectedMaterial({ kind: "link", title: link.title, url: link.url, sourceLabel: "课程入口 · 内置查看", preview: null })}><span>{link.title}</span><small>查看</small></button><button type="button" className="icon-button" title="打开学校原站" aria-label="打开学校原站" onClick={() => void onOpenSource(link.url)}><ExternalLink size={14} /></button></div>)}</div>}
             </section>
             <section className="course-detail-section">
               <div className="course-detail-section-head">
@@ -326,7 +387,21 @@ export function CoursesView({
                 <div className="course-resource-list">
                   {selectedResources.map((resource: CourseResource) => <div className="course-resource-item" key={resource.id}>
                     <FileText size={14} />
-                    <button type="button" className="course-resource-link" onClick={() => void onOpenSource(resource.url)}><span>{resource.title}</span><ExternalLink size={13} /></button>
+                    <button type="button" className="course-resource-link" onClick={() => setSelectedMaterial({
+                      kind: "resource",
+                      title: resource.title,
+                      url: resource.url,
+                      sourceLabel: resource.kind === "folder" ? "课程资源 · 文件夹" : "课程资源 · 文件",
+                      preview: null,
+                      details: [
+                        { label: "资源类型", value: resource.kind || "file" },
+                        resource.fileName ? { label: "文件名", value: resource.fileName } : null,
+                        resource.cachedAt ? { label: "缓存时间", value: resource.cachedAt } : null,
+                        resource.cachedFileName ? { label: "缓存文件", value: resource.cachedFileName } : null,
+                        resource.cachedBytes != null ? { label: "缓存大小", value: String(resource.cachedBytes) + " bytes" } : null,
+                      ].filter((item): item is { label: string; value: string } => Boolean(item)),
+                    })}><span>{resource.title}</span></button>
+                    <button type="button" className="icon-button" title="打开学校原站" aria-label="打开学校原站" onClick={() => void onOpenSource(resource.url)}><ExternalLink size={13} /></button>
                     {resource.kind !== "folder" && <button type="button" className="icon-button course-resource-download" title={resource.cachedAt ? "打开已下载文件" : "下载课程资源"} aria-label={resource.cachedAt ? "打开已下载文件" : "下载课程资源"} disabled={downloadingResourceId === resource.id} onClick={() => void downloadResource(selectedCourse, resource)}>
                       {downloadingResourceId === resource.id ? <LoaderCircle size={14} className="spin" /> : <Download size={14} />}
                     </button>}
@@ -337,6 +412,13 @@ export function CoursesView({
           </DialogContent>
         )}
       </Dialog>
+      <CourseMaterialDialog
+        selection={selectedMaterial}
+        onOpenChange={(open) => {
+          if (!open) setSelectedMaterial(null);
+        }}
+        onOpenSource={onOpenSource}
+      />
     </div>
   );
 }

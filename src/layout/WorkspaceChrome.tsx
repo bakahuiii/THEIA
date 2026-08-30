@@ -13,8 +13,9 @@ import {
 import { useEffect, useRef, type ReactNode } from "react";
 import { navItems } from "../ui/navigation";
 import { StatusDot, type ViewId } from "../ui/app-shared";
-import type { AuthStatus, CampusState } from "../types";
+import type { AuthStatus, CampusState, GithubUpdateStatus } from "../types";
 import { ThemeMenu } from "../components/ThemeMenu";
+import { GithubUpdateIndicator } from "../components/GithubUpdateIndicator";
 import {
   Dialog,
   DialogContent,
@@ -39,6 +40,7 @@ type WorkspaceChromeProps = {
   message: string | null;
   messageKind: "info" | "error" | "success";
   syncFailure: string | null;
+  updateStatus: GithubUpdateStatus;
   syncFreshness: {
     kind: "syncing" | "failed" | "idle" | "ready";
     label: string;
@@ -75,6 +77,7 @@ export function WorkspaceChrome({
   message,
   messageKind,
   syncFailure,
+  updateStatus,
   syncFreshness,
   paletteOpen,
   paletteQuery,
@@ -267,6 +270,7 @@ export function WorkspaceChrome({
           </div>
         </div>
       </header>
+      <GithubUpdateIndicator status={updateStatus} />
       {message && (
         <section className="message-bar" data-kind={messageKind}>
           <AlertCircle size={17} />
