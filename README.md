@@ -148,7 +148,7 @@ npm run cli -- work show <assignment-id>
 
 ## 发布说明
 
-v0.6.1 的 Windows 安装包当前未配置可公开验证的 Authenticode 证书，Windows 可能显示未知发布者或 SmartScreen 提示。正式发布产物与校验值会随发布流程生成，详见 [v0.6.1 发行说明](docs/releases/v0.6.1.md)。
+v0.6.1 的 Windows 安装包当前未配置可公开验证的 Authenticode 证书，Windows 可能显示未知发布者或 SmartScreen 提示。安装前请核对 Release 页面提供的 SHA-256；安装包、源码归档和 blockmap 的校验值记录在 [v0.6.1 发行说明](docs/releases/v0.6.1.md) 中。
 
 ## 许可
 
