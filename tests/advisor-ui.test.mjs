@@ -7,6 +7,7 @@ const componentFiles = {
   topAction: '../src/components/advisor/TopAction.tsx',
   riskList: '../src/components/advisor/RiskList.tsx',
   evidence: '../src/components/advisor/EvidenceDrawer.tsx',
+  insights: '../src/components/advisor/AdvisorInsightsDialog.tsx',
   view: '../src/views/AdvisorView.tsx',
 }
 
@@ -68,6 +69,14 @@ const diagnosticsSource = await readFile(
 )
 const stylesSource = await readFile(
   new URL('../src/styles.css', import.meta.url),
+  'utf8',
+)
+const topbarStatusSource = await readFile(
+  new URL('../src/styles/topbar-status.css', import.meta.url),
+  'utf8',
+)
+const surfaceContractSource = await readFile(
+  new URL('../src/styles/surface-contract.css', import.meta.url),
   'utf8',
 )
 const sharedSource = await readFile(
@@ -175,7 +184,7 @@ test('evidence drawer renders only safe evidence metadata and provides an access
 })
 
 test('all primitives reserve responsive width and wrap long user-facing text', () => {
-  for (const source of Object.values(sources)) {
+  for (const source of [sources.quality, sources.topAction, sources.riskList, sources.evidence, sources.insights]) {
     assert.match(source, /min-w-0/)
     assert.match(source, /break-words|overflow-wrap:anywhere/)
   }
@@ -208,14 +217,14 @@ test('advisor what-if UI rejects stale revisions and shares the IPC credit limit
   assert.match(sources.view, /requestSequence !== scenarioRequestSequence\.current/)
   assert.match(sources.view, /scenarioState\.revision === overviewRevision/)
   assert.match(sources.view, /parsed > 500/)
-  assert.match(sources.view, /max="500"/)
+  assert.match(sources.insights, /max="500"/)
 })
 
 test('advisor view displays localized confidence, evidence domains, and requirement provenance', () => {
-  assert.match(sources.view, /advisorConfidenceLabel\(entry\.confidence\)/)
+  assert.match(sources.insights, /advisorConfidenceLabel\(entry\.confidence\)/)
   assert.match(sources.view, /advisorDomainLabel\(diagnosticSelection\.domain\)/)
-  assert.match(sources.view, /advisorRequirementSourceLabel/)
-  assert.doesNotMatch(sources.view, /置信度 \{entry\.confidence\}|\? "官方树结构"/)
+  assert.match(sources.insights, /advisorRequirementSourceLabel/)
+  assert.doesNotMatch(sources.insights, /置信度 \{entry\.confidence\}|\? "官方树结构"/)
 })
 
 test('data quality diagnostics expose the retained snapshot and failed source scope without leaking runtime secrets', () => {
@@ -223,8 +232,8 @@ test('data quality diagnostics expose the retained snapshot and failed source sc
   assert.match(sources.view, /onSelectDomain=\{openDataDiagnostics\}/)
   assert.match(sources.view, /const openDataDiagnostics = \(quality: AdvisorDomainQuality\) => \{[\s\S]*setInsightsOpen\(false\)/)
   assert.match(sources.view, /const restoreInsights = \(\) => \{[\s\S]*setInsightsOpen\(true\)/)
-  assert.match(sources.view, /查看来源证据与数据质量/)
-  assert.match(sources.view, /showEvidence\("学校 GPA 来源差异", gpa\.discrepancy\.evidenceRefs\)/)
+  assert.match(sources.insights, /查看来源证据与数据质量/)
+  assert.match(sources.insights, /showEvidence\("学校 GPA 来源差异", gpa\.discrepancy\.evidenceRefs\)/)
   assert.match(sources.quality, /点击查看原因与保留数据/)
   for (const label of [
     '为什么会出现这个状态',
@@ -343,16 +352,16 @@ test('sync status stays inside the topbar and cannot reflow the advisor workbenc
   const headerEnd = workspaceChromeSource.indexOf('</header>', bannerStart)
   assert.ok(headerStart >= 0 && bannerStart > headerStart && headerEnd > bannerStart)
   assert.ok(loginBannerStart > headerStart && loginBannerStart < headerEnd)
-  assert.match(stylesSource, /\.topbar-sync-banner\s*\{[\s\S]*?flex:\s*0 1 clamp\([\s\S]*?margin:\s*0[\s\S]*?pointer-events:\s*none/)
-  assert.doesNotMatch(stylesSource, /\.topbar-sync-banner\s*\{[^}]*position:\s*absolute/)
-  assert.match(stylesSource, /@media \(max-width: 720px\)\s*\{[\s\S]*?\.topbar-sync-banner\s*\{\s*display:\s*none;/)
+  assert.match(topbarStatusSource, /\.topbar-sync-banner\s*\{[\s\S]*?flex:\s*0 1 clamp\([\s\S]*?margin:\s*0[\s\S]*?pointer-events:\s*none/)
+  assert.doesNotMatch(topbarStatusSource, /\.topbar-sync-banner\s*\{[^}]*position:\s*absolute/)
+  assert.match(topbarStatusSource, /@media \(max-width: 720px\)\s*\{[\s\S]*?\.topbar-sync-banner\s*\{\s*display:\s*none;/)
 })
 
 test('login continuation stays in the topbar instead of pushing the workbench down', () => {
   assert.match(workspaceChromeSource, /!syncing && !authVerificationPending[\s\S]*!allSourcesConnected[\s\S]*topbar-login-banner[\s\S]*onClick=\{onRequestLogin\}/)
   assert.doesNotMatch(workspaceChromeSource.slice(workspaceChromeSource.indexOf('</header>')), /className="login-banner"/)
-  assert.match(stylesSource, /\.topbar-login-banner\s*\{[\s\S]*?flex:\s*0 1 clamp\([\s\S]*?margin:\s*0[\s\S]*?max-width:/)
-  assert.match(stylesSource, /@media \(max-width: 720px\)\s*\{[\s\S]*?\.topbar-login-banner\s*\{\s*display:\s*none;/)
+  assert.match(topbarStatusSource, /\.topbar-login-banner\s*\{[\s\S]*?flex:\s*0 1 clamp\([\s\S]*?margin:\s*0[\s\S]*?max-width:/)
+  assert.match(topbarStatusSource, /@media \(max-width: 720px\)\s*\{[\s\S]*?\.topbar-login-banner\s*\{\s*display:\s*none;/)
 })
 
 test('topbar login copy explains the shared CAS session and keeps both sources explicit', () => {
@@ -367,7 +376,7 @@ test('topbar login copy explains the shared CAS session and keeps both sources e
   assert.match(workspaceChromeSource, /后台恢复未完成；可以继续查看本机已有数据/)
   assert.match(sharedSource, /status\?\.authPending \|\| status\?\.unchecked/)
   assert.match(sharedSource, /正在确认统一身份认证会话/)
-  assert.match(stylesSource, /\.source-status\.pending\s*\{[\s\S]*color: var\(--muted-foreground\)/)
+  assert.match(surfaceContractSource, /\.source-status\.pending\s*\{[\s\S]*color: var\(--muted-foreground\)/)
 })
 
 test('advisor stream keeps tool protocol out of visible text and exposes tool events', () => {

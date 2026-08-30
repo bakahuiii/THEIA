@@ -27,6 +27,7 @@ export const SOURCE_FILES = [
   'scripts/benchmark-advisor.mjs',
   'scripts/smoke-packaged.mjs',
   'scripts/strip-jpeg-metadata.mjs',
+  'scripts/fix-theia-startup.bat',
   'tsconfig.app.json',
   'tsconfig.json',
   'tsconfig.node.json',

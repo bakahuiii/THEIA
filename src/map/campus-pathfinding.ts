@@ -17,6 +17,8 @@ export interface CampusGrid {
   sourceHeight: number;
   contentBox: { left: number; top: number; right: number; bottom: number };
   walkable: string;
+  /** Bitmask of building-coloured cells (warm hues). */
+  building?: string;
 }
 
 export interface GridPoint {
@@ -286,6 +288,173 @@ export function findPath(
         gScore[neighbor] = tentative;
         cameFrom[neighbor] = current;
         open.push(tentative + heuristic({ x: nx, y: ny }, goalSnap), neighbor);
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Collect walkable cells on the building perimeter around a mark.
+ *
+ * The mark sits on the building (its grid cell is usually blocked). We flood
+ * the connected blocked region from the nearest blocked cell (bounded by a
+ * Manhattan radius) and return every walkable cell adjacent to that region.
+ * Those are the "doors" — the whole building edge is walkable in/out, and the
+ * multi-source A* picks whichever door gives the shortest route. This works for
+ * any building colour, not just the pink/purple ones.
+ */
+export function buildingEdgePoints(
+  grid: { width: number; height: number },
+  cells: Uint8Array,
+  x: number,
+  y: number,
+  radius = 24,
+): GridPoint[] {
+  const { width, height } = grid;
+  const total = width * height;
+
+  // Nearest blocked (building) cell from the mark.
+  const seed = nearestBlocked(grid, cells, x, y, radius);
+  if (!seed) {
+    const fallback = nearestWalkable(grid, cells, x, y, radius);
+    return fallback ? [fallback] : [];
+  }
+
+  const blocked = new Uint8Array(total);
+  const queue: number[] = [seed.y * width + seed.x];
+  blocked[seed.y * width + seed.x] = 1;
+  const doorSet = new Set<number>();
+  const doors: GridPoint[] = [];
+
+  while (queue.length) {
+    const idx = queue.pop()!;
+    const cx = idx % width;
+    const cy = (idx - cx) / width;
+    for (const [dx, dy] of DIRS8) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+      if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+      const ni = ny * width + nx;
+      if (cells[ni]) {
+        // Walkable neighbour = a door on the building perimeter.
+        if (!doorSet.has(ni)) {
+          doorSet.add(ni);
+          doors.push({ x: nx, y: ny });
+        }
+        continue;
+      }
+      if (blocked[ni]) continue;
+      // Stay within the bounded building footprint.
+      if (Math.abs(nx - seed.x) + Math.abs(ny - seed.y) > radius) continue;
+      blocked[ni] = 1;
+      queue.push(ni);
+    }
+  }
+  return doors;
+}
+
+/** Find the nearest blocked (building/obstacle) cell within a Manhattan radius. */
+export function nearestBlocked(
+  grid: { width: number; height: number },
+  cells: Uint8Array,
+  x: number,
+  y: number,
+  maxRadius = 24,
+): GridPoint | null {
+  if (!isWalkable(grid, cells, { x, y })) return { x, y };
+  for (let r = 1; r <= maxRadius; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        if (!isWalkable(grid, cells, { x: x + dx, y: y + dy })) {
+          return { x: x + dx, y: y + dy };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Multi-source A* between two building edge areas. Every walkable cell in
+ * `startPoints` is an equal-cost source; the search stops as soon as any cell
+ * in `goalPoints` is reached, giving the shortest edge-to-edge route.
+ */
+export function findPathBetweenAreas(
+  grid: { width: number; height: number },
+  cells: Uint8Array,
+  startPoints: GridPoint[],
+  goalPoints: GridPoint[],
+): GridPoint[] | null {
+  const { width, height } = grid;
+  const total = width * height;
+
+  // Goal index set + heuristic anchor (centroid of the goal area).
+  const goalSet = new Set<number>();
+  let goalSumX = 0;
+  let goalSumY = 0;
+  for (const p of goalPoints) {
+    if (!isWalkable(grid, cells, p)) continue;
+    goalSet.add(p.y * width + p.x);
+    goalSumX += p.x;
+    goalSumY += p.y;
+  }
+  if (!goalSet.size) return null;
+  const goalAnchor = {
+    x: Math.round(goalSumX / goalSet.size),
+    y: Math.round(goalSumY / goalSet.size),
+  };
+
+  const gScore = new Float64Array(total).fill(Infinity);
+  const cameFrom = new Int32Array(total).fill(-1);
+  const closed = new Uint8Array(total);
+  const open = new MinHeap<number>();
+
+  let startCount = 0;
+  for (const p of startPoints) {
+    if (!isWalkable(grid, cells, p)) continue;
+    const idx = p.y * width + p.x;
+    if (gScore[idx] === 0) continue;
+    gScore[idx] = 0;
+    cameFrom[idx] = -1;
+    open.push(heuristic(p, goalAnchor), idx);
+    startCount += 1;
+  }
+  if (!startCount) return null;
+
+  while (open.size > 0) {
+    const current = open.pop()!;
+    if (goalSet.has(current)) {
+      const path: GridPoint[] = [];
+      let node = current;
+      while (node !== -1) {
+        path.push({ x: node % width, y: Math.floor(node / width) });
+        node = cameFrom[node];
+      }
+      path.reverse();
+      return path;
+    }
+    if (closed[current]) continue;
+    closed[current] = 1;
+
+    const cx = current % width;
+    const cy = Math.floor(current / width);
+    for (const [dx, dy] of DIRS8) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+      if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+      if (dx !== 0 && dy !== 0) {
+        if (cardinalBlocked(grid, cells, cx + dx, cy) || cardinalBlocked(grid, cells, cx, cy + dy)) continue;
+      }
+      const neighbor = ny * width + nx;
+      if (!cells[neighbor] || closed[neighbor]) continue;
+      const stepCost = dx !== 0 && dy !== 0 ? Math.SQRT2 : 1;
+      const tentative = gScore[current] + stepCost;
+      if (tentative < gScore[neighbor]) {
+        gScore[neighbor] = tentative;
+        cameFrom[neighbor] = current;
+        open.push(tentative + heuristic({ x: nx, y: ny }, goalAnchor), neighbor);
       }
     }
   }

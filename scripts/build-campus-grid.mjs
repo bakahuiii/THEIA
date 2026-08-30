@@ -43,6 +43,25 @@ function closeToBackground(r, g, b) {
   );
 }
 
+// Buildings are drawn in warm tones (pink/purple/red-brown) on the campus map.
+// Detect them by hue: warm hues (0-65 and 280-360 degrees) with enough
+// saturation, excluding the pale background and green trees.
+function isBuildingColor(r, g, b) {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  if (delta < 14) return false; // grey / near-grey (roads, white walls)
+  let hue = 0;
+  if (max === r) hue = ((g - b) / delta) % 6;
+  else if (max === g) hue = (b - r) / delta + 2;
+  else hue = (r - g) / delta + 4;
+  hue = (hue * 60 + 360) % 360;
+  const warm = hue <= 65 || hue >= 280;
+  if (!warm) return false; // greens (trees), blue-greens (background)
+  const saturation = delta / max;
+  return saturation > 0.18 || max < 120;
+}
+
 function findContentBox(width, height, data) {
   // Scan from each edge for the first pixel that differs from the canvas color.
   const diff = (x, y) => {
@@ -84,6 +103,7 @@ function build() {
   const stepY = height / GRID_ROWS;
 
   const bits = new Uint8Array(GRID_COLS * GRID_ROWS);
+  const buildingBits = new Uint8Array(GRID_COLS * GRID_ROWS);
   for (let gy = 0; gy < GRID_ROWS; gy++) {
     for (let gx = 0; gx < GRID_COLS; gx++) {
       const px = Math.round((gx + 0.5) * stepX);
@@ -98,19 +118,24 @@ function build() {
         continue;
       }
       const i = (py * width + px) * 4;
-      bits[gy * GRID_COLS + gx] = closeToBackground(data[i], data[i + 1], data[i + 2]) ? 1 : 0;
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      bits[gy * GRID_COLS + gx] = closeToBackground(r, g, b) ? 1 : 0;
+      buildingBits[gy * GRID_COLS + gx] = isBuildingColor(r, g, b) ? 1 : 0;
     }
   }
 
-  // 4-neighbor connectivity sanity: report the largest connected component so
-  // we can eyeball whether the road network is usable.
-  const seen = new Uint8Array(GRID_COLS * GRID_ROWS);
-  let largest = 0;
+  // ---- Keep only the largest connected component (the road network) --------
+  // Blank background outside the campus boundary forms small isolated pockets
+  // at the map corners. Keep only the largest 4-connected component so paths
+  // never route outside the campus.
+  const component = new Int32Array(GRID_COLS * GRID_ROWS).fill(-1);
+  const sizes = [];
+  let nextId = 0;
   for (let i = 0; i < GRID_COLS * GRID_ROWS; i++) {
-    if (!bits[i] || seen[i]) continue;
-    let size = 0;
+    if (!bits[i] || component[i] !== -1) continue;
     const stack = [i];
-    seen[i] = 1;
+    component[i] = nextId;
+    let size = 0;
     while (stack.length) {
       const c = stack.pop();
       size += 1;
@@ -120,20 +145,39 @@ function build() {
         const nx = x + dx, ny = y + dy;
         if (nx < 0 || ny < 0 || nx >= GRID_COLS || ny >= GRID_ROWS) continue;
         const ni = ny * GRID_COLS + nx;
-        if (bits[ni] && !seen[ni]) {
-          seen[ni] = 1;
+        if (bits[ni] && component[ni] === -1) {
+          component[ni] = nextId;
           stack.push(ni);
         }
       }
     }
-    if (size > largest) largest = size;
+    sizes.push(size);
+    nextId += 1;
   }
+  let largestId = 0;
+  let largestSize = 0;
+  for (let id = 0; id < sizes.length; id++) {
+    if (sizes[id] > largestSize) {
+      largestSize = sizes[id];
+      largestId = id;
+    }
+  }
+  let removed = 0;
+  for (let i = 0; i < GRID_COLS * GRID_ROWS; i++) {
+    if (bits[i] && component[i] !== largestId) {
+      bits[i] = 0;
+      removed += 1;
+    }
+  }
+  const walkTotal = bits.reduce((a, b) => a + b, 0);
+  console.log(`components: ${sizes.length}, largest: ${largestSize}, outside removed: ${removed}, final walkable: ${(100 * walkTotal / (GRID_COLS * GRID_ROWS)).toFixed(1)}%`);
 
   const byteLength = Math.ceil((GRID_COLS * GRID_ROWS) / 8);
   const packed = Buffer.alloc(byteLength);
+  const packedBuilding = Buffer.alloc(byteLength);
   for (let i = 0; i < GRID_COLS * GRID_ROWS; i++) {
-    if (!bits[i]) continue;
-    packed[i >> 3] |= 0x80 >> (i & 7);
+    if (bits[i]) packed[i >> 3] |= 0x80 >> (i & 7);
+    if (buildingBits[i]) packedBuilding[i >> 3] |= 0x80 >> (i & 7);
   }
 
   const grid = {
@@ -146,14 +190,16 @@ function build() {
     sourceHeight: height,
     contentBox,
     walkable: packed.toString("base64"),
+    building: packedBuilding.toString("base64"),
   };
 
   mkdirSync(dirname(OUT), { recursive: true });
   writeFileSync(OUT, `${JSON.stringify(grid)}\n`, "utf8");
   const walk = bits.reduce((a, b) => a + b, 0);
+  const build = buildingBits.reduce((a, b) => a + b, 0);
   console.log(
     `grid written: ${GRID_COLS}x${GRID_ROWS} step=${grid.stepPx}px ` +
-      `walkable=${(100 * walk) / bits.length}% largestComponent=${(100 * largest) / walk}% of walkable`,
+      `walkable=${(100 * walk) / bits.length}% building=${(100 * build) / bits.length}%`,
   );
 }
 

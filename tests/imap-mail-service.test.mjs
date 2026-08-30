@@ -2,6 +2,40 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { ImapMailService } from '../core/imap-mail-service.mjs'
 
+test('IMAP stopAndWait waits for an active poll before returning', async () => {
+  let state = {
+    settings: { mail: { enabled: true, pollIntervalMinutes: 5 } },
+    emails: [],
+    sync: { sources: {} },
+  }
+  let releaseStatus
+  let resolveConnected
+  const statusGate = new Promise((resolve) => { releaseStatus = resolve })
+  const connected = new Promise((resolve) => { resolveConnected = resolve })
+  const service = new ImapMailService({
+    store: {
+      snapshot: () => state,
+      update: async (fn) => { state = fn(state); return state },
+    },
+    vault: { readCredentials: async () => ({ username: 'student', password: 'mail-password' }) },
+    createClient: () => ({
+      connect: async () => { resolveConnected() },
+      logout: async () => {},
+      getMailboxLock: async () => ({ release: () => {} }),
+      status: async () => { await statusGate; return { messages: 0 } },
+    }),
+  })
+
+  const active = service.poll({ notify: false })
+  await connected
+  let stopped = false
+  const stopping = service.stopAndWait().then(() => { stopped = true })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(stopped, false)
+  releaseStatus()
+  await Promise.all([active, stopping])
+})
+
 test('IMAP sync reads all recent inbox metadata and fetches a body only on demand', async () => {
   let state = {
     settings: { mail: { enabled: true, pollIntervalMinutes: 5 } },

@@ -440,4 +440,10 @@ export class ImapMailService {
     if (this.timer) clearInterval(this.timer)
     this.timer = null
   }
+
+  async stopAndWait() {
+    const active = this.active
+    this.stop()
+    await Promise.allSettled(active ? [active] : [])
+  }
 }

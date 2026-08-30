@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   CalendarDays,
-  ExternalLink,
   FileText,
   Image,
   LoaderCircle,
@@ -19,6 +18,7 @@ import type { AcademicCalendarAssetsSnapshot, LocalDataCatalog } from "../../typ
 import { formatDateTime } from "../../ui/app-shared";
 
 type AssetKey = "calendar" | "teachingSchedule" | "weeklyCalendar";
+type Preview = { title: string; url: string; kind: "image" | "pdf" };
 
 const ASSETS: Array<{ key: AssetKey; title: string; detail: string; icon: typeof Image }> = [
   { key: "calendar", title: "校历", detail: "高清校历图", icon: Image },
@@ -42,12 +42,14 @@ export function AcademicCalendar({
   const [manifest, setManifest] = useState<AcademicCalendarAssetsSnapshot | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [preview, setPreview] = useState<{ title: string; url: string } | null>(null);
+  const [preview, setPreview] = useState<Preview | null>(null);
 
   const catalog = dataCatalog.collections.academicCalendar;
   const assets = manifest?.assets || catalog?.assets || {};
   const calendar = manifest?.calendar || catalog?.calendar || null;
-  const calendarError = manifest?.calendarError || catalog?.calendarError || null;
+  // A loaded manifest is authoritative, including a successful null error.
+  // Do not resurrect a stale catalog error after OCR has recovered.
+  const calendarError = manifest ? manifest.calendarError : catalog?.calendarError || null;
   const refreshedAt = manifest?.updatedAt || catalog?.lastRefreshedAt || null;
   const assetUrl = useCallback(
     (key: AssetKey) =>
@@ -169,28 +171,17 @@ export function AcademicCalendar({
                     : "将在后台自动获取"}
                 </span>
               </div>
-              {ready &&
-                (isPdf ? (
-                  <button
-                    type="button"
-                    className="academic-calendar-open"
-                    aria-label={`阅读${title}`}
-                    title={`阅读${title}`}
-                    onClick={() => setPreview({ title, url })}
-                  >
-                    <Maximize2 size={16} />
-                  </button>
-                ) : (
-                  <a
-                    href={url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="academic-calendar-open"
-                    aria-label={`打开${title}`}
-                  >
-                    <ExternalLink size={16} />
-                  </a>
-                ))}
+              {ready && (
+                <button
+                  type="button"
+                  className="academic-calendar-open"
+                  aria-label={isPdf ? `阅读${title}` : `查看${title}大图`}
+                  title={isPdf ? `阅读${title}` : `查看${title}大图`}
+                  onClick={() => setPreview({ title, url, kind: isPdf ? "pdf" : "image" })}
+                >
+                  <Maximize2 size={16} />
+                </button>
+              )}
             </article>
           );
         })}
@@ -203,21 +194,27 @@ export function AcademicCalendar({
         }}
       >
         {preview && (
-          <DialogContent className="academic-calendar-pdf-dialog">
+          <DialogContent className={`academic-calendar-pdf-dialog ${preview.kind === "image" ? "academic-calendar-image-dialog" : ""}`}>
             <div className="academic-calendar-pdf-heading">
               <div className="academic-calendar-pdf-heading-icon">
-                <FileText size={18} />
+                {preview.kind === "image" ? <Image size={18} /> : <FileText size={18} />}
               </div>
               <div>
                 <DialogTitle>{preview.title}</DialogTitle>
-                <DialogDescription>校历资料 · 本地 PDF 阅读</DialogDescription>
+                <DialogDescription>{preview.kind === "image" ? "校历资料 · 高清图片预览" : "校历资料 · 本地 PDF 阅读"}</DialogDescription>
               </div>
             </div>
-            <iframe
-              className="academic-calendar-pdf-reader"
-              title={preview.title}
-              src={`${preview.url}#toolbar=1&navpanes=0&view=FitH`}
-            />
+            {preview.kind === "image" ? (
+              <div className="academic-calendar-image-reader">
+                <img src={preview.url} alt={`${preview.title}大图`} />
+              </div>
+            ) : (
+              <iframe
+                className="academic-calendar-pdf-reader"
+                title={preview.title}
+                src={`${preview.url}#toolbar=1&navpanes=0&view=FitH`}
+              />
+            )}
           </DialogContent>
         )}
       </Dialog>

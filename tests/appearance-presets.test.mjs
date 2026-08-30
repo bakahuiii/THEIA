@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 const variants = [
@@ -10,8 +10,23 @@ const variants = [
   ['buct-lake-winter', 'buctLakeWinterPreset'],
 ]
 
+async function readPersonalizationSource() {
+  const [hook, model] = await Promise.all([
+    readFile(new URL('../src/hooks/usePersonalization.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/hooks/personalization-model.ts', import.meta.url), 'utf8'),
+  ])
+  return `${hook}\n${model}`
+}
+
+async function readStyleSource() {
+  const directory = new URL('../src/styles/', import.meta.url)
+  const names = (await readdir(directory)).filter((name) => name.endsWith('.css'))
+  const files = await Promise.all(names.map((name) => readFile(new URL(name, directory), 'utf8')))
+  return files.join('\n')
+}
+
 test('built-in lake background names come from their preset details', async () => {
-  const source = await readFile(new URL('../src/hooks/usePersonalization.ts', import.meta.url), 'utf8')
+  const source = await readFile(new URL('../src/hooks/personalization-model.ts', import.meta.url), 'utf8')
 
   for (const [id, variable] of variants) {
     const preset = JSON.parse(await readFile(new URL(`../src/assets/appearance-presets/${id}.json`, import.meta.url), 'utf8'))
@@ -27,7 +42,7 @@ test('built-in lake background names come from their preset details', async () =
 
 test('appearance transparency remains authoritative for every glass layer', async () => {
   const source = await readFile(new URL('../src/hooks/usePersonalization.ts', import.meta.url), 'utf8')
-  const styles = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8')
+  const styles = await readStyleSource()
 
   assert.match(source, /const surfaceOpacity = workspaceOpacity/)
   assert.match(source, /const surfaceStrongOpacity = workspaceOpacity/)
@@ -41,7 +56,7 @@ test('appearance transparency remains authoritative for every glass layer', asyn
 })
 
 test('non-advisor surfaces share one contract while the advisor stays isolated', async () => {
-  const styles = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8')
+  const styles = await readStyleSource()
 
   assert.match(styles, /\.app-shell:not\(\.view-advisor\)\s*\{\s*--theia-global-surface/)
   assert.match(styles, /\.academic-records-sidebar,\s*\.academic-records-panel/)
@@ -52,10 +67,16 @@ test('non-advisor surfaces share one contract while the advisor stays isolated',
 })
 
 test('new installs use the approved animated scene defaults and keep chrome text unselectable', async () => {
-  const personalization = await readFile(new URL('../src/hooks/usePersonalization.ts', import.meta.url), 'utf8')
-  const tuning = await readFile(new URL('../src/components/parallax3d/parallax-tuning.ts', import.meta.url), 'utf8')
-  const scene = await readFile(new URL('../src/components/parallax3d/ParallaxScene.tsx', import.meta.url), 'utf8')
-  const styles = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8')
+  const personalization = await readPersonalizationSource()
+  const tuning = (await Promise.all([
+    '../src/components/parallax3d/parallax-tuning.ts',
+    '../src/components/parallax3d/parallax-scene-config.ts',
+  ].map((path) => readFile(new URL(path, import.meta.url), 'utf8')))).join('\n')
+  const scene = (await Promise.all([
+    '../src/components/parallax3d/ParallaxScene.tsx',
+    '../src/components/parallax3d/parallax-scene-config.ts',
+  ].map((path) => readFile(new URL(path, import.meta.url), 'utf8')))).join('\n')
+  const styles = await readStyleSource()
   const advisorStyles = await readFile(new URL('../src/components/advisor/AdvisorWorkbench.v2.css', import.meta.url), 'utf8')
 
   assert.match(personalization, /const defaults: Personalization = \{[\s\S]*scene: "parallax-3d"[\s\S]*background: "none"/)
@@ -64,7 +85,7 @@ test('new installs use the approved animated scene defaults and keep chrome text
   assert.match(personalization, /preferences = normalize\(\{[\s\S]*scene: "parallax-3d"/)
   assert.match(tuning, /orbitX: 0\.43[\s\S]*orbitY: 0\.34[\s\S]*depthScale: 1\.4/)
   assert.match(tuning, /laplaceSpeed: 0\.61[\s\S]*laplaceTailFrequency: 0\.64/)
-  assert.match(scene, /const DEFAULT_TUNING:[\s\S]*spectralAberration: 0\.85[\s\S]*spectralGlitch: 0\.09/)
+  assert.match(tuning, /const DEFAULT_PARALLAX_TUNING:[\s\S]*spectralAberration: 0\.85[\s\S]*spectralGlitch: 0\.09/)
   assert.match(styles, /html \{[^}]*user-select: none/)
   assert.match(styles, /input, textarea, \[contenteditable="true"\] \{ user-select: text/)
   assert.match(advisorStyles, /\.advisor-v2-conversation \{[\s\S]*user-select: text/)
@@ -72,9 +93,12 @@ test('new installs use the approved animated scene defaults and keep chrome text
 
 test('private animated preset uses its artwork and keeps tuning controls hidden', async () => {
   const presets = await readFile(new URL('../src/lib/appearance-presets.ts', import.meta.url), 'utf8')
-  const settings = await readFile(new URL('../src/views/settings/AppearanceSettings.tsx', import.meta.url), 'utf8')
+  const [settings, visualPresets] = await Promise.all([
+    readFile(new URL('../src/views/settings/AppearanceSettings.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/views/settings/appearance/AppearanceVisualPresets.tsx', import.meta.url), 'utf8'),
+  ])
   const menu = await readFile(new URL('../src/components/ThemeMenu.tsx', import.meta.url), 'utf8')
-  const styles = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8')
+  const styles = await readStyleSource()
   const image = await readFile(new URL('../src/assets/bakahui-private-goods.jpg', import.meta.url))
 
   assert.match(presets, /label: "bakahui的私货"/)
@@ -82,7 +106,7 @@ test('private animated preset uses its artwork and keeps tuning controls hidden'
   assert.match(presets, /bakahui-private-goods\.jpg/)
   assert.ok(image.length > 100_000)
   assert.match(settings, /<section\s+hidden\s+className=\{`appearance-parallax-tuning/)
-  assert.match(settings, /has-preview-image/)
+  assert.match(visualPresets, /has-preview-image/)
   assert.match(menu, /appearance-menu-preset-swatch\$\{preset\.previewImage \? " has-preview-image"/)
   assert.match(styles, /\.appearance-visual-preset-swatch\.has-preview-image/)
   assert.match(styles, /\.appearance-menu-preset-swatch\.has-preview-image/)

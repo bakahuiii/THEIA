@@ -132,3 +132,71 @@ test("nearestWalkableInLargest prefers the main road network", () => {
   assert.ok(snapped !== null);
   assert.equal(components[snapped.y * grid.width + snapped.x], largestId);
 });
+
+test("grid keeps only the single road network component (outside disabled)", () => {
+  const cells = pf.decodeWalkable(grid);
+  const { components, largestId, sizes } = pf.labelComponents(grid, cells);
+  // After build-time pruning, the walkable cells form ONE connected component,
+  // so outside-campus pockets cannot be routed through.
+  assert.equal(sizes.length, 1, "grid should be a single connected component");
+  assert.equal(largestId, 0);
+  const walk = cells.reduce((a, b) => a + b, 0);
+  assert.ok(walk > 0);
+});
+
+test("buildingEdgePoints returns walkable cells on the building perimeter", () => {
+  const cells = pf.decodeWalkable(grid);
+  // 二教 (3796,4452) mark.
+  const gp = pf.pixelToGrid(grid, 3796, 4452);
+  const points = pf.buildingEdgePoints(grid, cells, gp.x, gp.y, 24);
+  assert.ok(points.length >= 4, `expected edge points, got ${points.length}`);
+  for (const p of points) {
+    assert.ok(pf.isWalkable(grid, cells, p), `edge point (${p.x}, ${p.y}) not walkable`);
+    // Every edge point must be adjacent to the blocked building region.
+    let touches = false;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      if (!pf.isWalkable(grid, cells, { x: p.x + dx, y: p.y + dy })) { touches = true; break; }
+    }
+    assert.ok(touches, `edge point (${p.x}, ${p.y}) does not touch the building`);
+  }
+});
+
+test("buildingEdgePoints reaches a mark inside a non-pink building (一教)", () => {
+  const cells = pf.decodeWalkable(grid);
+  // 一教 (4057,7552) - the mark cell is blocked (inside the building).
+  const gp = pf.pixelToGrid(grid, 4057, 7552);
+  assert.equal(pf.isWalkable(grid, cells, gp), false, "mark should sit on the building");
+  const doors = pf.buildingEdgePoints(grid, cells, gp.x, gp.y, 30);
+  assert.ok(doors.length >= 4, `expected doors on the building perimeter, got ${doors.length}`);
+  for (const p of doors) {
+    assert.ok(pf.isWalkable(grid, cells, p), `door (${p.x}, ${p.y}) not walkable`);
+  }
+});
+
+test("grid exposes a building mask with valid dimensions", () => {
+  assert.ok(grid.building, "grid.json should include a building mask");
+  const building = pf.decodeWalkable({
+    width: grid.width,
+    height: grid.height,
+    walkable: grid.building,
+  });
+  assert.equal(building.length, grid.width * grid.height);
+  const count = building.reduce((a, b) => a + b, 0);
+  assert.ok(count > 0, "building mask should contain building cells");
+});
+
+test("findPathBetweenAreas finds an edge-to-edge route", () => {
+  const cells = pf.decodeWalkable(grid);
+  // 紫竹苑1 (1788,4807) → 一教 (4057,7552): far apart, no shared door.
+  const fromG = pf.pixelToGrid(grid, 1788, 4807);
+  const toG = pf.pixelToGrid(grid, 4057, 7552);
+  const fromEdge = pf.buildingEdgePoints(grid, cells, fromG.x, fromG.y, 24);
+  const toEdge = pf.buildingEdgePoints(grid, cells, toG.x, toG.y, 24);
+  assert.ok(fromEdge.length > 0 && toEdge.length > 0);
+  const path = pf.findPathBetweenAreas(grid, cells, fromEdge, toEdge);
+  assert.ok(path !== null, "expected a path between the two buildings");
+  assert.ok(path.length >= 2);
+  for (const p of path) {
+    assert.ok(pf.isWalkable(grid, cells, p), `path point (${p.x}, ${p.y}) not walkable`);
+  }
+});

@@ -1,0 +1,361 @@
+/* Course selection is planned before the portal opens. Keep the target and
+ * execution controls in one stable surface; the school-wide catalog remains a
+ * separate lookup tool below it. */
+.selection-command {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  display: grid;
+  gap: 18px;
+  padding: 21px;
+  background: color-mix(in srgb, var(--card) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  border-radius: 17px;
+  box-shadow: 0 18px 42px color-mix(in srgb, var(--foreground) 7%, transparent);
+  overflow: clip;
+}
+
+.selection-command-head,
+.selection-command-actions,
+.selection-plan-grid,
+.selection-plan-target,
+.selection-plan-status,
+.selection-workbench {
+  min-width: 0;
+}
+
+.selection-command-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.selection-command-head h2 {
+  margin: 4px 0 0;
+  color: var(--foreground);
+  font-size: 21px;
+  line-height: 1.18;
+}
+
+.selection-command-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+}
+
+.selection-plan-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+}
+
+.selection-plan-target {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 72px;
+  padding: 13px 14px;
+  background: color-mix(in srgb, var(--secondary) 64%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 13px;
+  transition: border-color .2s ease, background .2s ease, transform .2s ease;
+}
+
+.selection-plan-target.ready {
+  background: color-mix(in srgb, var(--primary) 8%, var(--secondary));
+  border-color: color-mix(in srgb, var(--primary) 31%, var(--border));
+}
+
+.selection-plan-target:hover { transform: translateY(-1px); }
+
+.selection-plan-target-icon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 13%, transparent);
+  border-radius: 12px;
+}
+
+.selection-plan-target > div:nth-child(2) { min-width: 0; display: grid; gap: 3px; }
+.selection-plan-target span { color: var(--muted-foreground); font-size: 10px; font-weight: 750; }
+.selection-plan-target strong { overflow: hidden; color: var(--foreground); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.selection-plan-target small { overflow: hidden; color: var(--muted-foreground); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+
+.selection-plan-status {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 1px;
+  padding: 4px;
+  background: color-mix(in srgb, var(--secondary) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 13px;
+}
+
+.selection-plan-status > span {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  width: 54px;
+  color: var(--muted-foreground);
+  border-radius: 9px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.selection-plan-status i {
+  width: 6px;
+  height: 6px;
+  background: color-mix(in srgb, var(--muted-foreground) 45%, transparent);
+  border-radius: 999px;
+  transition: background .2s ease, box-shadow .2s ease;
+}
+
+.selection-plan-status > span.ready { color: var(--foreground); background: color-mix(in srgb, var(--card) 62%, transparent); }
+.selection-plan-status > span.ready i { background: var(--primary); box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 13%, transparent); }
+
+.selection-queue-start { white-space: nowrap; }
+
+.selection-plan-queue {
+  display: grid;
+  gap: 10px;
+  padding: 13px;
+  background: color-mix(in srgb, var(--secondary) 44%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 13px;
+}
+
+.selection-plan-live {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(250px, 1fr);
+  align-items: stretch;
+  gap: 12px;
+}
+
+.selection-plan-queue-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.selection-plan-queue-head > span { color: var(--foreground); font-size: 12px; font-weight: 760; }
+.selection-plan-queue-head > small { color: var(--muted-foreground); font-size: 11px; }
+
+.selection-plan-queue-table-wrap { max-height: 278px; border-radius: 10px; }
+.selection-plan-queue-table { min-width: 760px; }
+.selection-plan-queue-table tbody tr { transition: background .16s ease; }
+.selection-plan-queue-table tbody tr:hover,
+.selection-plan-queue-table tbody tr.selected { background: color-mix(in srgb, var(--primary) 9%, transparent); }
+
+.selection-live-log {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 188px;
+  max-height: 278px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--secondary) 44%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 13px;
+}
+
+.selection-live-log-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 13px 9px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+}
+
+.selection-live-log-head > span { color: var(--foreground); font-size: 12px; font-weight: 760; }
+.selection-live-log-head > small { color: var(--muted-foreground); font-size: 10px; }
+
+.selection-live-log-list { min-height: 0; overflow: auto; padding: 5px 7px; scrollbar-width: thin; }
+.selection-live-log-entry {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 8px;
+  padding: 7px 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 48%, transparent);
+}
+.selection-live-log-entry:last-child { border-bottom: 0; }
+.selection-live-log-entry time { padding-top: 1px; color: var(--muted-foreground); font-size: 10px; font-variant-numeric: tabular-nums; }
+.selection-live-log-entry > div { display: grid; min-width: 0; gap: 2px; }
+.selection-live-log-entry strong { color: var(--foreground); font-size: 11px; }
+.selection-live-log-entry span { color: var(--muted-foreground); font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
+.selection-live-log-entry.success strong { color: var(--teal, #11998e); }
+.selection-live-log-entry.error strong { color: var(--destructive); }
+.selection-live-log-entry.warning strong { color: var(--warning, #c48413); }
+.selection-live-log-entry.stopped strong { color: var(--muted-foreground); }
+.selection-live-log-empty { display: grid; min-height: 100%; place-items: center; padding: 18px; color: var(--muted-foreground); font-size: 11px; text-align: center; }
+
+.selection-sentinel-button.active {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--primary) 14%, var(--secondary));
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+}
+
+.selection-plan-controls {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(128px, 1fr)) auto;
+  align-items: end;
+  gap: 10px;
+  padding: 2px 1px 0;
+}
+
+.selection-plan-controls label { display: grid; gap: 6px; min-width: 0; }
+.selection-plan-controls label > span { color: var(--muted-foreground); font-size: 10px; font-weight: 700; }
+.selection-plan-controls input { width: 100%; min-width: 0; }
+
+@media (max-width: 960px) {
+  .selection-plan-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .selection-plan-live { grid-template-columns: 1fr; }
+  .selection-live-log { min-height: 190px; }
+}
+
+.selection-plan-empty,
+.selection-catalog-empty {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 52px;
+  padding: 0 14px;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--secondary) 43%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 12px;
+  font-size: 12px;
+}
+
+.selection-plan-empty svg,
+.selection-catalog-empty svg { color: var(--primary); }
+
+.selection-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(278px, .5fr);
+  align-items: stretch;
+  gap: 0;
+  background: color-mix(in srgb, var(--secondary) 32%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 14px;
+  overflow: clip;
+}
+
+.selection-workbench .selection-catalog,
+.selection-workbench .selection-runner {
+  min-width: 0;
+  padding: 16px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.selection-workbench .selection-runner {
+  border-left: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+}
+
+.selection-workbench .selection-controls {
+  margin: 0 0 14px;
+  padding: 0 0 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 68%, transparent);
+}
+
+.selection-workbench .selection-candidate-table-wrap {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  max-height: 392px;
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  border-radius: 11px;
+}
+
+.selection-workbench .selection-table { min-width: 670px; }
+.selection-workbench .selection-table tbody tr { transition: background .16s ease; }
+.selection-workbench .selection-table tbody tr:hover,
+.selection-workbench .selection-table tbody tr.selected { background: color-mix(in srgb, var(--primary) 9%, transparent); }
+
+.selection-workbench .selection-target {
+  padding: 13px;
+  background: color-mix(in srgb, var(--card) 53%, transparent);
+  border-color: color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 11px;
+}
+
+.selection-workbench .selection-form input {
+  background: color-mix(in srgb, var(--card) 58%, transparent);
+  border-color: color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 9px;
+}
+
+.selection-workbench .selection-attempts {
+  background: color-mix(in srgb, var(--card) 48%, transparent);
+  border-color: color-mix(in srgb, var(--border) 75%, transparent);
+  border-radius: 11px;
+}
+
+@media (max-width: 960px) {
+  .selection-plan-grid { grid-template-columns: 1fr; }
+  .selection-plan-status { min-height: 50px; }
+  .selection-plan-status > span { width: auto; flex: 1; grid-auto-flow: column; grid-template-columns: auto auto; }
+  .selection-workbench { grid-template-columns: 1fr; }
+  .selection-workbench .selection-runner { border-top: 1px solid color-mix(in srgb, var(--border) 78%, transparent); border-left: 0; }
+}
+
+@media (max-width: 620px) {
+  .selection-command { padding: 16px; border-radius: 14px; }
+  .selection-command-head { align-items: flex-start; flex-direction: column; }
+  .selection-command-actions { width: 100%; justify-content: space-between; }
+  .selection-plan-target { grid-template-columns: 38px minmax(0, 1fr) auto; padding: 12px; }
+  .selection-plan-target-icon { width: 36px; height: 36px; border-radius: 10px; }
+  .selection-workbench .selection-catalog,
+  .selection-workbench .selection-runner { padding: 13px; }
+  .selection-command-actions { flex-wrap: wrap; }
+  .selection-queue-start { flex: 1 1 100%; }
+  .selection-plan-controls { grid-template-columns: 1fr; }
+  .selection-plan-queue-head { align-items: flex-start; flex-direction: column; gap: 3px; }
+}
+
+@media (max-width: 480px) {
+  .sync-freshness {
+    width: 38px;
+    flex: 0 0 38px;
+    justify-content: center;
+    padding: 0;
+  }
+  .sync-freshness > span { display: none; }
+  .profile-chip { width: 38px; flex: 0 0 38px; justify-content: center; padding: 3px; }
+}
+
+.selection-filter-empty td {
+  height: 72px;
+  color: var(--muted-foreground);
+  text-align: center;
+}
+
+@media (max-width: 760px) {
+  .requirement-root { padding-inline: 16px; }
+  .requirement-root > .requirement-node > .requirement-node-head { padding-inline: 2px; }
+  .requirement-node:not(.depth-0) > .requirement-node-head { padding-inline: 12px; }
+  .school-schedule-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .school-schedule-controls .secondary-button { grid-column: span 2; }
+  .school-schedule-heading-meta { justify-items: start; text-align: left; }
+  .school-schedule-pagination { align-items: flex-start; flex-direction: column; }
+  .selection-catalog-toolbar,
+  .selection-catalog-pagination { align-items: stretch; flex-direction: column; }
+  .selection-catalog-filter { width: 100%; }
+  .data-connections-grid { grid-template-columns: 1fr; }
+  .data-connection-card { padding: 15px; border-radius: 15px; }
+}
+
+@media (max-width: 620px) {
+  .academic-calendar-pdf-dialog { width: calc(100vw - 10px) !important; height: calc(100svh - 10px); padding: 8px !important; }
+}
+

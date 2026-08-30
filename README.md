@@ -1,10 +1,12 @@
 # THEIA
 
-> THEIA v0.5.1 是面向北京化工大学学生的本地优先 Windows 校园工作台。
+> THEIA v0.6.0 是面向北京化工大学学生的本地优先 Windows 校园工作台。
+
+> **文档说明：** 目前 README 和部分配套文档仍在整理中，内容不算完整；正式版发布前请以实际功能和发行说明为准。
 
 THEIA 把教务系统、北化在线 THEOL、校园邮箱和本地学习工具放到同一个桌面应用中。它负责读取、整理、计算、提醒和准备操作；学校系统中的最终提交、选课决定和成绩认定仍由用户确认。
 
-[下载 Windows x64 v0.5.1](https://github.com/bakahuiii/THEIA/releases/tag/v0.5.1) · [用户指南](docs/guides/USER_GUIDE.md) · [发行说明](docs/releases/v0.5.1.md)
+[下载 Windows x64 v0.6.0](https://github.com/bakahuiii/THEIA/releases/tag/v0.6.0) · [用户指南](docs/guides/USER_GUIDE.md) · [发行说明](docs/releases/v0.6.0.md)
 
 ## 你可以用它做什么
 
@@ -25,7 +27,7 @@ THEIA 把教务系统、北化在线 THEOL、校园邮箱和本地学习工具�
 
 THEIA 的完整功能需要桌面客户端。纯浏览器预览只用于查看前端，不能提供学校认证、Windows 加密存储、文件选择、内置浏览器或本地模型密钥能力。
 
-1. 从 [v0.5.1 Release](https://github.com/bakahuiii/THEIA/releases/tag/v0.5.1) 下载并安装 Windows x64 安装包。
+1. 从 [v0.6.0 Release](https://github.com/bakahuiii/THEIA/releases/tag/v0.6.0) 下载并安装 Windows x64 安装包。
 2. 启动后在“统一身份认证”中保存学校账号。CAS 登录后，THEIA 会分别检查教务系统（JWGLXT）和北化在线 THEOL 的会话，顶部会独立显示两个来源的状态；一个来源失败不会把另一个来源的成功结果清空。
 3. 点击同步。首次同步后，课表、考试、成绩、学业进度、课程、作业和通知会按来源逐步出现；短暂的单域失败会保留上一次有效的本地结果。
 4. 如果要使用“学业顾问”，打开“设置与接入 -> 模型服务”，选择协议、填写服务地址、API Key 和模型 ID，先检测连接再保存。支持 OpenAI Responses、Anthropic Messages、Gemini GenerateContent 和 Ollama Chat。
@@ -146,7 +148,7 @@ npm run cli -- work show <assignment-id>
 
 ## 发布说明
 
-v0.5.1 的 Windows 安装包当前未配置可公开验证的 Authenticode 证书，Windows 可能显示未知发布者或 SmartScreen 提示。安装前请核对 Release 页面提供的 SHA-256；安装包、源码归档和 blockmap 的校验值记录在 [v0.5.1 发行说明](docs/releases/v0.5.1.md) 中。
+v0.6.0 的 Windows 安装包当前未配置可公开验证的 Authenticode 证书，Windows 可能显示未知发布者或 SmartScreen 提示。安装前请核对 Release 页面提供的 SHA-256；安装包、源码归档和 blockmap 的校验值记录在 [v0.6.0 发行说明](docs/releases/v0.6.0.md) 中。
 
 ## 许可
 

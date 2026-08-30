@@ -1,0 +1,72 @@
+/* Split from src/styles/legacy.css; imported in source order by src/styles.css. */
+@layer legacy {
+/* Degree-plan details stay inside their branch.  The former 1180px minimum
+ * made a nested requirement overflow its parent, then exposed a second
+ * horizontal scrollbar.  Fixed layout lets every column share the available
+ * width while text wraps instead of colliding. */
+.requirement-map,
+.requirement-node,
+.requirement-children,
+.requirement-choice-branch,
+.requirement-choice-tree,
+.requirement-course-details,
+.requirement-course-table-wrap { min-width: 0; max-width: 100%; }
+.requirement-children,
+.requirement-choice-branch,
+.requirement-choice-tree,
+.requirement-course-details,
+.requirement-course-table-wrap { overflow-x: clip; }
+.requirement-choice-branch { position: relative; margin: 6px 0 8px; }
+.requirement-choice-branch::before { position: absolute; top: 28px; left: -22px; width: 16px; border-top: 2px solid color-mix(in srgb, var(--teal) 30%, var(--line)); content: ''; }
+.requirement-choice-heading { margin: 5px 0 4px; padding: 0 0 0 2px; }
+.requirement-choice-tree { position: relative; display: grid; gap: 2px; margin: 0 0 0 10px; padding: 3px 0 4px 16px; border-left: 2px solid color-mix(in srgb, var(--teal) 30%, var(--line)); }
+.requirement-choice-tree > .requirement-node { min-width: 0; }
+.requirement-choice-tree > .requirement-node::before { position: absolute; top: 33px; left: -18px; width: 12px; border-top: 2px solid color-mix(in srgb, var(--teal) 30%, var(--line)); content: ''; }
+.requirement-course-table-wrap { width: 100%; }
+.requirement-course-table { width: 100%; min-width: 0; table-layout: fixed; white-space: normal; }
+.requirement-course-table th,
+.requirement-course-table td { min-width: 0; overflow-wrap: anywhere; word-break: break-word; white-space: normal; vertical-align: top; }
+.requirement-course-table td:nth-child(5) { min-width: 0; }
+
+.selection-page { width: 100%; min-width: 0; max-width: 100%; display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
+.selection-intro { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 18px; background: #edf6f2; border: 1px solid #cde2d9; border-radius: 7px; }
+.selection-intro > div { min-width: 0; display: flex; align-items: center; gap: 11px; color: var(--teal); }
+.selection-intro > div > div { min-width: 0; display: grid; gap: 4px; }
+.selection-intro strong { color: var(--ink); font-size: 13px; }
+.selection-intro span { color: #587168; font-size: 11px; }
+.school-schedule-search { width: 100%; min-width: 0; max-width: 100%; display: grid; gap: 14px; padding: 18px; background: color-mix(in srgb, var(--card) 92%, transparent); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
+.school-schedule-controls { display: grid; grid-template-columns: minmax(175px, .65fr) minmax(210px, 1fr) minmax(160px, .7fr) auto; align-items: end; gap: 10px; }
+.school-schedule-controls label { display: grid; gap: 6px; min-width: 0; color: var(--muted-foreground); font-size: 11px; font-weight: 650; }
+.school-schedule-controls input { width: 100%; height: 36px; padding: 0 11px; color: var(--ink); background: color-mix(in srgb, var(--background) 76%, transparent); border: 1px solid var(--line); border-radius: 6px; outline: none; }
+.school-schedule-controls input:focus { border-color: color-mix(in srgb, var(--teal) 56%, var(--line)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--teal) 12%, transparent); }
+.school-schedule-target { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 9px 11px; color: color-mix(in srgb, var(--ink) 82%, var(--teal)); background: color-mix(in srgb, var(--teal) 8%, transparent); border: 1px solid color-mix(in srgb, var(--teal) 20%, var(--line)); border-radius: 6px; }
+.school-schedule-target span { color: var(--teal); font-size: 10px; font-weight: 750; }
+.school-schedule-target strong { color: var(--ink); font-size: 12px; }
+.school-schedule-target small { overflow: hidden; color: var(--muted-foreground); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.school-schedule-results { display: grid; overflow: auto; max-height: 420px; border: 1px solid var(--line); border-radius: 7px; }
+.school-schedule-results article { display: grid; grid-template-columns: minmax(200px, .9fr) minmax(260px, 1.3fr) auto; align-items: center; gap: 16px; padding: 12px 13px; border-top: 1px solid color-mix(in srgb, var(--line) 76%, transparent); transition: background .18s ease, padding .18s ease; }
+.school-schedule-results article:first-child { border-top: 0; }
+.school-schedule-results article:hover { padding-left: 17px; background: color-mix(in srgb, var(--teal) 5%, transparent); }
+.school-schedule-results article.selected { background: color-mix(in srgb, var(--teal) 10%, transparent); box-shadow: inset 3px 0 0 var(--teal); }
+.school-schedule-results article > div:first-child { display: grid; gap: 4px; min-width: 0; }
+.school-schedule-results strong { overflow: hidden; color: var(--ink); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.school-schedule-results small { overflow: hidden; color: var(--muted-foreground); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.school-schedule-meta { display: grid; grid-template-columns: minmax(74px, .5fr) minmax(110px, 1fr) minmax(90px, .7fr); gap: 10px; color: var(--muted-foreground); font-size: 11px; }
+.school-schedule-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.selection-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(310px, .42fr); gap: 18px; align-items: start; }
+.selection-catalog, .selection-runner { min-width: 0; padding: 20px; background: #fff; border: 1px solid var(--line); border-radius: 7px; box-shadow: var(--shadow); }
+.selection-controls { display: flex; align-items: end; gap: 10px; margin-bottom: 16px; }
+.selection-controls label, .selection-form > label, .selection-number-grid label { min-width: 0; display: grid; gap: 6px; color: #53645f; font-size: 11px; font-weight: 650; }
+.selection-controls label { flex: 1; }
+.selection-controls select, .selection-form input { width: 100%; height: 36px; padding: 0 10px; color: var(--ink); background: #f8fbfa; border: 1px solid var(--line); border-radius: 5px; }
+.selection-table { min-width: 780px; }
+.selection-table tr { cursor: pointer; }
+.selection-table tbody tr:hover, .selection-table tbody tr.selected { background: #f1f8f5; }
+.selection-table td:first-child { width: 32px; padding-right: 0; }
+.selection-table td:nth-child(2), .selection-table td:nth-child(4) { display: grid; gap: 4px; }
+.selection-table td small { overflow: hidden; color: #899790; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.seat-open, .seat-full { display: inline-flex; min-width: 46px; justify-content: center; padding: 3px 5px; border-radius: 4px; font-size: 10px; font-weight: 700; }
+.seat-open { color: #18725f; background: #e6f5ee; }
+.seat-full { color: #a23e45; background: #fbe9e9; }
+
+}

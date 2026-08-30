@@ -12,7 +12,8 @@ test('dashboard course metric counts only deduplicated academic-system courses',
   assert.match(dashboardSource, /identities\.add\(code \? `code:/)
   assert.match(dashboardSource, /<strong>\{academicCourseCount\}<\/strong>/)
 })
-const styles = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8')
+const styles = await readFile(new URL('../src/styles/visual-refinement-workspace.css', import.meta.url), 'utf8')
+const responsiveStyles = await readFile(new URL('../src/styles/communications.css', import.meta.url), 'utf8')
 
 test('overview orders schedule, assignments, and the next exam as the desktop primary row', () => {
   const schedule = dashboardSource.indexOf('dashboard-schedule-panel')
@@ -50,15 +51,15 @@ test('overview stacks schedule and assignments beside the unchanged right rail',
     /\.view-dashboard \.dashboard-assignments-panel \.task-actions\s*\{[^}]*grid-column:\s*2 \/ -1;[^}]*justify-content:\s*flex-start;/s,
   )
   assert.match(
-    styles,
+    responsiveStyles,
     /@media \(max-width: 920px\)[\s\S]*?\.view-dashboard \.workspace\s*\{[^}]*overflow-y:\s*auto;/,
   )
   assert.match(
-    styles,
+    responsiveStyles,
     /@media \(max-width: 920px\)[\s\S]*?\.view-dashboard \.dashboard-grid\s*\{[^}]*height:\s*auto;[^}]*grid-template-columns:\s*minmax\(0, 1fr\);[^}]*grid-template-rows:\s*none;/,
   )
   assert.match(
-    styles,
+    responsiveStyles,
     /@media \(max-width: 920px\)[\s\S]*?\.view-dashboard \.dashboard-grid > \.panel\s*\{[^}]*grid-column:\s*auto;[^}]*grid-row:\s*auto;/,
   )
 })

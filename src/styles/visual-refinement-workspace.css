@@ -1,0 +1,881 @@
+/* Split from src/styles/visual-refinement.css; imported in source order by src/styles.css. */
+/* Final application-surface refinement: quiet, rounded, and information-led. */
+:root {
+  --radius: 18px;
+  --theia-control-radius: 13px;
+}
+
+.view-toolbar,
+.schedule-toolbar {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--card) 92%, var(--secondary));
+  border: 1px solid var(--border);
+  border-radius: 17px;
+  box-shadow: 0 10px 24px -24px color-mix(in srgb, var(--foreground) 62%, transparent);
+}
+
+.view-toolbar > .term-selector-group,
+.schedule-toolbar-main {
+  min-width: 0;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.view-toolbar .term-selector-group {
+  flex: 0 1 auto;
+}
+
+.view-toolbar .exam-visibility-toggle {
+  margin-left: 0;
+}
+
+.view-toolbar.exam-toolbar { justify-content: flex-start; }
+
+.segmented {
+  gap: 3px;
+  padding: 3px;
+  background: color-mix(in srgb, var(--secondary) 88%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 13px;
+}
+
+.segmented button {
+  min-height: 30px;
+  padding: 0 12px;
+  color: var(--muted-foreground);
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.segmented button:hover {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--card) 72%, var(--accent));
+}
+
+.segmented button.active {
+  color: var(--foreground);
+  background: var(--card);
+  box-shadow: 0 2px 7px -4px color-mix(in srgb, var(--foreground) 40%, transparent);
+}
+
+.schedule-toolbar {
+  margin-bottom: 16px;
+  padding: 8px;
+}
+
+.schedule-scroll {
+  scrollbar-width: none;
+}
+
+.schedule-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.schedule-board {
+  grid-template-columns: repeat(7, minmax(126px, 1fr));
+  min-width: 920px;
+}
+
+.schedule-toolbar .term-selector-group {
+  min-width: min(280px, 100%);
+}
+
+.view-toolbar .term-selector-group,
+.schedule-toolbar .term-selector-group {
+  display: flex;
+  align-items: center;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.view-toolbar .term-selector-trigger,
+.schedule-toolbar .term-selector-trigger {
+  width: 132px;
+  min-width: 0;
+}
+
+.week-picker {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  color: var(--muted-foreground);
+  background: var(--card);
+  border: 1px solid var(--input);
+  border-radius: 11px;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.week-picker input {
+  width: 34px;
+  min-height: 24px;
+  padding: 0;
+  color: var(--foreground);
+  background: transparent;
+  border: 0;
+  font: inherit;
+  text-align: center;
+  outline: none;
+}
+
+.week-picker:focus-within {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 18%, transparent);
+}
+
+.schedule-pdf-button {
+  min-height: 34px;
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 0 12px;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 11%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--border));
+  border-radius: 11px;
+  font-weight: 650;
+}
+
+.schedule-pdf-button:hover:not(:disabled) {
+  color: var(--primary-foreground);
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+/* Overview is intentionally a fitted desktop canvas. It does not become a scroll view. */
+.view-dashboard .workspace {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.view-dashboard .content-area {
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  padding-bottom: 28px;
+}
+
+.view-dashboard .dashboard-grid {
+  width: 100%;
+  min-height: 0;
+  height: 100%;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(280px, .85fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr) minmax(0, 1fr);
+  row-gap: 12px;
+  align-content: stretch;
+}
+
+.view-dashboard .dashboard-advisor-top {
+  min-width: 0;
+  min-height: 52px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 11px;
+  padding: 8px 12px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  box-shadow: var(--shadow);
+}
+
+.dashboard-advisor-icon {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  color: #2b6d64;
+  background: #e8f4f1;
+  border-radius: 6px;
+}
+
+.dashboard-advisor-copy {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 10px;
+}
+
+.dashboard-advisor-copy small {
+  grid-column: 1 / -1;
+  color: var(--muted-foreground);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.dashboard-advisor-copy strong,
+.dashboard-advisor-copy > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-advisor-copy strong { color: var(--ink); font-size: 12px; }
+.dashboard-advisor-copy > span { color: var(--muted-foreground); font-size: 10px; }
+.dashboard-advisor-top > em {
+  padding: 3px 7px;
+  color: #715214;
+  background: #fff5d9;
+  border: 1px solid #ead69d;
+  border-radius: 3px;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 700;
+}
+.dashboard-advisor-top > em[data-severity="urgent"] { color: #8f2f38; background: #fae7e7; border-color: #f1cfd0; }
+.dashboard-advisor-top > em[data-severity="info"] { color: #355d80; background: #eaf1f6; border-color: #cfdee9; }
+.dashboard-advisor-top > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #396589;
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.view-dashboard .dashboard-schedule-panel {
+  grid-column: 1 / 3;
+  grid-row: 4;
+}
+
+.view-dashboard .dashboard-assignments-panel {
+  grid-column: 1 / 3;
+  grid-row: 5;
+}
+
+.view-dashboard .dashboard-assignments-panel .task-row {
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+}
+
+.view-dashboard .dashboard-assignments-panel .task-actions {
+  grid-column: 2 / -1;
+  justify-content: flex-start;
+  max-width: none;
+}
+
+.view-dashboard .dashboard-exam-panel {
+  grid-column: 3;
+  grid-row: 4;
+}
+
+.view-dashboard .dashboard-notices-panel {
+  grid-column: 3;
+  grid-row: 5;
+}
+
+.view-dashboard .dashboard-grid > .panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.view-dashboard .dashboard-grid .panel-heading {
+  flex: 0 0 auto;
+}
+
+.view-dashboard .dashboard-grid .timeline-list,
+.view-dashboard .dashboard-grid .task-list,
+.view-dashboard .dashboard-grid .notice-compact {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.view-dashboard .dashboard-grid .timeline-row,
+.view-dashboard .dashboard-grid .task-row,
+.view-dashboard .dashboard-grid .notice-compact button {
+  flex: 0 0 auto;
+}
+
+.view-dashboard .dashboard-grid .empty-state {
+  min-height: 0;
+  flex: 1;
+}
+
+/* Pointer sampling keeps the map at frame rate while the release coasts naturally. */
+.map-sheet {
+  transition: transform .2s cubic-bezier(.2, .72, .2, 1);
+}
+
+.map-stage.is-dragging .map-sheet,
+.map-stage.is-coasting .map-sheet {
+  transition: none;
+}
+
+.map-control-stack {
+  gap: 9px;
+}
+
+.map-layer-controls,
+.map-zoom-controls,
+.map-zoom-hud {
+  border-radius: 14px;
+  box-shadow: 0 16px 30px -23px color-mix(in srgb, var(--foreground) 62%, transparent);
+  backdrop-filter: blur(18px) saturate(1.08);
+}
+
+.map-tool-button {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+}
+
+.map-zoom-hud {
+  min-width: 140px;
+  padding: 10px 11px;
+}
+
+.map-zoom-hud span {
+  line-height: 1.45;
+}
+
+/* A remounted chart path replays this exact draw treatment on every mode change. */
+.gpa-trend {
+  padding: 20px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 16px 32px -28px color-mix(in srgb, var(--foreground) 68%, transparent);
+}
+
+.gpa-chart-controls {
+  align-items: center;
+}
+
+.gpa-line {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: gpa-draw .86s .08s var(--ease-out) forwards;
+}
+
+.gpa-point {
+  animation: theia-soft-in .3s var(--ease-out) both;
+}
+
+/* The academic tree carries both spatial hierarchy and readable state labels. */
+.requirement-root {
+  overflow: hidden;
+  border-left-width: 4px;
+  border-radius: 17px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.requirement-node-head {
+  gap: 14px;
+  padding: 10px 0;
+}
+
+.requirement-title-copy {
+  min-width: 0;
+}
+
+.requirement-title-line {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.requirement-title-line strong {
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.requirement-status-tag,
+.requirement-detail-tag,
+.requirement-course-status,
+.requirement-course-tag,
+.requirement-course-code,
+.requirement-score-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 21px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.requirement-status-tag {
+  max-width: 205px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.requirement-status-tag.complete,
+.requirement-course-status.complete {
+  color: var(--success);
+  background: var(--success-soft);
+  border-color: color-mix(in srgb, var(--success) 24%, var(--border));
+}
+
+.requirement-status-tag.pending,
+.requirement-course-status.attention {
+  color: var(--warning);
+  background: var(--warning-soft);
+  border-color: color-mix(in srgb, var(--warning) 25%, var(--border));
+}
+
+.requirement-status-tag.neutral,
+.requirement-course-status.neutral {
+  color: var(--muted-foreground);
+  background: var(--secondary);
+  border-color: var(--border);
+}
+
+.requirement-course-status.active {
+  color: var(--info);
+  background: var(--info-soft);
+  border-color: color-mix(in srgb, var(--info) 24%, var(--border));
+}
+
+.requirement-detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.requirement-detail-tag {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--card));
+}
+
+.requirement-detail-tag.muted {
+  color: var(--muted-foreground);
+  background: var(--secondary);
+}
+
+.requirement-credit span {
+  color: var(--muted-foreground);
+  font-weight: 650;
+}
+
+.requirement-course-code {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--card));
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 9px;
+}
+
+.requirement-course-tag {
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  border-color: var(--border);
+}
+
+.requirement-course-tag.neutral {
+  color: var(--muted-foreground);
+}
+
+.requirement-score-chip {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--card) 62%, var(--secondary));
+  border-color: var(--border);
+  font-variant-numeric: tabular-nums;
+}
+
+.requirement-course-table tbody tr:hover .requirement-course-code,
+.requirement-course-table tbody tr:hover .requirement-score-chip {
+  border-color: color-mix(in srgb, var(--primary) 25%, var(--border));
+}
+
+.course-origin {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 17px -2px -2px;
+  padding-top: 11px;
+  color: var(--muted-foreground);
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+}
+
+.course-origin svg {
+  flex: 0 0 auto;
+  color: var(--primary);
+}
+
+.course-origin span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.course-origin small {
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+  font-size: 9px;
+}
+
+.requirement-choice-group {
+  background: color-mix(in srgb, var(--secondary) 70%, var(--card));
+  border-color: var(--border);
+}
+
+.requirement-course-details {
+  background: color-mix(in srgb, var(--secondary) 54%, var(--card));
+  border-color: var(--border);
+}
+
+/* Notification cards are one large command; their detail stays entirely inside THEIA. */
+.notice-list article {
+  overflow: hidden;
+  padding: 0;
+  border-radius: 16px;
+}
+
+.notice-open-button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+  padding: 17px 18px;
+  color: inherit;
+  text-align: left;
+}
+
+.notice-open-button:hover {
+  background: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.notice-open-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ring) 62%, transparent);
+  outline-offset: -3px;
+}
+
+.notice-copy {
+  min-width: 0;
+}
+
+.notice-disclosure {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  color: var(--muted-foreground);
+  background: var(--secondary);
+  border-radius: 10px;
+}
+
+.notice-open-button:hover .notice-disclosure {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, var(--card));
+}
+
+.notice-detail-dialog {
+  z-index: 510 !important;
+  width: min(660px, calc(100vw - 32px)) !important;
+  max-width: none !important;
+  max-height: min(720px, calc(100svh - 32px));
+  overflow: auto;
+  padding: 26px !important;
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--popover) 97%, transparent);
+  border-color: var(--border);
+  border-radius: 22px !important;
+  box-shadow: 0 28px 72px -28px color-mix(in srgb, var(--foreground) 70%, transparent);
+  backdrop-filter: blur(20px);
+}
+
+.notice-detail-heading {
+  display: flex;
+  align-items: start;
+  gap: 12px;
+  padding-right: 38px;
+}
+
+.notice-detail-heading [data-slot="dialog-title"] {
+  color: var(--foreground);
+  font-family: "Noto Serif SC", "Segoe UI", sans-serif;
+  font-size: 18px;
+  line-height: 1.45;
+}
+
+.notice-detail-heading [data-slot="dialog-description"] {
+  margin-top: 6px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.notice-detail-body {
+  margin-top: 4px;
+  padding: 16px;
+  background: color-mix(in srgb, var(--secondary) 58%, var(--card));
+  border: 1px solid var(--border);
+  border-radius: 15px;
+}
+
+.notice-detail-body p {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 13px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+}
+
+.notice-detail-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.notice-detail-facts > div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  padding: 11px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 13px;
+}
+
+.notice-detail-facts dt {
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+
+.notice-detail-facts dd {
+  overflow: hidden;
+  margin: 0;
+  color: var(--foreground);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Personalization is deliberately compact: appearance keeps only a chosen image. */
+.appearance-background-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 18px;
+  padding: 11px;
+  background: color-mix(in srgb, var(--secondary) 54%, var(--card));
+  border: 1px solid var(--border);
+  border-radius: 17px;
+}
+
+.appearance-background-preview {
+  min-height: 86px;
+  position: relative;
+  display: flex;
+  align-items: end;
+  overflow: hidden;
+  padding: 13px;
+  background-color: var(--card);
+  border: 1px solid color-mix(in srgb, var(--primary) 14%, var(--border));
+  border-radius: 13px;
+}
+
+.appearance-background-preview.has-image {
+  background-image: var(--theia-app-background-image);
+  background-position: center;
+  background-size: cover;
+}
+
+.appearance-background-preview > div {
+  z-index: 1;
+  display: grid;
+  gap: 3px;
+}
+
+.appearance-background-preview.has-image > div {
+  padding: 7px 9px;
+  background: color-mix(in srgb, var(--card) 84%, transparent);
+  border: 1px solid color-mix(in srgb, var(--card) 88%, transparent);
+  border-radius: 10px;
+  backdrop-filter: blur(10px);
+}
+
+.appearance-background-preview span {
+  color: var(--primary);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.appearance-background-preview strong {
+  color: var(--foreground);
+  font-size: 13px;
+}
+
+.appearance-background-preview small {
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+
+.appearance-background-preview > i {
+  position: absolute;
+  right: 13px;
+  bottom: 13px;
+  width: 36px;
+  height: 20px;
+  background: color-mix(in srgb, var(--primary) 22%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--border));
+  border-radius: 12px 12px 4px 12px;
+}
+
+.appearance-background-actions {
+  display: grid;
+  gap: 6px;
+}
+
+.appearance-background-actions [data-slot="button"] {
+  justify-content: flex-start;
+  min-width: 110px;
+  border-radius: 11px;
+}
+
+@media (max-width: 860px) {
+  .view-toolbar,
+  .schedule-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .view-toolbar .exam-visibility-toggle,
+  .schedule-pdf-button {
+    margin-left: 0;
+  }
+
+  .schedule-pdf-button {
+    justify-content: center;
+  }
+
+  .appearance-background-section {
+    grid-template-columns: 1fr;
+  }
+
+  .appearance-background-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .appearance-background-actions [data-slot="button"] {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .notice-detail-facts {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* App-level image backgrounds stay behind the workspace rather than becoming a chat-only skin. */
+:root {
+  --theia-app-background-image: none;
+  --theia-app-background-texture-image: none;
+  --theia-background-offset-x: 0px;
+  --theia-background-offset-y: 0px;
+  --theia-background-zoom: 1.06;
+  --theia-background-image-blur: 0px;
+  --theia-background-glass-blur: 0px;
+  --theia-background-workspace-opacity: 65%;
+  --theia-background-sidebar-opacity: 72%;
+  --theia-background-topbar-opacity: 62%;
+  --theia-background-surface-opacity: 75%;
+  --theia-background-surface-strong-opacity: 86%;
+  --theia-background-control-opacity: 81%;
+  --theia-background-image-opacity: .72;
+  --theia-background-image-opacity-dark: .662;
+  --theia-background-image-brightness: 100%;
+  --theia-background-image-contrast: 100%;
+  --theia-background-image-saturation: 100%;
+  --theia-classical-texture-opacity: .025;
+  --theia-classical-texture-height: 160dvh;
+  --theia-backdrop-invert-mul: 1;
+}
+
+.gradient-map-filter-definitions {
+  position: fixed;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+html.dark {
+  --theia-backdrop-invert-mul: 0;
+}
+
+.app-shell {
+  position: relative;
+  isolation: isolate;
+}
+
+.app-shell::before {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  opacity: 0;
+  background-image: var(--theia-app-background-image);
+  background-position: center;
+  background-size: cover;
+  content: "";
+  filter: brightness(var(--theia-background-image-brightness))
+    contrast(var(--theia-background-image-contrast))
+    saturate(var(--theia-background-image-saturation))
+    blur(var(--theia-background-image-blur));
+  pointer-events: none;
+  transform: translate3d(
+      var(--theia-background-offset-x),
+      var(--theia-background-offset-y),
+      0
+    )
+    scale(var(--theia-background-zoom));
+  transition: filter .26s var(--ease-out), opacity .32s var(--ease-out);
+  will-change: transform;
+}
+
+.app-shell > * {
+  position: relative;
+  z-index: 1;
+}
+
+html[data-app-background="image"] .app-shell::before {
+  opacity: .3;
+}
+
+html.dark[data-app-background="image"] .app-shell::before {
+  opacity: .22;
+}
+
+html[data-app-background="image"] .workspace {
+  background: color-mix(in srgb, var(--background) 85%, transparent);
+  backdrop-filter: blur(20px) saturate(1.04);
+}
+
+html[data-app-background="image"] .topbar {
+  background: color-mix(in srgb, var(--background) 72%, transparent);
+}
+

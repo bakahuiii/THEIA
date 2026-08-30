@@ -10,12 +10,17 @@ import { stripJpegMetadata } from '../scripts/strip-jpeg-metadata.mjs'
 
 test('Windows packaging writes THEIA executable metadata and unpacks the offline OCR runtime', async () => {
   const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
-  assert.equal(packageJson.version, '0.5.0')
+  assert.equal(packageJson.version, '0.6.0')
   assert.equal(packageJson.build.productName, 'THEIA')
   assert.equal(packageJson.build.appId, 'io.github.bakahuiii.theia')
   assert.equal(packageJson.build.nsis.guid, '2467e4eb-7496-532c-ab2c-b64234a36eb3')
   assert.equal(packageJson.build.win.signAndEditExecutable, true)
   assert.equal(packageJson.build.win.forceCodeSigning, false)
+  assert.deepEqual(packageJson.build.extraFiles, [{
+    from: 'scripts/fix-theia-startup.bat',
+    to: 'fix-theia-startup.bat',
+  }])
+  assert.equal(packageJson.overrides.nanoid, '3.3.18')
   for (const pattern of [
     'node_modules/tesseract.js/**/*',
     'node_modules/tesseract.js-core/**/*',
@@ -58,6 +63,7 @@ test('release packaging also creates a filtered, buildable source archive', asyn
     'scripts/advisor-benchmark-corpus.mjs',
     'scripts/benchmark-advisor.mjs',
     'scripts/strip-jpeg-metadata.mjs',
+    'scripts/fix-theia-startup.bat',
     'src/App.tsx',
     'tests/packaging-config.test.mjs',
   ]) assert.ok(paths.includes(required), required)
@@ -127,10 +133,16 @@ test('Windows runtime app id matches the packaged application id', async () => {
 })
 
 test('packaged smoke mode is offline and exercises the advisor overview bridge', async () => {
-  const mainSource = await readFile(new URL('../electron/main.mjs', import.meta.url), 'utf8')
+  const mainSource = (await Promise.all([
+    '../electron/main.mjs',
+    '../electron/auth-status-runtime.mjs',
+    '../electron/service-foundation.mjs',
+    '../electron/service-integration-runtime.mjs',
+    '../electron/window-runtime.mjs',
+  ].map((path) => readFile(new URL(path, import.meta.url), 'utf8')))).join('\n')
   const smokeSource = await readFile(new URL('../scripts/smoke-packaged.mjs', import.meta.url), 'utf8')
   assert.match(mainSource, /if \(smokeFile\) \{[\s\S]*?offlineSmoke: true[\s\S]*?const \[verifiedJwglxt/)
-  assert.match(mainSource, /if \(!smokeFile\) \{[\s\S]*?refreshAcademicCalendarAssets\(\{ trigger: 'startup' \}\)/)
+  assert.match(mainSource, /if \(!smokeFile\) \{[\s\S]*?academicCalendarRuntime\.refreshAcademicCalendarAssets\(\{ trigger: 'startup' \}\)/)
   assert.match(mainSource, /if \(!smokeFile && process\.env\.THEIA_FULL_SCHOOL_SCHEDULE_SCAN === '1'\)/)
   assert.match(mainSource, /'getSnapshot', 'getAdvisorOverview', 'getAuthStatus'/)
   assert.match(mainSource, /\.getAdvisorOverview\(\)/)

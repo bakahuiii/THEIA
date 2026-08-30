@@ -1,0 +1,338 @@
+/* -------------------------------------------------------------------------
+* Final non-advisor surface contract
+ *
+ * The historical stylesheet contains several generations of page-specific
+ * surfaces. Keep the advisor workbench completely outside this contract, and
+ * make every other view consume the same chrome, surface, control, and
+ * structural-grid layers. Image transparency remains user-controlled.
+ * ------------------------------------------------------------------------- */
+.app-shell:not(.view-advisor) {
+  --theia-global-surface: var(--card);
+  --theia-global-surface-strong: var(--card);
+  --theia-global-control: var(--secondary);
+  --theia-global-chrome: var(--card);
+  --theia-global-sidebar: var(--sidebar);
+  --theia-global-border: var(--border);
+  --theia-global-shadow: var(--shadow);
+  --theia-global-backdrop: none;
+}
+
+html[data-app-background="image"] .app-shell:not(.view-advisor) {
+  --theia-global-surface: color-mix(
+    in srgb,
+    var(--card) var(--theia-background-surface-opacity),
+    transparent
+  );
+  --theia-global-surface-strong: color-mix(
+    in srgb,
+    var(--card) var(--theia-background-surface-strong-opacity),
+    transparent
+  );
+  --theia-global-control: color-mix(
+    in srgb,
+    var(--card) var(--theia-background-control-opacity),
+    transparent
+  );
+  --theia-global-chrome: color-mix(
+    in srgb,
+    var(--background) var(--theia-background-topbar-opacity),
+    transparent
+  );
+  --theia-global-sidebar: color-mix(
+    in srgb,
+    var(--sidebar) var(--theia-background-sidebar-opacity),
+    transparent
+  );
+  --theia-global-backdrop: blur(var(--theia-background-glass-blur)) saturate(1.06);
+}
+
+.app-shell:not(.view-advisor) .titlebar,
+.app-shell:not(.view-advisor) .sidebar,
+.app-shell:not(.view-advisor) .topbar {
+  background-image: none;
+  backdrop-filter: var(--theia-global-backdrop);
+}
+
+.app-shell:not(.view-advisor) .titlebar {
+  background: var(--theia-global-sidebar);
+}
+
+.app-shell:not(.view-advisor) .sidebar {
+  background: var(--theia-global-sidebar);
+  border-right-color: color-mix(in srgb, var(--theia-global-border) 86%, transparent);
+}
+
+.app-shell:not(.view-advisor) .topbar {
+  background: var(--theia-global-chrome);
+}
+
+.app-shell:not(.view-advisor) .topbar::before {
+  display: none;
+}
+
+.app-shell:not(.view-advisor) :is(
+  .panel,
+  .view-toolbar,
+  .schedule-toolbar,
+  .day-column,
+  .course-card,
+  .exam-row,
+  .data-table-wrap,
+  .communications-pane,
+  .academic-records-sidebar,
+  .academic-records-panel,
+  .school-schedule-search,
+  .academic-calendar-header,
+  .academic-calendar-asset,
+  .sync-domain-overview,
+  .sync-log-panel,
+  .fetch-log-row,
+  .activity-log-list,
+  .api-endpoint,
+  .course-selection-panel,
+  .selection-target,
+  .selection-attempts,
+  .requirement-choice-group,
+  .requirement-course-details,
+  .requirement-course-table-wrap,
+  .warning-section,
+  .fitness-meta,
+  .fitness-inputs-grid,
+  .fitness-result-panel,
+  .portal-card
+) {
+  background: var(--theia-global-surface);
+  border-color: color-mix(in srgb, var(--theia-global-border) 88%, transparent);
+  box-shadow: var(--theia-global-shadow);
+  backdrop-filter: var(--theia-global-backdrop);
+}
+
+.app-shell:not(.view-advisor) :is(
+  .panel,
+  .view-toolbar,
+  .schedule-toolbar,
+  .day-column,
+  .course-card,
+  .exam-row,
+  .data-table-wrap,
+  .communications-pane,
+  .academic-records-sidebar,
+  .academic-records-panel,
+  .school-schedule-search,
+  .academic-calendar-header,
+  .academic-calendar-asset,
+  .sync-domain-overview,
+  .sync-log-panel,
+  .fetch-log-row,
+  .activity-log-list,
+  .api-endpoint,
+  .course-selection-panel,
+  .selection-target,
+  .selection-attempts,
+  .requirement-choice-group,
+  .requirement-course-details,
+  .requirement-course-table-wrap,
+  .warning-section,
+  .fitness-meta,
+  .fitness-inputs-grid,
+  .fitness-result-panel,
+  .portal-card
+):hover {
+  box-shadow: var(--shadow-float);
+}
+
+.app-shell:not(.view-advisor) :is(
+  .metric-strip,
+  .grade-summary,
+  .progress-summary,
+  .schedule-board
+) {
+  background: color-mix(in srgb, var(--theia-global-border) 72%, transparent);
+  border-color: color-mix(in srgb, var(--theia-global-border) 88%, transparent);
+  box-shadow: var(--theia-global-shadow);
+  backdrop-filter: var(--theia-global-backdrop);
+}
+
+.grade-summary .gpa-source-label {
+  color: var(--muted-foreground);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.3;
+  text-transform: none;
+}
+
+.app-shell:not(.view-advisor) :is(
+  .metric-strip button,
+  .grade-summary > div,
+  .progress-summary > div,
+  .schedule-corner,
+  .schedule-day-header,
+  .schedule-period-label,
+  .schedule-grid-cell
+) {
+  background: var(--theia-global-surface);
+}
+
+.app-shell:not(.view-advisor) :is(
+  .course-slot,
+  .selection-catalog,
+  .selection-runner,
+  .academic-records-detail,
+  .academic-plan-pdf,
+  .academic-grade-course,
+  .academic-grade-components-table-wrap,
+  .map-layer-controls,
+  .map-zoom-controls,
+  .map-zoom-hud
+) {
+  background: var(--theia-global-surface-strong);
+  border-color: color-mix(in srgb, var(--theia-global-border) 86%, transparent);
+  backdrop-filter: var(--theia-global-backdrop);
+}
+
+/* Course identity stays visible above the shared surface border. */
+.app-shell:not(.view-advisor) .course-slot {
+  border-left-color: var(--course-accent);
+}
+
+.app-shell:not(.view-advisor) .campus-map-panel,
+.app-shell:not(.view-advisor) .map-stage {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* Portaled settings and transient dialogs follow the same contract. */
+.settings-dialog {
+  background: var(--card);
+  border-color: color-mix(in srgb, var(--border) 88%, transparent);
+}
+
+.settings-modal-nav {
+  background: var(--sidebar);
+  border-right-color: var(--sidebar-border);
+}
+
+.settings-dialog-main {
+  background: var(--background);
+}
+
+.settings-dialog-header {
+  background: var(--card);
+}
+
+html[data-app-background="image"] :is(
+  .settings-dialog,
+  .settings-modal-nav,
+  .settings-dialog-main,
+  .settings-dialog-header,
+  .command-palette,
+  .credential-modal
+) {
+  backdrop-filter: blur(var(--theia-background-glass-blur)) saturate(1.06);
+}
+
+html[data-app-background="image"] .settings-dialog {
+  background: color-mix(
+    in srgb,
+    var(--popover) var(--theia-background-surface-strong-opacity),
+    transparent
+  );
+}
+
+html[data-app-background="image"] .settings-modal-nav {
+  background: color-mix(
+    in srgb,
+    var(--sidebar) var(--theia-background-sidebar-opacity),
+    transparent
+  );
+  background-image: none;
+}
+
+html[data-app-background="image"] .settings-dialog-main {
+  background: color-mix(
+    in srgb,
+    var(--background) var(--theia-background-workspace-opacity),
+    transparent
+  );
+}
+
+html[data-app-background="image"] .settings-dialog-header {
+  background: color-mix(
+    in srgb,
+    var(--card) var(--theia-background-surface-opacity),
+    transparent
+  );
+}
+
+/* Indoor map layers share the existing map gestures while keeping source and
+ * floor selection visible at the edge of the canvas. */
+.map-building-controls,
+.map-floor-controls {
+  display: grid;
+  gap: 4px;
+  padding: 4px;
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 16px 30px -23px color-mix(in srgb, var(--foreground) 62%, transparent);
+  backdrop-filter: blur(18px) saturate(1.08);
+}
+
+.map-building-controls { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.map-floor-controls { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.map-building-button,
+.map-floor-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 7px;
+  color: var(--muted-foreground);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.map-floor-controls button { padding: 0 8px; font-size: 11px; }
+.map-building-button:hover,
+.map-floor-controls button:hover {
+  color: var(--accent-foreground);
+  background: var(--accent);
+  border-color: color-mix(in srgb, var(--primary) 24%, var(--border));
+}
+
+.map-building-button.active,
+.map-floor-controls button.active {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 14%, var(--card));
+  border-color: color-mix(in srgb, var(--primary) 30%, var(--border));
+}
+
+.map-positioning-status {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 16px 30px -23px color-mix(in srgb, var(--foreground) 62%, transparent);
+  backdrop-filter: blur(18px) saturate(1.08);
+  font-size: 10px;
+}
+
+.map-positioning-status svg { color: var(--muted-foreground); }
+.map-positioning-status small { color: var(--muted-foreground); font-size: 9px; }

@@ -139,10 +139,6 @@ export function createAuthActorManager({
       if (current && !current.invalidated && current.epoch === getEpoch()) {
         if (requireBrowser) current.requireBrowser = true
         if (skipSync) current.skipSync = true
-        if (!background && current.window && !current.window.isDestroyed?.()) {
-          current.window.show?.()
-          current.window.focus?.()
-        }
         return current
       }
       if (requireBrowser || skipSync) return create(source, { background, userInitiated, requireBrowser, skipSync })

@@ -1,0 +1,870 @@
+/* ── Semantic visual bridge ────────────────────────────────────────────── */
+/* New shadcn tokens drive the old workspace until each view is migrated. */
+:root {
+  --surface-subtle: color-mix(in srgb, var(--secondary) 72%, var(--background));
+  --surface-hover: color-mix(in srgb, var(--accent) 64%, var(--card));
+  --surface-raised: color-mix(in srgb, var(--card) 92%, var(--background));
+  --surface-glass: color-mix(in srgb, var(--background) 90%, transparent);
+  --border-subtle: color-mix(in srgb, var(--border) 72%, transparent);
+  --overlay: rgba(13, 25, 28, .32);
+  --danger-soft: #fbecee;
+  --map-ground: #e4ece9;
+}
+
+:root.dark {
+  --surface-subtle: color-mix(in srgb, var(--secondary) 84%, var(--background));
+  --surface-hover: color-mix(in srgb, var(--accent) 72%, var(--card));
+  --surface-raised: color-mix(in srgb, var(--card) 95%, var(--background));
+  --surface-glass: color-mix(in srgb, var(--background) 86%, transparent);
+  --border-subtle: color-mix(in srgb, var(--border) 82%, transparent);
+  --overlay: rgba(1, 8, 10, .62);
+  --danger-soft: #3d2025;
+  --map-ground: #1b2928;
+}
+
+html,
+body,
+#root,
+.app-shell,
+.workspace,
+.canvas-surface {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.titlebar,
+.sidebar {
+  background: var(--sidebar);
+  color: var(--sidebar-foreground);
+}
+
+.titlebar {
+  border-bottom: 1px solid var(--sidebar-border);
+}
+
+.titlebar-title {
+  color: color-mix(in srgb, var(--sidebar-foreground) 42%, transparent);
+}
+
+.sidebar {
+  border-right-color: var(--sidebar-border);
+  box-shadow: 1px 0 0 var(--sidebar-border);
+}
+
+.brand-wordmark strong {
+  color: var(--sidebar-foreground);
+}
+
+.brand-wordmark span,
+.sidebar-status-dock > span:last-child,
+.sync-summary > span,
+.sidebar-bottom > button,
+.nav-group-label {
+  color: color-mix(in srgb, var(--sidebar-foreground) 52%, transparent);
+}
+
+.sidebar-status-dock,
+.sync-summary {
+  background: color-mix(in srgb, var(--sidebar-foreground) 4%, transparent);
+  border-color: var(--sidebar-border);
+}
+
+.sync-summary > div {
+  color: var(--sidebar-foreground);
+}
+
+.sidebar nav button {
+  color: color-mix(in srgb, var(--sidebar-foreground) 62%, transparent);
+}
+
+.sidebar nav button:hover,
+.sidebar nav button.active {
+  color: var(--sidebar-accent-foreground);
+  background: var(--sidebar-accent);
+}
+
+.sidebar nav button.active::before {
+  background: var(--sidebar-primary);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--sidebar-primary) 48%, transparent);
+}
+
+.sidebar nav button em {
+  background: var(--destructive);
+  color: var(--destructive-foreground);
+}
+
+.sync-chip {
+  color: color-mix(in srgb, var(--sidebar-foreground) 64%, transparent);
+  background: color-mix(in srgb, var(--sidebar-foreground) 6%, transparent);
+  border-color: var(--sidebar-border);
+}
+
+.sync-chip.syncing {
+  color: var(--info);
+  background: color-mix(in srgb, var(--info) 15%, transparent);
+  border-color: color-mix(in srgb, var(--info) 30%, transparent);
+}
+
+.sync-chip.failed {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  border-color: color-mix(in srgb, var(--warning) 26%, transparent);
+}
+
+.topbar {
+  background: var(--surface-glass);
+  border-bottom-color: var(--border);
+}
+
+.topbar::after {
+  background: var(--border);
+}
+
+.page-title h1,
+.panel-heading h2,
+.section-heading h2,
+.settings-title h2,
+.credential-modal h2,
+.data-table td,
+.data-table th,
+.profile-chip,
+.profile-chip > span {
+  color: var(--foreground);
+}
+
+.page-title p,
+.source-status,
+.search-box,
+.search-box input,
+.profile-chip,
+.quick-actions,
+.quick-actions small,
+.course-card-head,
+.course-stats,
+.map-zoom-hud,
+.map-zoom-hud span,
+.activity-log-row time,
+.endpoint-list code,
+.model-discovery-status,
+.credential-security,
+.sync-data-summary {
+  color: var(--muted-foreground);
+}
+
+.page-title::before {
+  background: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 13%, transparent);
+}
+
+.icon-button,
+.theme-menu-trigger {
+  color: var(--muted-foreground);
+}
+
+.icon-button:hover,
+.theme-menu-trigger:hover {
+  color: var(--foreground);
+  background: var(--accent);
+}
+
+.sync-button {
+  color: var(--info);
+  background: var(--info-soft);
+}
+
+.sync-button:hover {
+  color: var(--info);
+  background: color-mix(in srgb, var(--info-soft) 74%, var(--card));
+}
+
+.profile-chip > div {
+  color: var(--primary-foreground);
+  background: var(--primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+.search-box {
+  border-bottom-color: var(--input);
+}
+
+.search-box:focus-within {
+  border-color: var(--ring);
+}
+
+.sync-progress-overlay {
+  background: color-mix(in srgb, var(--info) 14%, transparent);
+}
+
+.sync-progress-overlay i {
+  background: linear-gradient(90deg, var(--info), var(--primary));
+}
+
+.sync-live-banner {
+  color: var(--success);
+  background: var(--success-soft);
+  border-color: color-mix(in srgb, var(--success) 22%, var(--border));
+}
+
+.sync-live-banner strong { color: var(--success); }
+.sync-live-banner span,
+.sync-live-banner small { color: color-mix(in srgb, var(--success) 67%, var(--muted-foreground)); }
+
+.login-banner {
+  color: var(--warning);
+  background: var(--warning-soft);
+  border-color: color-mix(in srgb, var(--warning) 24%, var(--border));
+}
+
+.login-banner strong { color: var(--warning); }
+.login-banner span { color: color-mix(in srgb, var(--warning) 67%, var(--muted-foreground)); }
+
+.login-banner button,
+.primary-button {
+  color: var(--primary-foreground);
+  background: var(--primary);
+  box-shadow: 0 6px 16px -10px color-mix(in srgb, var(--primary) 70%, transparent);
+}
+
+.login-banner button:hover,
+.primary-button:hover {
+  background: color-mix(in srgb, var(--primary) 88%, #000);
+}
+
+.message-bar {
+  color: var(--warning);
+  background: var(--warning-soft);
+  border-color: color-mix(in srgb, var(--warning) 28%, var(--border));
+}
+
+.message-bar::after { background: var(--warning); }
+
+.message-bar[data-kind="error"] { color: var(--destructive); background: var(--danger-soft); border-color: color-mix(in srgb, var(--destructive) 28%, var(--border)); }
+.message-bar[data-kind="error"]::after { background: var(--destructive); }
+.message-bar[data-kind="success"] { color: var(--success); background: var(--success-soft); border-color: color-mix(in srgb, var(--success) 28%, var(--border)); }
+.message-bar[data-kind="success"]::after { background: var(--success); }
+
+.metric-strip button,
+.quick-actions button,
+.panel,
+.day-column,
+.course-card,
+.credential-modal,
+.command-palette,
+.data-table-wrap,
+.selection-target,
+.selection-attempts,
+.requirement-choice-group,
+.requirement-course-details,
+.sync-log-panel,
+.fetch-log-row,
+.activity-log-list,
+.api-endpoint,
+.connection-list,
+.export-grid button {
+  background: var(--card);
+  border-color: var(--border);
+}
+
+.metric-strip button:hover,
+.quick-actions button:hover,
+.course-card:hover,
+.export-grid button:hover {
+  background: var(--surface-hover);
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
+}
+
+.timeline-row:hover,
+.task-row:hover,
+.exam-row:hover,
+.notice-list article:hover,
+.data-table tbody tr:hover {
+  background: var(--surface-hover);
+}
+
+.quick-action-icon {
+  color: var(--info);
+  background: var(--info-soft);
+}
+
+.quick-actions button:nth-child(2) .quick-action-icon {
+  color: var(--destructive);
+  background: var(--danger-soft);
+}
+
+.quick-actions button:nth-child(3) .quick-action-icon {
+  color: var(--success);
+  background: var(--success-soft);
+}
+
+.quick-actions button:nth-child(4) .quick-action-icon {
+  color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.task-state {
+  color: var(--success);
+  background: var(--success-soft);
+}
+
+.task-state.urgent {
+  color: var(--destructive);
+  background: var(--danger-soft);
+}
+
+.task-command,
+.secondary-button {
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  border-color: var(--border);
+}
+
+.task-command:hover:not(:disabled),
+.secondary-button:hover {
+  color: var(--accent-foreground);
+  background: var(--accent);
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
+}
+
+.task-command.emphasis {
+  color: var(--primary-foreground);
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.period-pill {
+  color: var(--info);
+  background: var(--info-soft);
+}
+
+.date-block,
+.seat-badge,
+.score-badge {
+  color: var(--destructive);
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--destructive) 18%, var(--border));
+}
+
+.term-selector-group select,
+.selection-controls select,
+.selection-form input,
+.credential-form input,
+.model-service-form select,
+.numeric-setting input,
+.appearance-theme-select {
+  color: var(--foreground);
+  background: var(--card);
+  border-color: var(--input);
+}
+
+.term-selector-group select:focus,
+.selection-controls select:focus,
+.selection-form input:focus,
+.credential-form input:focus,
+.model-service-form select:focus,
+.numeric-setting input:focus {
+  border-color: var(--ring);
+}
+
+.segmented {
+  background: var(--secondary);
+}
+
+.segmented button {
+  color: var(--muted-foreground);
+}
+
+.segmented button.active {
+  color: var(--foreground);
+  background: var(--card);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--foreground) 10%, transparent);
+}
+
+.schedule-pdf-button {
+  color: var(--info);
+  background: var(--info-soft);
+}
+
+.course-slot,
+.requirement-course-table th,
+.data-table th {
+  color: var(--foreground);
+  background: var(--surface-subtle);
+  border-color: var(--border);
+}
+
+.campus-map-panel,
+.map-stage {
+  background: var(--map-ground);
+  border-color: var(--border);
+}
+
+.map-stage {
+  min-height: clamp(320px, calc(100svh - 200px), 760px);
+}
+
+.map-sheet {
+  filter: none;
+}
+
+html.dark .map-sheet {
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, .35));
+}
+
+.map-layer-controls,
+.map-zoom-controls,
+.map-zoom-hud {
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  border-color: var(--border);
+  color: var(--muted-foreground);
+}
+
+.map-zoom-hud strong { color: var(--foreground); }
+
+.gpa-line,
+.gpa-point { stroke: var(--primary); }
+
+.requirement-toggle {
+  color: var(--muted-foreground);
+}
+
+.requirement-toggle:hover,
+.requirement-toggle.expanded {
+  color: var(--accent-foreground);
+  background: var(--accent);
+}
+
+.selection-intro,
+.selection-catalog,
+.selection-runner,
+.notice-list article,
+.exam-row {
+  background: transparent;
+  border-color: var(--border);
+}
+
+.notice-source {
+  color: var(--info);
+  background: var(--info-soft);
+}
+
+.notice-source.theol {
+  color: var(--primary);
+  background: var(--accent);
+}
+
+.settings-icon {
+  color: var(--destructive);
+  background: var(--danger-soft);
+}
+
+.settings-icon.teal {
+  color: var(--primary);
+  background: var(--accent);
+}
+
+.settings-icon.amber {
+  color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.settings-section,
+.settings-title,
+.setting-row,
+.numeric-setting,
+.connection-list > div,
+.sync-data-summary,
+.activity-log-row,
+.data-table td,
+.timeline-row,
+.task-row,
+.exam-row,
+.notice-list article,
+.list-stack,
+.section-heading,
+.requirement-map,
+.requirement-root,
+.selection-controls,
+.schedule-toolbar {
+  border-color: var(--border);
+}
+
+.credential-warning {
+  color: var(--warning);
+  background: var(--warning-soft);
+  border-color: color-mix(in srgb, var(--warning) 25%, var(--border));
+}
+
+.model-discovery-status.error,
+.credential-error,
+.sync-error-row,
+.fetch-log-row.err strong {
+  color: var(--destructive);
+}
+
+.fetch-log-row.empty strong { color: var(--warning); }
+.sync-log-ok { color: var(--success); }
+
+.modal-backdrop,
+.command-palette-backdrop {
+  background: var(--overlay);
+}
+
+.command-palette {
+  background: color-mix(in srgb, var(--popover) 95%, transparent);
+  border-color: var(--border);
+}
+
+.command-palette-search,
+.command-palette-list button {
+  color: var(--muted-foreground);
+  border-color: var(--border);
+}
+
+.command-palette-list button:hover {
+  color: var(--foreground);
+  background: var(--accent);
+}
+
+.appearance-settings .setting-row:first-of-type {
+  border-top: 0;
+}
+
+.appearance-theme-select {
+  min-width: 132px;
+}
+
+.appearance-zoom-group {
+  gap: 4px;
+}
+
+.appearance-zoom-button {
+  min-width: 42px;
+  font-variant-numeric: tabular-nums;
+}
+
+.theme-menu-trigger {
+  border: 1px solid transparent;
+}
+
+.theme-menu-content {
+  width: 194px;
+  padding: 5px;
+}
+
+.theme-menu-content [data-slot="dropdown-menu-radio-item"] {
+  min-height: 48px;
+  padding-right: 9px;
+  padding-left: 9px;
+}
+
+.theme-menu-content [data-slot="dropdown-menu-radio-item"] > span:first-child {
+  display: none;
+}
+
+.theme-menu-content [data-slot="dropdown-menu-radio-item"] > svg:not(.theme-menu-check) {
+  color: var(--primary);
+}
+
+.theme-menu-copy {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+}
+
+.theme-menu-copy strong {
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.theme-menu-copy small {
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+
+.theme-menu-check {
+  color: var(--primary);
+}
+
+.text-command,
+.link-button,
+.source-status.connected,
+.remark-text.info {
+  color: var(--info);
+}
+
+.text-command:hover,
+.link-button:hover {
+  color: color-mix(in srgb, var(--info) 82%, var(--foreground));
+}
+
+.source-status.offline,
+.remark-text.attention {
+  color: var(--warning);
+}
+
+.preview-banner {
+  color: var(--info);
+  background: var(--info-soft);
+  border-color: color-mix(in srgb, var(--info) 22%, var(--border));
+}
+
+.grade-summary,
+.progress-summary {
+  background: var(--border);
+  border-color: var(--border);
+}
+
+.grade-summary > div,
+.progress-summary > div,
+.requirement-root,
+.selection-catalog,
+.selection-runner,
+.exam-row {
+  background: var(--card);
+  border-color: var(--border);
+}
+
+.gpa-grid-line {
+  stroke: var(--border);
+}
+
+.gpa-axis-label,
+.gpa-x-label {
+  fill: var(--muted-foreground);
+}
+
+.gpa-point {
+  fill: var(--card);
+  stroke: var(--primary);
+}
+
+.gpa-point:hover,
+.gpa-point:focus {
+  fill: var(--accent);
+}
+
+.remark-text.danger,
+.remark-badge.danger {
+  color: var(--destructive);
+}
+
+.remark-text.neutral {
+  color: var(--muted-foreground);
+}
+
+.remark-badge.info {
+  color: var(--info);
+  background: var(--info-soft);
+  border-color: color-mix(in srgb, var(--info) 22%, var(--border));
+}
+
+.remark-badge.attention {
+  color: var(--warning);
+  background: var(--warning-soft);
+  border-color: color-mix(in srgb, var(--warning) 24%, var(--border));
+}
+
+.remark-badge.danger {
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--destructive) 24%, var(--border));
+}
+
+.remark-badge.neutral,
+.selection-status {
+  color: var(--muted-foreground);
+  background: var(--secondary);
+  border-color: var(--border);
+}
+
+.requirement-toggle {
+  color: var(--muted-foreground);
+  background: var(--secondary);
+  border-color: var(--border);
+}
+
+.requirement-toggle:hover {
+  color: var(--destructive);
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--destructive) 26%, var(--border));
+}
+
+.requirement-state {
+  border-color: var(--input);
+  background: transparent;
+}
+
+.requirement-state.complete {
+  border-color: var(--primary);
+  background: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
+}
+
+.requirement-state.pending {
+  border-color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.requirement-state.neutral {
+  border-color: var(--input);
+  background: var(--card);
+}
+
+.requirement-meter {
+  background: var(--secondary);
+}
+
+.requirement-meter i { background: var(--muted-foreground); }
+.requirement-meter i.complete { background: var(--primary); }
+.requirement-meter i.pending { background: var(--warning); }
+.requirement-meter i.neutral { background: var(--muted-foreground); }
+
+.requirement-children,
+.requirement-children > .requirement-node::before,
+.requirement-choice-group::before,
+.requirement-children > .requirement-node > .requirement-node-head,
+.requirement-choice-grid > .requirement-node > .requirement-node-head,
+.requirement-course-table-wrap,
+.requirement-course-table th,
+.requirement-course-table td {
+  border-color: var(--border);
+}
+
+.requirement-choice-heading span,
+.requirement-course-heading span {
+  color: var(--primary);
+}
+
+.requirement-choice-heading small,
+.requirement-course-heading small,
+.requirement-credit strong small,
+.selected-course-table td:first-child small,
+.selection-table td small,
+.course-slot small,
+.day-empty,
+.empty-state,
+.timeline-row small,
+.task-due span,
+.task-title small {
+  color: var(--muted-foreground);
+}
+
+.requirement-course-table,
+.requirement-course-table-wrap {
+  color: var(--muted-foreground);
+  background: var(--card);
+}
+
+.requirement-course-table th,
+.requirement-course-table td {
+  padding-left: 13px;
+  padding-right: 13px;
+}
+
+.requirement-course-table tbody tr:hover,
+.selection-table tbody tr:hover,
+.selection-table tbody tr.selected {
+  background: var(--surface-hover);
+}
+
+.selection-intro {
+  color: var(--primary);
+  background: var(--accent);
+  border-color: color-mix(in srgb, var(--primary) 22%, var(--border));
+}
+
+.selection-intro span,
+.selection-target small,
+.selection-attempts span {
+  color: var(--muted-foreground);
+}
+
+.seat-open,
+.selection-status.selected {
+  color: var(--success);
+  background: var(--success-soft);
+}
+
+.seat-full,
+.selection-status.exhausted,
+.selection-status.stopped {
+  color: var(--destructive);
+  background: var(--danger-soft);
+}
+
+.selection-status.running {
+  color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.selection-active > div:not(.selection-attempts),
+.selection-attempts > div {
+  border-color: var(--border);
+}
+
+.map-tool-button {
+  color: var(--muted-foreground);
+}
+
+.map-tool-button:hover {
+  color: var(--accent-foreground);
+  background: var(--accent);
+  border-color: color-mix(in srgb, var(--primary) 24%, var(--border));
+}
+
+.map-tool-button.active {
+  color: #e5484d;
+  background: #fff0f0;
+  border-color: #e5484d;
+}
+
+.danger-button {
+  color: var(--destructive);
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--destructive) 24%, var(--border));
+}
+
+.danger-button:hover {
+  color: var(--destructive);
+  background: color-mix(in srgb, var(--danger-soft) 80%, var(--destructive));
+}
+
+.credential-form > label,
+.credential-form > .secret-input-field,
+.selection-controls label,
+.selection-form > label,
+.selection-number-grid label {
+  color: var(--secondary-foreground);
+}
+
+.credential-form input::placeholder,
+.command-palette-search input::placeholder {
+  color: color-mix(in srgb, var(--muted-foreground) 65%, transparent);
+}
+
+@media (max-width: 920px) {
+  .sidebar {
+    background: var(--sidebar);
+    box-shadow: 12px 0 36px -20px color-mix(in srgb, var(--foreground) 62%, transparent);
+  }
+
+  .sidebar-scrim {
+    background: var(--overlay);
+  }
+}
+
+.sync-light { background: var(--success); }
+.sync-light.error { background: var(--warning); }
+
+.search-box { background: var(--surface-subtle); }
+
+.notice-compact button { border-bottom-color: var(--border); }
+
+.setting-row i { background: var(--input); }
+.setting-row i::after { background: var(--card); }
+.setting-row input:checked + i { background: var(--primary); }
+
+.sync-button { border-color: color-mix(in srgb, var(--info) 22%, var(--border)); }
+
+.requirement-root { border-left-color: var(--primary); }
+

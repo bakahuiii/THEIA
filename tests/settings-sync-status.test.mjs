@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 test('settings marks a clean-looking log as an earlier result while synchronization is running', async () => {
-  const source = await readFile(new URL('../src/views/SettingsView.tsx', import.meta.url), 'utf8')
+  const source = await readFile(new URL('../src/views/settings/SyncSettings.tsx', import.meta.url), 'utf8')
 
   assert.match(
     source,
@@ -21,7 +21,13 @@ test('renderer reconciles a missed sync terminal event from persisted timestamps
 })
 
 test('settings exposes detailed domain outcomes, native logs, and the data directory action', async () => {
-  const source = await readFile(new URL('../src/views/SettingsView.tsx', import.meta.url), 'utf8')
+  const [syncSource, modelSource, dataSource, viewSource] = await Promise.all([
+    readFile(new URL('../src/views/settings/SyncSettings.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/views/settings/SyncSettingsModel.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/views/settings/DataSettings.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/views/SettingsView.tsx', import.meta.url), 'utf8'),
+  ])
+  const source = `${syncSource}\n${modelSource}\n${dataSource}\n${viewSource}`
 
   for (const label of [
     '课表', '考试', '成绩', '学业进度', '已选课程',

@@ -2,10 +2,13 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-const [hookSource, preloadSource, mainSource] = await Promise.all([
+const [hookSource, preloadSource, mainSource, runtimeIpcSource, sourceActionsRuntimeSource, theolInteractionRuntimeSource] = await Promise.all([
   readFile(new URL('../src/hooks/useTheiaApp.ts', import.meta.url), 'utf8'),
   readFile(new URL('../electron/preload.cjs', import.meta.url), 'utf8'),
   readFile(new URL('../electron/main.mjs', import.meta.url), 'utf8'),
+  readFile(new URL('../electron/runtime-ipc.mjs', import.meta.url), 'utf8'),
+  readFile(new URL('../electron/source-actions-runtime.mjs', import.meta.url), 'utf8'),
+  readFile(new URL('../electron/theol-interaction-runtime.mjs', import.meta.url), 'utf8'),
 ])
 
 function sourceBetween(source, startMarker, endMarker) {
@@ -38,14 +41,14 @@ test('preload forwards one advisor request object without expanding its authorit
 
 test('main resolves the advisor action from the current store before opening a private target', () => {
   const handler = sourceBetween(
-    mainSource,
+    runtimeIpcSource,
     "ipcMain.handle('theia:advisor:execute-action'",
-    "ipcMain.handle('theia:get-activity-log'",
+    "registerMailboxIpc({",
   )
 
   assert.match(handler, /resolveAdvisorActionFromStore\(store, request\)/)
   assert.match(handler, /const assertCurrentSnapshot = \(\) => assertAdvisorSnapshotRevision\(store, resolution\.snapshotRevision\)/)
-  assert.match(handler, /await schoolProxyReady\.catch\(\(\) => undefined\)\s*assertAuthEpoch\(epoch\)\s*assertCurrentSnapshot\(\)/)
+  assert.match(handler, /await waitForSchoolProxy\(\)\s*assertAuthEpoch\(epoch\)\s*assertCurrentSnapshot\(\)/)
   assert.match(handler, /openCourseWorkWindow\(entry, epoch, assertCurrentSnapshot\)/)
   assert.match(handler, /error\?\.code === ADVISOR_ACTION_ERROR\.STALE_SNAPSHOT[\s\S]*?advisorActionFailure\(code, resolution\.actionId\)/)
   assert.doesNotMatch(handler, /request\.(?:assignmentId|url)|request\[['"](?:assignmentId|url)['"]\]/)
@@ -53,26 +56,26 @@ test('main resolves the advisor action from the current store before opening a p
 
 test('advisor assignment navigation rechecks its snapshot after waits and before every THEOL navigation', () => {
   const openCourseWork = sourceBetween(
-    mainSource,
+    sourceActionsRuntimeSource,
     'async function openCourseWorkWindow(',
     'async function attachFileToSourceWindow(',
   )
   const actorLifecycle = sourceBetween(
-    mainSource,
-    'async function runTheolInteractiveActor(',
-    'async function finishTheolInteractiveActor(',
+    theolInteractionRuntimeSource,
+    'async function runActor(',
+    'async function finishActor(',
   )
 
-  assert.match(openCourseWork, /await syncService\.waitForAssignmentScan\(\)\s*assertAuthEpoch\(epoch\)\s*assertSnapshot\(\)/)
-  assert.match(openCourseWork, /status = await verifiedStatus\(source\)\s*assertAuthEpoch\(epoch\)\s*assertSnapshot\(\)/)
+  assert.match(openCourseWork, /await getSyncService\(\)\.waitForAssignmentScan\(\)\s*assertAuthEpoch\(epoch\)\s*assertSnapshot\(\)/)
+  assert.match(openCourseWork, /let status = await verifiedStatus\(source\)\s*assertAuthEpoch\(epoch\)\s*assertSnapshot\(\)/)
   assert.match(openCourseWork, /await openLoginWindow\([\s\S]*?assertAuthEpoch\(epoch\)\s*assertSnapshot\(\)/)
   assert.match(openCourseWork, /await rememberVerifiedSession\([\s\S]*?assertAuthEpoch\(epoch\)\s*assertSnapshot\(\)/)
   assert.match(openCourseWork, /assertSnapshot\(\)\s*const window = await openTheolInteractiveWindow\(/)
   assert.match(openCourseWork, /assertCurrentSnapshot: assertSnapshot/)
 
-  assert.match(actorLifecycle, /await syncService\.waitForAssignmentScan\(\)[\s\S]*?actor\.assertCurrentSnapshot\?\.\(\)/)
+  assert.match(actorLifecycle, /const syncService = getSyncService\(\)[\s\S]*?await syncService\.waitForAssignmentScan\(\)[\s\S]*?actor\.assertCurrentSnapshot\?\.\(\)/)
   assert.match(actorLifecycle, /for \(const \[index, url\] of actor\.navigationUrls\.entries\(\)\) \{\s*actor\.assertCurrentSnapshot\?\.\(\)\s*await window\.loadURL\(url\)\s*actor\.assertCurrentSnapshot\?\.\(\)/)
-  assert.match(actorLifecycle, /await validateTheolNavigationStep\(window, check\)\s*actor\.assertCurrentSnapshot\?\.\(\)/)
+  assert.match(actorLifecycle, /await validateNavigationStep\(window, check\)\s*actor\.assertCurrentSnapshot\?\.\(\)/)
 })
 
 test('advisor overview refresh accepts only the latest in-flight request', () => {

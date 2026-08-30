@@ -13,7 +13,12 @@ const settingsSources = await Promise.all([
   'AdvancedModelSettings.tsx',
 ].map((file) => readFile(new URL(`../src/views/settings/${file}`, import.meta.url), 'utf8')))
 const settings = settingsSources.join('\n')
-const styles = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8')
+const styles = await Promise.all([
+  readFile(new URL('../src/styles/legacy-responsive.css', import.meta.url), 'utf8'),
+  readFile(new URL('../src/styles/background-guardrails.css', import.meta.url), 'utf8'),
+  readFile(new URL('../src/styles/visual-refinement-workspace.css', import.meta.url), 'utf8'),
+  readFile(new URL('../src/styles/portal.css', import.meta.url), 'utf8'),
+]).then((parts) => parts.join('\n'))
 
 test('shared secret input reveals only the current controlled value without submitting its form', () => {
   assert.match(component, /import \{ Eye, EyeOff \} from "lucide-react"/)

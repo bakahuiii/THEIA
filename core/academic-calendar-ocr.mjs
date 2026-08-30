@@ -9,10 +9,13 @@ const REGION_PADDING = 16
 
 const CALENDAR_REGIONS = [
   { key: 'semester-1', kind: 'semester', label: '第一学期', x: 0.525, y: 0.073, width: 0.215, height: 0.04, pageSegMode: '11' },
-  { key: 'semester-2', kind: 'semester', label: '第二学期', x: 0.775, y: 0.073, width: 0.22, height: 0.04, pageSegMode: '7' },
+  // The current right-hand calendar heading shares its crop with a dense grid;
+  // sparse-text mode preserves both dates where single-line mode drops them.
+  { key: 'semester-2', kind: 'semester', label: '第二学期', x: 0.775, y: 0.073, width: 0.22, height: 0.04, pageSegMode: '11' },
   { key: 'semester-3', kind: 'semester', label: '第三学期', x: 0.775, y: 0.59, width: 0.22, height: 0.04, pageSegMode: '7' },
   { key: 'winter-vacation', kind: 'vacation', label: '寒假', specialDateLabel: '春节', x: 0.525, y: 0.817, width: 0.22, height: 0.055, pageSegMode: '11' },
-  { key: 'summer-vacation', kind: 'vacation', label: '暑假', x: 0.775, y: 0.817, width: 0.22, height: 0.055, pageSegMode: '7' },
+  // The pale date line loses digits during thresholding on the current scan.
+  { key: 'summer-vacation', kind: 'vacation', label: '暑假', x: 0.775, y: 0.817, width: 0.22, height: 0.055, pageSegMode: '7', preprocess: 'grayscale', scale: 6, padding: 24 },
 ]
 
 const REGION_BY_KEY = new Map(CALENDAR_REGIONS.map((region) => [region.key, region]))
@@ -272,9 +275,11 @@ function otsuThreshold(image, rectangle) {
 
 function preprocessedRegionBmp(image, region) {
   const rectangle = pixelRectangle(image, region)
-  const threshold = otsuThreshold(image, rectangle)
-  const width = rectangle.width * REGION_SCALE + REGION_PADDING * 2
-  const height = rectangle.height * REGION_SCALE + REGION_PADDING * 2
+  const threshold = region.preprocess === 'grayscale' ? null : otsuThreshold(image, rectangle)
+  const scale = Number.isInteger(region.scale) && region.scale > 0 ? region.scale : REGION_SCALE
+  const padding = Number.isInteger(region.padding) && region.padding >= 0 ? region.padding : REGION_PADDING
+  const width = rectangle.width * scale + padding * 2
+  const height = rectangle.height * scale + padding * 2
   const rowBytes = Math.ceil((width * 3) / 4) * 4
   const pixelBytes = rowBytes * height
   const bmp = Buffer.alloc(54 + pixelBytes, 255)
@@ -292,12 +297,13 @@ function preprocessedRegionBmp(image, region) {
 
   for (let sourceY = 0; sourceY < rectangle.height; sourceY += 1) {
     for (let sourceX = 0; sourceX < rectangle.width; sourceX += 1) {
-      const value = luminanceAt(image, rectangle.left + sourceX, rectangle.top + sourceY) <= threshold ? 0 : 255
-      for (let scaleY = 0; scaleY < REGION_SCALE; scaleY += 1) {
-        const targetY = REGION_PADDING + sourceY * REGION_SCALE + scaleY
+      const luminance = luminanceAt(image, rectangle.left + sourceX, rectangle.top + sourceY)
+      const value = threshold === null ? luminance : luminance <= threshold ? 0 : 255
+      for (let scaleY = 0; scaleY < scale; scaleY += 1) {
+        const targetY = padding + sourceY * scale + scaleY
         const bmpRow = height - 1 - targetY
-        for (let scaleX = 0; scaleX < REGION_SCALE; scaleX += 1) {
-          const targetX = REGION_PADDING + sourceX * REGION_SCALE + scaleX
+        for (let scaleX = 0; scaleX < scale; scaleX += 1) {
+          const targetX = padding + sourceX * scale + scaleX
           const offset = 54 + bmpRow * rowBytes + targetX * 3
           bmp[offset] = value
           bmp[offset + 1] = value

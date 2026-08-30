@@ -1,7 +1,7 @@
 {
   "name": "theia-campus-client",
   "private": true,
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "THEIA, a local-first desktop workspace for Beijing University of Chemical Technology campus services.",
   "author": "bakahuiii",
   "license": "MIT",
@@ -38,13 +38,16 @@
     "imapflow": "1.6.6",
     "jpeg-js": "^0.4.4",
     "jszip": "^3.10.1",
-    "mailparser": "3.9.15",
+    "mailparser": "3.9.17",
     "mammoth": "1.12.0",
     "marked": "^18.0.9",
     "pdf-parse": "2.4.5",
     "sanitize-html": "^2.17.6",
     "tesseract.js": "^7.0.0",
     "undici": "7.29.0"
+  },
+  "overrides": {
+    "nanoid": "3.3.18"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
@@ -101,6 +104,12 @@
       "!{dist,electron,core,cli,integration}/**/{auth-diagnostics.ndjson,api-runtime.json,buct-data.json,model-config-transaction.v1.json,theia-feed.json}",
       "!{dist,electron,core,cli,integration}/**/*.dpapi.json",
       "package.json"
+    ],
+    "extraFiles": [
+      {
+        "from": "scripts/fix-theia-startup.bat",
+        "to": "fix-theia-startup.bat"
+      }
     ],
     "win": {
       "signAndEditExecutable": true,

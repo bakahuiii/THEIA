@@ -2,8 +2,11 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-const [source, hookSource] = await Promise.all([
+const [viewSource, catalogSource, summarySource, helperSource, hookSource] = await Promise.all([
   readFile(new URL('../src/views/CourseSelectionView.tsx', import.meta.url), 'utf8'),
+  readFile(new URL('../src/views/course-selection/CandidateCatalog.tsx', import.meta.url), 'utf8'),
+  readFile(new URL('../src/views/course-selection/DecisionSummary.tsx', import.meta.url), 'utf8'),
+  readFile(new URL('../src/views/course-selection/selection-helpers.ts', import.meta.url), 'utf8'),
   readFile(new URL('../src/hooks/useTheiaApp.ts', import.meta.url), 'utf8'),
 ])
 
@@ -16,73 +19,72 @@ function sourceBetween(sourceText, startMarker, endMarker) {
 }
 
 test('candidate loading starts a local read-only advisor ranking with a safe projection', () => {
-  assert.match(source, /import \{ bridge \} from "\.\.\/bridge"/)
-  assert.match(source, /function advisorCandidateRecord\(candidate: CourseSelectionCandidate\)/)
-  const projection = source.match(
-    /function advisorCandidateRecord[\s\S]*?\n}\n\nfunction DecisionSummary/,
-  )?.[0]
-  assert.ok(projection, 'safe candidate projection must remain explicit')
+  assert.match(viewSource, /from "\.\/course-selection\/selection-helpers"/)
+  assert.match(helperSource, /function advisorCandidateRecord\(candidate: CourseSelectionCandidate\)/)
   for (const field of [
     'id', 'courseId', 'courseCode', 'title', 'credits',
     'categoryCode', 'blockTitle', 'termId', 'time',
-  ]) assert.match(projection, new RegExp(`${field}: candidate\\.${field}`))
-  assert.doesNotMatch(projection, /operationId|sourceUrl|classId/)
-  assert.match(source, /bridge\.getAdvisorCourseDecisions\(\{/)
-  assert.match(source, /snapshotRevision: advisorSnapshotRevision/)
-  assert.match(source, /const advisorCandidateInput = useMemo\(/)
-  assert.match(source, /\(\) => candidates\.map\(advisorCandidateRecord\)/)
-  assert.match(source, /candidates: advisorCandidateInput/)
+  ]) assert.match(helperSource, new RegExp(`${field}: candidate\\.${field}`))
+  assert.doesNotMatch(helperSource, /operationId|sourceUrl|classId/)
+  assert.match(viewSource, /const advisorCandidateInput = useMemo\(/)
+  assert.match(viewSource, /\(\) => candidates\.map\(advisorCandidateRecord\)/)
+  assert.match(viewSource, /bridge\.getAdvisorCourseDecisions\(\{/)
+  assert.match(viewSource, /snapshotRevision: advisorSnapshotRevision/)
+  assert.match(catalogSource, /const advisorDecisionByCandidate = useMemo\(/)
+  assert.match(catalogSource, /const rankedCandidates = useMemo\(/)
+  assert.match(catalogSource, /left\.rank \?\? Number\.POSITIVE_INFINITY/)
+  assert.match(catalogSource, /right\.rank \?\? Number\.POSITIVE_INFINITY/)
+  assert.match(catalogSource, /left\.index - right\.index/)
 })
 
 test('advisor results sort candidates by stable rank and expose required decision evidence', () => {
-  assert.match(source, /advisorDecisionByCandidate\.get\(candidate\.id\)\?\.rank/)
-  assert.match(source, /left\.rank \?\? Number\.POSITIVE_INFINITY/)
-  assert.match(source, /<th>本地顾问排名<\/th>/)
-  assert.match(source, /decision\.rank/)
-  assert.match(source, /confidenceLabels\[match\.confidence\]/)
-  assert.match(source, /scheduleStatusLabels\[decision\.scheduleStatus\]/)
-  assert.match(source, /duplicateStatusLabels\[decision\.duplicateStatus\]/)
-  assert.match(source, /decision\.scheduleConflicts\.map/)
-  assert.match(source, /decision\.reasons\.map/)
-  assert.match(source, /数据部分完整|完整性未知/)
+  assert.match(catalogSource, /<th>本地顾问排名<\/th>/)
+  assert.match(catalogSource, /DecisionSummary/)
+  assert.match(summarySource, /decision\.rank/)
+  assert.match(summarySource, /confidenceLabels\[match\.confidence\]/)
+  assert.match(summarySource, /scheduleStatusLabels\[decision\.scheduleStatus\]/)
+  assert.match(summarySource, /duplicateStatusLabels\[decision\.duplicateStatus\]/)
+  assert.match(summarySource, /decision\.scheduleConflicts\.map/)
+  assert.match(summarySource, /decision\.reasons\.map/)
+  assert.match(summarySource, /数据部分完整|完整性未知/)
 })
 
 test('renderer delegates completeness to the one-snapshot main-process authority', () => {
-  assert.doesNotMatch(source, /bridge\.getAdvisorOverview\(\)/)
-  assert.doesNotMatch(source, /schoolScheduleComplete:/)
-  assert.doesNotMatch(source, /completeness:\s*\{/)
+  assert.doesNotMatch(viewSource, /bridge\.getAdvisorOverview\(\)/)
+  assert.doesNotMatch(viewSource, /schoolScheduleComplete:/)
+  assert.doesNotMatch(viewSource, /completeness:\s*\{/)
 })
 
 test('ranking evidence returned by the frozen service snapshot is reachable in the UI', () => {
-  assert.match(source, /decision\.reasons\.map/)
-  assert.match(source, /查看排名理由/)
-  assert.doesNotMatch(source, /setAdvisorEvidence\(result\.evidence\)/)
-  assert.doesNotMatch(source, /decision\.evidenceRefs/)
-  assert.doesNotMatch(source, /EvidenceDrawer/)
+  assert.match(summarySource, /查看排名理由/)
+  assert.doesNotMatch(viewSource, /setAdvisorEvidence\(result\.evidence\)/)
+  assert.doesNotMatch(viewSource, /decision\.evidenceRefs/)
+  assert.doesNotMatch(viewSource, /EvidenceDrawer/)
 })
 
 test('ranking lifecycle is stale-safe and falls back to source order after failure', () => {
-  assert.match(source, /const requestId = \+\+advisorDecisionRequest\.current/)
-  assert.match(source, /advisorDecisionRequest\.current !== requestId/)
-  assert.match(source, /JSON\.stringify\(advisorCandidateInput\)/)
-  assert.match(source, /advisorDecisionInputKey === advisorCandidateInputKey/)
-  assert.match(source, /advisorDecisionRevision === advisorSnapshotRevision/)
-  assert.match(source, /result\.snapshotRevision !== advisorSnapshotRevision/)
-  assert.match(source, /setAdvisorDecisionError\(true\)/)
-  assert.match(source, /left\.index - right\.index/)
-  assert.match(source, /按原顺序显示/)
+  assert.match(viewSource, /const requestId = \+\+advisorDecisionRequest\.current/)
+  assert.match(viewSource, /advisorDecisionRequest\.current !== requestId/)
+  assert.match(viewSource, /JSON\.stringify\(advisorCandidateInput\)/)
+  assert.match(viewSource, /advisorDecisionInputKey === advisorCandidateInputKey/)
+  assert.match(viewSource, /advisorDecisionRevision === advisorSnapshotRevision/)
+  assert.match(viewSource, /result\.snapshotRevision !== advisorSnapshotRevision/)
+  assert.match(viewSource, /setAdvisorDecisionError\(true\)/)
+  assert.match(catalogSource, /left\.index - right\.index/)
+  assert.match(catalogSource, /按原顺序显示/)
 })
 
 test('advisor ranking cannot save a target or start course selection', () => {
-  const effect = source.match(
-    /useEffect\(\(\) => \{\n    const requestId = \+\+advisorDecisionRequest[\s\S]*?\n  }, \[advisorCandidateInput, advisorCandidateInputKey, advisorDecisionRetry, advisorSnapshotRevision, candidates\.length\]\);/,
-  )?.[0]
-  assert.ok(effect, 'ranking effect must remain a reviewable isolated block')
+  const effect = sourceBetween(
+    viewSource,
+    'useEffect(() => {\n    const requestId = ++advisorDecisionRequest.current;',
+    '  useEffect(() => {\n    if (!schoolTarget || !candidates.length) return;',
+  )
   assert.doesNotMatch(effect, /onStart|startCourseSelection|onSaveSchoolTarget|saveSchoolTarget|selectCandidate/)
-  assert.doesNotMatch(source, /advisorDecisions?\.proposals|result\.proposals/)
-  assert.doesNotMatch(source, /bridge\.startCourseSelection/)
-  assert.match(source, /onClick=\{\(\) => selectCandidate\(candidate\)\}/)
-  assert.match(source, /onClick=\{\(\) => onStart\(\{/)
+  assert.doesNotMatch(viewSource, /advisorDecisions?\.proposals|result\.proposals/)
+  assert.doesNotMatch(viewSource, /bridge\.startCourseSelection/)
+  assert.match(catalogSource, /onClick=\{\(\) => onSelectCandidate\(candidate\)\}/)
+  assert.match(viewSource, /onClick=\{\(\) => onStart\(\{/)
 })
 
 test('candidate catalog accepts only the latest in-flight request', () => {
@@ -101,12 +103,12 @@ test('candidate catalog accepts only the latest in-flight request', () => {
 })
 
 test('school-wide targets retain lookup identity through the renderer boundary', () => {
-  assert.match(source, /target: SchoolScheduleItem \| null/)
-  assert.match(source, /courseId: target\.courseId \|\| target\.courseCode/)
-  assert.match(source, /categoryCode: target\.categoryCode/)
-  assert.match(source, /jxbzls: target\.jxbzls/)
-  assert.match(source, /selectionContext: target\.selectionContext/)
-  assert.match(source, /schoolTarget,\n      \{ page, pageSize \}/)
-  assert.match(source, /courseId: candidate\.courseId/)
+  assert.match(viewSource, /target: SchoolScheduleItem \| null/)
+  assert.match(viewSource, /courseId: target\.courseId \|\| target\.courseCode/)
+  assert.match(viewSource, /categoryCode: target\.categoryCode/)
+  assert.match(viewSource, /jxbzls: target\.jxbzls/)
+  assert.match(viewSource, /selectionContext: target\.selectionContext/)
+  assert.match(viewSource, /schoolTarget,\n      \{ page, pageSize \}/)
+  assert.match(viewSource, /courseId: candidate\.courseId/)
   assert.match(hookSource, /target: SchoolScheduleItem \| null = null/)
 })

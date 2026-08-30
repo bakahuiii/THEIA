@@ -1,7 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { access } from 'node:fs/promises'
-import { defaultOcrRuntime, parseAcademicCalendarOcrItems, parseAcademicCalendarOcrRegions, probeAcademicCalendarOcrRuntime } from '../core/academic-calendar-ocr.mjs'
+import { createRequire } from 'node:module'
+import { defaultOcrRuntime, parseAcademicCalendarOcrItems, parseAcademicCalendarOcrRegions, probeAcademicCalendarOcrRuntime, runAcademicCalendarOcr } from '../core/academic-calendar-ocr.mjs'
+
+const require = createRequire(import.meta.url)
+const jpeg = require('jpeg-js')
 
 test('academic-calendar OCR items retain semester, vacation, and special-date semantics', () => {
   const parsed = parseAcademicCalendarOcrItems([
@@ -51,6 +55,33 @@ test('default academic-calendar OCR uses bundled local worker, core, and Chinese
     access(runtime.workerPath),
     access(runtime.corePath),
     access(`${runtime.language.langPath}/chi_sim.traineddata.gz`),
+  ])
+})
+
+test('academic-calendar OCR uses sparse-text mode for the second-semester heading', async () => {
+  const modes = []
+  const regionText = [
+    '第一学期 2026年8月31日~2027年1月17日',
+    '第二学期 2027年3月1日~2027年7月11日',
+    '',
+    '寒假 2027年1月18日~2027年2月28日',
+    '暑假 2027年7月26日~2027年9月5日',
+  ]
+  const image = jpeg.encode({ width: 2, height: 2, data: Buffer.alloc(16, 255) }, 90).data
+  const parsed = await runAcademicCalendarOcr(image, {
+    createWorkerImpl: async () => ({
+      recognize: async (_input, parameters) => {
+        modes.push(String(parameters?.tessedit_pageseg_mode || 'full'))
+        return { data: { text: regionText[modes.length - 1] || '' } }
+      },
+      terminate: async () => {},
+    }),
+  })
+
+  assert.deepEqual(modes, ['11', '11', '7', '11', '7'])
+  assert.deepEqual(parsed.semesters.slice(0, 2).map(({ label, startDate, endDate }) => ({ label, startDate, endDate })), [
+    { label: '第一学期', startDate: '2026-08-31', endDate: '2027-01-17' },
+    { label: '第二学期', startDate: '2027-03-01', endDate: '2027-07-11' },
   ])
 })
 

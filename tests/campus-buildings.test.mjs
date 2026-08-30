@@ -44,3 +44,33 @@ test("buildingDefByKey returns the matching definition", () => {
   assert.equal(def?.buildingId, "first");
   assert.equal(b.buildingDefByKey("nonexistent"), undefined);
 });
+
+test("DEFAULT_BUILDING_MARKS contains the campus landmarks", () => {
+  const marks = b.readBuildingMarks();
+  assert.ok(marks.length >= 10, `expected many marks, got ${marks.length}`);
+  const keys = new Set(marks.map((m) => m.key));
+  // Key buildings present as defaults for navigation.
+  assert.ok(keys.has("second"), "second teaching building missing");
+  assert.ok(keys.has("library"), "library missing");
+  assert.ok(keys.has("gym"), "gym missing");
+  assert.ok(keys.has("custom-文理楼"), "文理楼 missing");
+  // Dormitory clusters must exist for the home (宿舍) selector.
+  const names = marks.map((m) => m.name ?? "").join(" ");
+  assert.ok(/紫竹/.test(names), "紫竹苑 dorms missing");
+  assert.ok(/樱花/.test(names), "樱花苑 dorms missing");
+  for (const m of marks) {
+    assert.ok(Number.isFinite(m.x) && Number.isFinite(m.y), `mark ${m.key} has invalid coords`);
+    assert.ok(m.x > 0 && m.x < 6874 && m.y > 0 && m.y < 10063, `mark ${m.key} out of bounds`);
+  }
+});
+
+test("resolveMarkKey normalizes schedule building keys to marked keys", () => {
+  assert.equal(b.resolveMarkKey("firstA"), "first");
+  assert.equal(b.resolveMarkKey("firstB"), "first");
+  assert.equal(b.resolveMarkKey("secondC"), "second");
+  assert.equal(b.resolveMarkKey("secondD"), "second");
+  assert.equal(b.resolveMarkKey("first"), "first");
+  assert.equal(b.resolveMarkKey("library"), "library");
+  assert.equal(b.resolveMarkKey("labA"), "labA");
+  assert.equal(b.resolveMarkKey(null), null);
+});

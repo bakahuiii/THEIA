@@ -1,0 +1,72 @@
+/* Split from src/styles/tools.css; imported in source order by src/styles.css. */
+/* ── Fitness calculator ──────────────────────────────────────────────────── */
+.fitness-calc { display: grid; gap: 15px; max-width: 1080px; }
+.fitness-meta { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; padding: 12px 16px; background: color-mix(in srgb, var(--card) 78%, transparent); border: 1px solid color-mix(in srgb, var(--border) 82%, transparent); border-radius: var(--radius); }
+.fitness-toggle-group { display: inline-flex; align-items: center; gap: 9px; }
+.fitness-toggle-label { color: var(--muted-foreground); font-size: 11px; font-weight: 650; }
+.fitness-toggle { display: inline-flex; gap: 2px; padding: 3px; background: color-mix(in srgb, var(--secondary) 82%, transparent); border: 1px solid color-mix(in srgb, var(--border) 72%, transparent); border-radius: 10px; }
+.fitness-toggle > button { min-width: 43px; min-height: 28px; padding: 0 10px; color: var(--muted-foreground); background: transparent; border: 1px solid transparent; border-radius: 7px; font-size: 11px; font-weight: 600; }
+.fitness-toggle > button:hover { color: var(--foreground); }
+.fitness-toggle > button.active { color: var(--foreground); background: color-mix(in srgb, var(--card) 92%, transparent); border-color: color-mix(in srgb, var(--border) 84%, transparent); box-shadow: 0 2px 5px -4px color-mix(in srgb, var(--foreground) 80%, transparent); }
+.fitness-readonly-meta { display: inline-flex; align-items: center; gap: 9px; min-height: 31px; padding: 0 11px; background: color-mix(in srgb, var(--secondary) 54%, transparent); border: 1px solid color-mix(in srgb, var(--border) 76%, transparent); border-radius: 9px; }
+.fitness-readonly-meta strong { color: var(--foreground); font-size: 12px; font-weight: 700; }
+.fitness-year-picker { display: inline-flex; align-items: center; gap: 9px; min-width: 0; }
+.fitness-year-picker select { min-width: 172px; height: 32px; padding: 0 30px 0 11px; color: var(--foreground); background: color-mix(in srgb, var(--secondary) 66%, transparent); border: 1px solid color-mix(in srgb, var(--border) 80%, transparent); border-radius: 9px; font-size: 11px; font-weight: 650; cursor: pointer; }
+.fitness-year-picker select:focus { border-color: var(--ring); outline: 2px solid color-mix(in srgb, var(--ring) 16%, transparent); outline-offset: 1px; }
+.fitness-year-picker select:disabled { color: var(--muted-foreground); cursor: not-allowed; opacity: .7; }
+.fitness-year-hint { color: var(--muted-foreground); font-size: 10px; }
+.fitness-inputs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 13px 14px; padding: 18px; background: color-mix(in srgb, var(--card) 78%, transparent); border: 1px solid color-mix(in srgb, var(--border) 82%, transparent); border-radius: var(--radius); }
+.fitness-field { display: grid; gap: 7px; min-width: 0; }
+.fitness-field-label { color: var(--secondary-foreground); font-size: 11px; font-weight: 650; }
+.fitness-field-input { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.fitness-field-input input { flex: 1; min-width: 0; height: 36px; padding: 0 11px; color: var(--foreground); background: color-mix(in srgb, var(--secondary) 48%, transparent); border: 1px solid color-mix(in srgb, var(--input) 86%, transparent); border-radius: 9px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.fitness-field-input input:hover { border-color: color-mix(in srgb, var(--foreground) 18%, var(--border)); }
+.fitness-field-input input:focus { border-color: var(--ring); outline: 2px solid color-mix(in srgb, var(--ring) 16%, transparent); outline-offset: 1px; }
+.fitness-field-input input[readonly] { cursor: default; color: color-mix(in srgb, var(--foreground) 86%, var(--muted-foreground)); background: color-mix(in srgb, var(--secondary) 30%, transparent); border-color: color-mix(in srgb, var(--border) 72%, transparent); }
+.fitness-field-input input[readonly]:focus { border-color: color-mix(in srgb, var(--border) 84%, transparent); outline: none; }
+.fitness-field-input input[readonly]::-webkit-inner-spin-button,
+.fitness-field-input input[readonly]::-webkit-outer-spin-button { appearance: none; margin: 0; }
+.fitness-field-unit { min-width: max-content; color: var(--muted-foreground); font-size: 11px; white-space: nowrap; }
+.fitness-endure-row { display: grid; align-content: start; gap: 7px; min-width: 0; }
+.fitness-endure-inputs { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.fitness-endure-inputs .fitness-field-input { min-width: 0; }
+.fitness-endure-inputs input { width: 58px; height: 36px; padding: 0 8px; color: var(--foreground); background: color-mix(in srgb, var(--secondary) 48%, transparent); border: 1px solid color-mix(in srgb, var(--input) 86%, transparent); border-radius: 9px; font-size: 12px; text-align: center; font-variant-numeric: tabular-nums; }
+.fitness-endure-inputs input:focus { border-color: var(--ring); outline: 2px solid color-mix(in srgb, var(--ring) 16%, transparent); outline-offset: 1px; }
+.fitness-result-panel { overflow: hidden; padding: 5px 18px 0; background: color-mix(in srgb, var(--card) 83%, transparent); border: 1px solid color-mix(in srgb, var(--border) 84%, transparent); border-radius: var(--radius); box-shadow: var(--shadow); }
+.fitness-scores-table { display: grid; gap: 0; }
+.fitness-score-row { display: grid; grid-template-columns: minmax(0, 1fr) 52px 62px; align-items: center; gap: 12px; min-height: 43px; padding: 4px 2px; border-bottom: 1px solid color-mix(in srgb, var(--border) 76%, transparent); font-size: 11px; transition: background .16s var(--ease-out); }
+.fitness-score-row:hover { background: color-mix(in srgb, var(--primary) 5%, transparent); }
+.fitness-score-row:last-child { border-bottom: 0; }
+.fitness-score-name { color: var(--foreground); font-size: 12px; font-weight: 600; }
+.fitness-score-weight { color: var(--muted-foreground); font-size: 10px; text-align: right; }
+.fitness-score-tag { display: inline-flex; justify-content: center; min-width: 42px; justify-self: end; padding: 4px 7px; border-radius: 7px; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.fitness-score-tag.excellent { color: var(--success); background: var(--success-soft); }
+.fitness-score-tag.good { color: var(--info); background: var(--info-soft); }
+.fitness-score-tag.pass { color: var(--warning); background: var(--warning-soft); }
+.fitness-score-tag.fail { color: var(--destructive); background: var(--danger-soft); }
+.fitness-score-tag.na { color: var(--muted-foreground); background: var(--secondary); }
+.fitness-total { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 0 -18px; padding: 15px 18px; background: color-mix(in srgb, var(--primary) 7%, transparent); border-top: 1px solid color-mix(in srgb, var(--primary) 15%, var(--border)); }
+.fitness-total-nums { display: grid; gap: 2px; }
+.fitness-total-score { color: var(--foreground) !important; font-size: 27px !important; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.fitness-total-detail { color: var(--muted-foreground); font-size: 10px; }
+.fitness-total-empty { padding: 14px 0; color: var(--muted-foreground); font-size: 11px; text-align: center; }
+.fitness-grade-badge { display: inline-flex; align-items: center; padding: 5px 10px; border-radius: 8px; font-size: 12px; font-weight: 700; }
+.fitness-grade-badge.excellent { color: var(--success); background: var(--success-soft); }
+.fitness-grade-badge.good { color: var(--info); background: var(--info-soft); }
+.fitness-grade-badge.pass { color: var(--warning); background: var(--warning-soft); }
+.fitness-grade-badge.fail { color: var(--destructive); background: var(--danger-soft); }
+.fitness-bmi-hint { align-self: end; display: flex; align-items: center; min-height: 36px; padding: 0 11px; color: var(--muted-foreground); background: color-mix(in srgb, var(--secondary) 48%, transparent); border: 1px dashed color-mix(in srgb, var(--border) 84%, transparent); border-radius: 9px; font-size: 11px; line-height: 1.5; }
+.fitness-import-row { display: flex; align-items: center; gap: 10px; min-height: 36px; }
+.fitness-import-btn { height: 36px; padding: 0 15px; color: var(--primary-foreground); background: var(--primary); border: 1px solid var(--primary); border-radius: 9px; box-shadow: 0 8px 16px -13px color-mix(in srgb, var(--primary) 92%, transparent); font-size: 11px; font-weight: 700; white-space: nowrap; transition: opacity .15s, transform .15s var(--ease-out); }
+.fitness-import-btn:hover:not(:disabled) { transform: translateY(-1px); }
+.fitness-import-btn:hover:not(:disabled) { opacity: 0.88; }
+.fitness-import-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.fitness-import-error { color: var(--destructive); font-size: 11px; }
+.notice-source.imap { color: var(--info); background: var(--info-soft); }
+.mail-unread-dot { display: inline-block; width: 7px; height: 7px; margin: 0 7px 1px 0; vertical-align: middle; background: var(--primary); border-radius: 50%; }
+.mail-attachment-icon { flex: 0 0 auto; margin-right: 4px; color: var(--muted-foreground); }
+.mailbox-detail-body p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.mail-detail-loading { display: inline-flex; align-items: center; gap: 8px; color: var(--muted-foreground); }
+.mail-detail-loading svg { animation: spin 0.9s linear infinite; }
+.mail-detail-error { color: var(--destructive); }
+

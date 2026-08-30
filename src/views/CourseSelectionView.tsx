@@ -1,24 +1,15 @@
 import {
   BookOpen,
-  ArrowDownUp,
   CalendarDays,
-  CircleAlert,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  ChevronUp,
   Crosshair,
-  GitCompareArrows,
-  ListOrdered,
   Play,
   RefreshCw,
-  Search,
   ShieldCheck,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { bridge } from "../bridge";
-import { EmptyState, formatClock, formatDate, localDateTimeInstant, localDateTimeValue, parseLocalDateTime, type Term } from "../ui/app-shared";
+import { formatClock, formatDate, localDateTimeInstant, localDateTimeValue, parseLocalDateTime, type Term } from "../ui/app-shared";
 import type {
   AdvisorCourseDecision,
   CourseSelectionCandidate,
@@ -32,189 +23,12 @@ import type {
   SchoolScheduleQuery,
   SchoolScheduleResult,
 } from "../types";
+import { CandidateCatalog } from "./course-selection/CandidateCatalog";
+import { SchoolSchedulePanel } from "./course-selection/SchoolSchedulePanel";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-
-type SelectionOptions = {
-  candidate?: CourseSelectionCandidate | null;
-  targets?: CourseSelectionTarget[];
-  startAt: string | null;
-  endAt?: string | null;
-  intervalMs: number;
-  maxAttempts: number;
-  concurrency?: number;
-};
-
-const schoolScheduleColumns = [
-  { key: "title", label: "课程 / 课程号" },
-  { key: "className", label: "教学班名称" },
-  { key: "combinedClassInfo", label: "合班信息" },
-  { key: "department", label: "开课院系" },
-  { key: "teacher", label: "教师" },
-  { key: "credits", label: "学分" },
-  { key: "category", label: "课程类型" },
-  { key: "nature", label: "课程性质" },
-  { key: "affiliation", label: "课程归属" },
-  { key: "time", label: "时间" },
-  { key: "location", label: "教室" },
-  { key: "status", label: "状态" },
-] as const;
-
-type SchoolScheduleSortKey = (typeof schoolScheduleColumns)[number]["key"];
-type SchoolScheduleSort = { key: SchoolScheduleSortKey; direction: "asc" | "desc" };
-
-const SCHOOL_SCHEDULE_ROW_HEIGHT = 72;
-const SCHOOL_SCHEDULE_OVERSCAN = 12;
-
-function schoolScheduleSortValue(item: SchoolScheduleItem, key: SchoolScheduleSortKey) {
-  if (key === "title") return [item.title, item.courseCode].filter(Boolean).join(" ");
-  if (key === "credits") return item.credits ?? Number.NEGATIVE_INFINITY;
-  return item[key] || "";
-}
-
-function schoolTermParts(id: string) {
-  const [year = "", term = ""] = String(id || "").split("-");
-  return { year, term };
-}
-
-function schoolTermLabel(term: string) {
-  return ({ "3": "第一学期", "12": "第二学期", "16": "第三学期" } as Record<string, string>)[term] || `学期 ${term}`;
-}
-
-function schoolScheduleUpdatedAt(value?: string | null) {
-  return value ? formatDate(value) : "更新时间未知";
-}
-
-function paginationPages(current: number, total: number) {
-  if (total <= 7) return Array.from({ length: total }, (_, index) => index + 1);
-  return [...new Set([1, current - 1, current, current + 1, total])]
-    .filter((page) => page >= 1 && page <= total)
-    .sort((left, right) => left - right);
-}
-
-const matchBasisLabels: Record<string, string> = {
-  "official-link": "培养方案直接关联",
-  "course-code": "课程号匹配",
-  category: "课程类别匹配",
-  "name-match": "课程名称匹配",
-  unknown: "培养方案匹配未知",
-};
-
-const confidenceLabels = {
-  high: "高置信",
-  medium: "中置信",
-  low: "低置信",
-} as const;
-
-const scheduleStatusLabels = {
-  clear: "未发现冲突",
-  conflict: "存在冲突",
-  unknown: "冲突未知",
-} as const;
-
-const duplicateStatusLabels: Record<string, string> = {
-  "already-completed": "已修或已通过",
-  "currently-selected": "已在当前课表",
-  "previous-attempt": "存在历史修读",
-  none: "未发现重复",
-  unknown: "重复检查未知",
-};
-
-function advisorCandidateRecord(candidate: CourseSelectionCandidate) {
-  return {
-    id: candidate.id,
-    courseId: candidate.courseId,
-    courseCode: candidate.courseCode ?? null,
-    title: candidate.title,
-    credits: candidate.credits ?? null,
-    categoryCode: candidate.categoryCode,
-    blockTitle: candidate.blockTitle ?? null,
-    termId: candidate.termId ?? null,
-    time: candidate.time ?? null,
-  };
-}
-
-function DecisionSummary({
-  decision,
-}: {
-  decision: AdvisorCourseDecision;
-}) {
-  const match = decision.requirementMatches[0];
-  const excluded = decision.score === null;
-  const completeness = decision.completeness;
-  return (
-    <div className="min-w-64 max-w-80 whitespace-normal py-1">
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-        <span className="inline-flex min-h-5 items-center rounded-sm bg-[var(--teal-soft)] px-1.5 text-[10px] font-bold text-[var(--teal)]">
-          {excluded ? "不参与排名" : `#${decision.rank} · ${decision.score} 分`}
-        </span>
-        <span className="inline-flex min-h-5 items-center rounded-sm border border-[var(--line)] px-1.5 text-[10px] font-semibold text-[var(--muted-foreground)]">
-          {match ? confidenceLabels[match.confidence] : "置信度未知"}
-        </span>
-        <span
-          className={`inline-flex min-h-5 items-center rounded-sm border px-1.5 text-[10px] font-semibold ${
-            decision.scheduleStatus === "conflict"
-              ? "border-red-300 bg-red-50 text-red-800"
-              : decision.scheduleStatus === "clear"
-                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                : "border-zinc-300 bg-zinc-100 text-zinc-700"
-          }`}
-        >
-          {scheduleStatusLabels[decision.scheduleStatus]}
-        </span>
-        <span className="inline-flex min-h-5 items-center rounded-sm border border-[var(--line)] px-1.5 text-[10px] font-semibold text-[var(--muted-foreground)]">
-          {duplicateStatusLabels[decision.duplicateStatus] || "重复状态未知"}
-        </span>
-        {completeness !== "complete" && (
-          <span className="inline-flex min-h-5 items-center rounded-sm border border-fuchsia-200 bg-fuchsia-50 px-1.5 text-[10px] font-semibold text-fuchsia-900">
-            {completeness === "partial" ? "数据部分完整" : "完整性未知"}
-          </span>
-        )}
-      </div>
-      <p className="mt-1.5 break-words text-[10px] leading-4 text-[var(--muted-foreground)] [overflow-wrap:anywhere]">
-        {match
-          ? `${matchBasisLabels[match.basis] || match.basis}：${match.label}`
-          : "培养方案匹配未知"}
-      </p>
-      {decision.scheduleConflicts.length > 0 && (
-        <p className="mt-1 break-words text-[10px] leading-4 text-red-700 [overflow-wrap:anywhere]">
-          {decision.scheduleConflicts.map((conflict) => conflict.reason).join("；")}
-        </p>
-      )}
-      <details
-        className="mt-1 text-[10px] text-[var(--muted-foreground)]"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <summary className="cursor-pointer select-none font-semibold text-[var(--teal)]">
-          查看排名理由
-        </summary>
-        <ul className="mt-1.5 grid min-w-0 gap-1 border-l border-[var(--line)] pl-2.5">
-          {decision.reasons.map((reason, index) => (
-            <li
-              key={`${decision.id}:reason:${index}`}
-              className="break-words leading-4 [overflow-wrap:anywhere]"
-            >
-              {reason}
-            </li>
-          ))}
-        </ul>
-      </details>
-    </div>
-  );
-}
+  advisorCandidateRecord,
+  type SelectionOptions,
+} from "./course-selection/selection-helpers";
 
 export function CourseSelectionView({
   portal,
@@ -280,14 +94,6 @@ export function CourseSelectionView({
   const [advisorDecisionError, setAdvisorDecisionError] = useState(false);
   const [advisorDecisionRetry, setAdvisorDecisionRetry] = useState(0);
   const advisorDecisionRequest = useRef(0);
-  const [schoolYear, setSchoolYear] = useState("");
-  const [schoolTerm, setSchoolTerm] = useState("");
-  const [schoolKeyword, setSchoolKeyword] = useState("");
-  const [schoolDepartment, setSchoolDepartment] = useState("");
-  const [schoolCategory, setSchoolCategory] = useState("");
-  const [schoolNature, setSchoolNature] = useState("");
-  const [schoolAffiliation, setSchoolAffiliation] = useState("");
-  const [schoolScheduleSort, setSchoolScheduleSort] = useState<SchoolScheduleSort | null>(null);
   const persistedSchoolTargets = useMemo<SchoolScheduleItem[]>(() => (snapshot.targets || [snapshot.target].filter(Boolean))
     .filter((target): target is CourseSelectionTarget => Boolean(target?.title))
     .map((target) => ({
@@ -302,11 +108,6 @@ export function CourseSelectionView({
       location: target.location || null, credits: target.credits ?? null,
     })), [snapshot.target, snapshot.targets]);
   const [schoolTarget, setSchoolTarget] = useState<SchoolScheduleItem | null>(null);
-  const schoolScheduleTableRef = useRef<HTMLDivElement>(null);
-  const [schoolScheduleViewport, setSchoolScheduleViewport] = useState({
-    scrollTop: 0,
-    height: 560,
-  });
   const active = snapshot.active;
   const sentinel = snapshot.sentinel || { enabled: false, startAt: null, endAt: null, intervalMs: 3_000, concurrency: 2, completedTargetIds: [] };
   const activeJob = Boolean(
@@ -409,56 +210,6 @@ export function CourseSelectionView({
     Boolean(advisorSnapshotRevision && advisorDecisionInputKey) &&
     advisorDecisionInputKey === advisorCandidateInputKey &&
     advisorDecisionRevision === advisorSnapshotRevision;
-  const advisorDecisionByCandidate = useMemo(
-    () =>
-      new Map(
-        (advisorDecisionsCurrent ? advisorDecisions : []).map((decision) => [
-          decision.candidateId,
-          decision,
-        ]),
-      ),
-    [advisorDecisions, advisorDecisionsCurrent],
-  );
-  const rankedCandidates = useMemo(
-    () =>
-      candidates
-        .map((candidate, index) => ({
-          candidate,
-          index,
-          rank: advisorDecisionByCandidate.get(candidate.id)?.rank,
-        }))
-        .sort(
-          (left, right) =>
-            (left.rank ?? Number.POSITIVE_INFINITY) -
-              (right.rank ?? Number.POSITIVE_INFINITY) ||
-            left.index - right.index,
-        )
-        .map(({ candidate }) => candidate),
-    [advisorDecisionByCandidate, candidates],
-  );
-  const visibleCandidates = rankedCandidates.filter((candidate) => {
-    const keyword = candidateKeyword.trim().toLocaleLowerCase();
-    if (!keyword) return true;
-    return [candidate.title, candidate.courseCode, candidate.teacher]
-      .filter(Boolean)
-      .some((value) => String(value).toLocaleLowerCase().includes(keyword));
-  });
-  const candidateTotal = Math.max(candidates.length, candidateCatalogPage.total);
-  const candidatePages = Math.max(1, Math.ceil(candidateTotal / candidateCatalogPage.pageSize));
-  const schoolYears = useMemo(
-    () => [...new Set(terms.map((term) => schoolTermParts(term.id).year).filter((year) => /^20\d{2}$/.test(year)))]
-      .sort((left, right) => right.localeCompare(left)),
-    [terms],
-  );
-  const schoolTerms = useMemo(
-    () => terms.filter((term) => schoolTermParts(term.id).year === schoolYear)
-      .sort((left, right) => Number(schoolTermParts(left.id).term) - Number(schoolTermParts(right.id).term)),
-    [schoolYear, terms],
-  );
-  const schoolTermId = useMemo(
-    () => schoolTerms.find((term) => schoolTermParts(term.id).term === schoolTerm)?.id || "",
-    [schoolTerm, schoolTerms],
-  );
   const loadCandidatePage = (
     page = 1,
     pageSize = candidateCatalogPage.pageSize,
@@ -525,17 +276,6 @@ export function CourseSelectionView({
     })();
   }, [advisorCandidateInput, advisorCandidateInputKey, advisorDecisionRetry, advisorSnapshotRevision, candidates.length]);
   useEffect(() => {
-    const preferred = schoolTermParts(portal?.term.id || terms[0]?.id || "");
-    setSchoolYear((current) => schoolYears.includes(current) ? current : preferred.year);
-  }, [portal, schoolYears, terms]);
-  useEffect(() => {
-    setSchoolTerm((current) =>
-      schoolTerms.some((term) => schoolTermParts(term.id).term === current)
-        ? current
-        : schoolTermParts(schoolTerms[0]?.id || "").term,
-    );
-  }, [schoolTerms]);
-  useEffect(() => {
     if (!schoolTarget || !candidates.length) return;
     const matched = candidates.find((candidate) =>
       (schoolTarget.courseCode && candidate.courseCode === schoolTarget.courseCode) ||
@@ -543,97 +283,6 @@ export function CourseSelectionView({
     );
     if (matched) setCandidateId(matched.id);
   }, [candidates, schoolTarget]);
-  const schoolFilterOptions = useMemo(() => {
-    const values = (key: "department" | "category" | "nature" | "affiliation") =>
-      [...new Set((schoolSchedule?.items || []).map((item) => String(item[key] || "").trim()).filter(Boolean))]
-        .sort((left, right) => left.localeCompare(right, "zh-CN"));
-    return {
-      departments: values("department"),
-      categories: values("category"),
-      natures: values("nature"),
-      affiliations: values("affiliation"),
-    };
-  }, [schoolSchedule]);
-  const visibleSchoolItems = useMemo(() => {
-    const query = schoolKeyword.trim().toLocaleLowerCase();
-    return (schoolSchedule?.items || []).filter((item) => {
-      const searchText = [item.title, item.courseCode, item.className, item.combinedClassInfo].filter(Boolean).join(" ").toLocaleLowerCase();
-      return (!query || searchText.includes(query))
-        && (!schoolDepartment || item.department === schoolDepartment)
-        && (!schoolCategory || item.category === schoolCategory)
-        && (!schoolNature || item.nature === schoolNature)
-        && (!schoolAffiliation || item.affiliation === schoolAffiliation);
-    });
-  }, [schoolAffiliation, schoolCategory, schoolDepartment, schoolKeyword, schoolNature, schoolSchedule]);
-  const sortedSchoolItems = useMemo(() => {
-    if (!schoolScheduleSort) return visibleSchoolItems;
-    return [...visibleSchoolItems].sort((left, right) => {
-      const leftValue = schoolScheduleSortValue(left, schoolScheduleSort.key);
-      const rightValue = schoolScheduleSortValue(right, schoolScheduleSort.key);
-      const compared = typeof leftValue === "number" && typeof rightValue === "number"
-        ? leftValue - rightValue
-        : String(leftValue).localeCompare(String(rightValue), "zh-CN", { numeric: true, sensitivity: "base" });
-      return schoolScheduleSort.direction === "asc" ? compared : -compared;
-    });
-  }, [schoolScheduleSort, visibleSchoolItems]);
-  const schoolScheduleRange = useMemo(() => {
-    const visibleRows = Math.ceil(schoolScheduleViewport.height / SCHOOL_SCHEDULE_ROW_HEIGHT);
-    const start = Math.max(0, Math.floor(schoolScheduleViewport.scrollTop / SCHOOL_SCHEDULE_ROW_HEIGHT) - SCHOOL_SCHEDULE_OVERSCAN);
-    const end = Math.min(sortedSchoolItems.length, start + visibleRows + SCHOOL_SCHEDULE_OVERSCAN * 2);
-    return { start, end };
-  }, [schoolScheduleViewport, sortedSchoolItems.length]);
-  const virtualSchoolItems = useMemo(
-    () => sortedSchoolItems.slice(schoolScheduleRange.start, schoolScheduleRange.end),
-    [schoolScheduleRange, sortedSchoolItems],
-  );
-  const updateSchoolScheduleViewport = useCallback(() => {
-    const element = schoolScheduleTableRef.current;
-    if (!element) return;
-    setSchoolScheduleViewport((current) => {
-      const next = { scrollTop: element.scrollTop, height: element.clientHeight };
-      return current.scrollTop === next.scrollTop && current.height === next.height ? current : next;
-    });
-  }, []);
-  useEffect(() => {
-    const element = schoolScheduleTableRef.current;
-    if (!element) return;
-    const resizeObserver = new ResizeObserver(updateSchoolScheduleViewport);
-    resizeObserver.observe(element);
-    updateSchoolScheduleViewport();
-    return () => resizeObserver.disconnect();
-  }, [sortedSchoolItems.length, updateSchoolScheduleViewport]);
-  useEffect(() => {
-    const element = schoolScheduleTableRef.current;
-    if (!element) return;
-    element.scrollTop = 0;
-    updateSchoolScheduleViewport();
-  }, [schoolAffiliation, schoolCategory, schoolDepartment, schoolKeyword, schoolNature, schoolSchedule, schoolScheduleSort, updateSchoolScheduleViewport]);
-  const toggleSchoolScheduleSort = (key: SchoolScheduleSortKey) => {
-    setSchoolScheduleSort((current) =>
-      current?.key === key
-        ? { key, direction: current.direction === "asc" ? "desc" : "asc" }
-        : { key, direction: "asc" },
-    );
-  };
-  const runSchoolSearch = () => {
-    onSearchSchoolSchedule({
-      termId: schoolTermId,
-      forceRefresh: true,
-    });
-  };
-  const displayedSchoolTerm = terms.find((term) => term.id === schoolSchedule?.scope.termId)?.label
-    || schoolSchedule?.scope.termId
-    || null;
-  const schoolScheduleFreshness = schoolScheduleLoading && schoolSchedule
-    ? "正在从教务更新，当前显示上次数据"
-    : schoolScheduleRefreshFailed
-      ? "更新失败，正在显示上次数据"
-      : schoolSchedule?.fromCache === false
-        ? `刚从教务更新${schoolSchedule.capturedAt ? ` · ${schoolScheduleUpdatedAt(schoolSchedule.capturedAt)}` : ""}`
-        : schoolSchedule
-          ? `本地数据，更新于 ${schoolScheduleUpdatedAt(schoolSchedule.capturedAt)}`
-          : null;
-
   return (
     <div className="selection-page">
       <section className="selection-command">
@@ -743,158 +392,25 @@ export function CourseSelectionView({
         </div>
         {portal?.available ? (
           <div className="selection-workbench">
-            <section className="selection-catalog">
-              <div className="selection-controls">
-                <label>
-                  <span>课程类别 / 选课模块</span>
-                  <Select value={blockId} onValueChange={setBlockId}>
-                    <SelectTrigger className="selection-module-select" disabled={loading || activeJob}>
-                      <SelectValue placeholder="选择课程类别" />
-                    </SelectTrigger>
-                    <SelectContent position="popper">
-                      {portal.blocks.map((block) => (
-                        <SelectItem key={block.id} value={block.id}>{block.title}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </label>
-                <button
-                  className="primary-button"
-                  onClick={() => loadCandidatePage(1)}
-                  disabled={loading || activeJob || !blockId}
-                >
-                  <Search size={16} /> 读取教学班
-                </button>
-              </div>
-              {candidates.length ? (
-                <div className="selection-catalog-results">
-                  <div className="selection-catalog-toolbar">
-                    <span className="flex min-w-0 flex-wrap items-center gap-2">
-                      <span>{candidateTotal} 门课程 · 第 {candidateCatalogPage.page} / {candidatePages} 页</span>
-                      {advisorDecisionLoading ? (
-                        <span className="inline-flex items-center gap-1 text-[var(--teal)]" role="status">
-                          <RefreshCw size={12} className="spinning" /> 正在计算本页排名
-                        </span>
-                      ) : advisorDecisionError ? (
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1 text-[var(--red)]"
-                          onClick={() => setAdvisorDecisionRetry((value) => value + 1)}
-                        >
-                          <RefreshCw size={12} /> 排名不可用，重试
-                        </button>
-                      ) : advisorDecisionsCurrent ? (
-                        <span className="inline-flex items-center gap-1 text-[var(--teal)]">
-                          <ShieldCheck size={12} /> 本页只读排名
-                        </span>
-                      ) : null}
-                    </span>
-                    <label className="selection-catalog-filter">
-                      <Search size={14} />
-                      <input
-                        value={candidateKeyword}
-                        placeholder="筛选本页课程或教师"
-                        onChange={(event) => setCandidateKeyword(event.target.value)}
-                      />
-                    </label>
-                  </div>
-                  <div className="data-table-wrap selection-candidate-table-wrap">
-                    <table className="data-table selection-table">
-                      <thead>
-                        <tr>
-                          <th />
-                          <th>课程 / 教学班</th>
-                          <th>教师</th>
-                          <th>时间地点</th>
-                          <th>余量</th>
-                          <th>学分</th>
-                          <th>本地顾问排名</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {visibleCandidates.map((candidate) => (
-                          <tr
-                            key={candidate.id}
-                            className={candidate.id === candidateId ? "selected" : ""}
-                            onClick={() => selectCandidate(candidate)}
-                          >
-                            <td>
-                              <input
-                                aria-label={`选择 ${candidate.title}`}
-                                type="radio"
-                                name="course-selection-candidate"
-                                checked={candidate.id === candidateId}
-                                onClick={(event) => event.stopPropagation()}
-                                onChange={() => selectCandidate(candidate)}
-                                disabled={activeJob}
-                              />
-                            </td>
-                            <td>
-                              <strong>{candidate.title}</strong>
-                              <small>{[candidate.courseCode, candidate.className, candidate.classId || candidate.operationId].filter(Boolean).join(" · ")}</small>
-                            </td>
-                            <td>{candidate.teacher || "--"}</td>
-                            <td><span>{candidate.time || "--"}</span><small>{candidate.location || "--"}</small></td>
-                            <td>
-                              {candidate.remainingSeats === null || candidate.remainingSeats === undefined
-                                ? "--"
-                                : <span className={candidate.remainingSeats > 0 ? "seat-open" : "seat-full"}>{candidate.remainingSeats} / {candidate.capacity ?? "--"}</span>}
-                            </td>
-                            <td>{candidate.credits ?? "--"}</td>
-                            <td>
-                              {advisorDecisionByCandidate.has(candidate.id) ? (
-                                <DecisionSummary
-                                  decision={advisorDecisionByCandidate.get(candidate.id)!}
-                                />
-                              ) : advisorDecisionLoading ? (
-                                <span className="inline-flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]">
-                                  <ListOrdered size={13} /> 计算中
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 text-[10px] text-[var(--muted-foreground)]">
-                                  <GitCompareArrows size={13} /> 按原顺序显示
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                        {!visibleCandidates.length && (
-                          <tr className="selection-filter-empty"><td colSpan={7}>本页没有符合筛选条件的教学班</td></tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                  {candidatePages > 1 && (
-                    <div className="selection-catalog-pagination" aria-label="抢课候选分页">
-                      <div className="school-schedule-page-size">
-                        <span>每页</span>
-                        <Select value={String(candidateCatalogPage.pageSize)} onValueChange={(value) => loadCandidatePage(1, Number(value))}>
-                          <SelectTrigger disabled={loading || activeJob}><SelectValue /></SelectTrigger>
-                          <SelectContent position="popper">
-                            {[24, 48, 96].map((pageSize) => <SelectItem key={pageSize} value={String(pageSize)}>{pageSize} 条</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="school-schedule-page-buttons">
-                        <button className="icon-button" aria-label="上一页" data-tooltip="上一页" disabled={loading || activeJob || candidateCatalogPage.page <= 1} onClick={() => loadCandidatePage(candidateCatalogPage.page - 1)}><ChevronLeft size={16} /></button>
-                        {paginationPages(candidateCatalogPage.page, candidatePages).map((page, index, pages) => (
-                          <span className="school-schedule-page-group" key={page}>
-                            {index > 0 && page - pages[index - 1] > 1 && <i>…</i>}
-                            <button className={page === candidateCatalogPage.page ? "active" : ""} aria-current={page === candidateCatalogPage.page ? "page" : undefined} disabled={loading || activeJob} onClick={() => loadCandidatePage(page)}>{page}</button>
-                          </span>
-                        ))}
-                        <button className="icon-button" aria-label="下一页" data-tooltip="下一页" disabled={loading || activeJob || candidateCatalogPage.page >= candidatePages} onClick={() => loadCandidatePage(candidateCatalogPage.page + 1)}><ChevronRight size={16} /></button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="selection-catalog-empty">
-                  <BookOpen size={18} />
-                  <span>选择模块后读取可选教学班</span>
-                </div>
-              )}
-            </section>
+            <CandidateCatalog
+              portal={portal}
+              blockId={blockId}
+              candidates={candidates}
+              candidateCatalogPage={candidateCatalogPage}
+              candidateId={candidateId}
+              candidateKeyword={candidateKeyword}
+              advisorDecisions={advisorDecisions}
+              advisorDecisionsCurrent={advisorDecisionsCurrent}
+              advisorDecisionLoading={advisorDecisionLoading}
+              advisorDecisionError={advisorDecisionError}
+              loading={loading}
+              activeJob={activeJob}
+              onBlockChange={setBlockId}
+              onCandidateKeywordChange={setCandidateKeyword}
+              onRetryAdvisor={() => setAdvisorDecisionRetry((value) => value + 1)}
+              onSelectCandidate={selectCandidate}
+              onLoadCandidatePage={loadCandidatePage}
+            />
             <aside className="selection-runner">
               {active ? (
                 <div className="selection-active">
@@ -941,207 +457,18 @@ export function CourseSelectionView({
           </div>
         )}
       </section>
-      <section className="school-schedule-search">
-        <div className="section-heading">
-          <div>
-            <span className="eyebrow">全校课表</span>
-            <h2>先查课，再定位教学班</h2>
-          </div>
-          {schoolSchedule && <div className="school-schedule-heading-meta">
-            <span>{visibleSchoolItems.length} / {schoolSchedule.total} 个教学班</span>
-            {schoolScheduleFreshness && <small className={schoolScheduleLoading ? "syncing" : schoolScheduleRefreshFailed ? "failed" : schoolSchedule.fromCache === false ? "fresh" : "cached"}>
-              {displayedSchoolTerm ? `${displayedSchoolTerm} · ` : ""}{schoolScheduleFreshness}
-            </small>}
-          </div>}
-        </div>
-        <div className="school-schedule-controls">
-          <label>
-            <span>学年</span>
-            <Select value={schoolYear} onValueChange={setSchoolYear}>
-              <SelectTrigger disabled={schoolScheduleLoading}>
-                <SelectValue placeholder="选择学年" />
-              </SelectTrigger>
-              <SelectContent position="popper">
-                {schoolYears.map((year) => <SelectItem key={year} value={year}>{year}-{Number(year) + 1}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </label>
-          <label>
-            <span>学期</span>
-            <Select value={schoolTerm} onValueChange={setSchoolTerm}>
-              <SelectTrigger disabled={schoolScheduleLoading || !schoolTerms.length}>
-                <SelectValue placeholder="选择学期" />
-              </SelectTrigger>
-              <SelectContent position="popper">
-                {schoolTerms.map((term) => {
-                  const value = schoolTermParts(term.id).term;
-                  return <SelectItem key={term.id} value={value}>{schoolTermLabel(value)}</SelectItem>;
-                })}
-              </SelectContent>
-            </Select>
-          </label>
-          <label>
-            <span>课程、教学班或合班信息</span>
-            <input value={schoolKeyword} placeholder="例如：高等数学 / MAT13904T / 高材 2401" onChange={(event) => setSchoolKeyword(event.target.value)} />
-          </label>
-          <label>
-            <span>开课部门</span>
-            <Select value={schoolDepartment || "all"} onValueChange={(value) => setSchoolDepartment(value === "all" ? "" : value)}>
-              <SelectTrigger disabled={schoolScheduleLoading}><SelectValue placeholder="全部部门" /></SelectTrigger>
-              <SelectContent position="popper">
-                <SelectItem value="all">全部部门</SelectItem>
-                {schoolFilterOptions.departments.map((department) => <SelectItem key={department} value={department}>{department}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </label>
-          <label>
-            <span>课程类型</span>
-            <Select
-              value={schoolCategory || "all"}
-              onValueChange={(value) => setSchoolCategory(value === "all" ? "" : value)}
-            >
-              <SelectTrigger disabled={schoolScheduleLoading}>
-                <SelectValue placeholder="全部类型" />
-              </SelectTrigger>
-              <SelectContent position="popper">
-                <SelectItem value="all">全部类型</SelectItem>
-                {schoolFilterOptions.categories.map((category) => (
-                  <SelectItem key={category} value={category}>{category}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </label>
-          <label>
-            <span>课程性质</span>
-            <Select value={schoolNature || "all"} onValueChange={(value) => setSchoolNature(value === "all" ? "" : value)}>
-              <SelectTrigger disabled={schoolScheduleLoading}><SelectValue placeholder="全部性质" /></SelectTrigger>
-              <SelectContent position="popper">
-                <SelectItem value="all">全部性质</SelectItem>
-                {schoolFilterOptions.natures.map((nature) => <SelectItem key={nature} value={nature}>{nature}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </label>
-          <label>
-            <span>课程归属</span>
-            <Select value={schoolAffiliation || "all"} onValueChange={(value) => setSchoolAffiliation(value === "all" ? "" : value)}>
-              <SelectTrigger disabled={schoolScheduleLoading}><SelectValue placeholder="全部归属" /></SelectTrigger>
-              <SelectContent position="popper">
-                <SelectItem value="all">全部归属</SelectItem>
-                {schoolFilterOptions.affiliations.map((affiliation) => <SelectItem key={affiliation} value={affiliation}>{affiliation}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </label>
-          <button
-            className="secondary-button school-schedule-load-button"
-            disabled={!schoolTermId || schoolScheduleLoading}
-            onClick={runSchoolSearch}
-          >
-            <RefreshCw size={16} className={schoolScheduleLoading ? "spinning" : ""} /> {schoolSchedule ? "更新本学期课表" : "读取本学期课表"}
-          </button>
-        </div>
-        {sortedSchoolItems.length ? (
-          <div className="school-schedule-results">
-            <div
-              className="data-table-wrap school-schedule-table-wrap"
-              ref={schoolScheduleTableRef}
-              onScroll={updateSchoolScheduleViewport}
-            >
-              <table className="data-table school-schedule-table">
-                <thead>
-                  <tr>
-                    {schoolScheduleColumns.map((column) => {
-                      const activeSort = schoolScheduleSort?.key === column.key;
-                      return (
-                        <th
-                          key={column.key}
-                          aria-sort={
-                            activeSort
-                              ? schoolScheduleSort.direction === "asc" ? "ascending" : "descending"
-                              : "none"
-                          }
-                        >
-                          <button
-                            className={`school-schedule-sort ${activeSort ? "active" : ""}`}
-                            onClick={() => toggleSchoolScheduleSort(column.key)}
-                          >
-                            <span>{column.label}</span>
-                            {activeSort ? (
-                              schoolScheduleSort.direction === "asc" ? <ChevronUp size={13} /> : <ChevronDown size={13} />
-                            ) : (
-                              <ArrowDownUp size={12} />
-                            )}
-                          </button>
-                        </th>
-                      );
-                    })}
-                    <th className="school-schedule-action-header">操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {schoolScheduleRange.start > 0 && (
-                    <tr className="school-schedule-virtual-spacer" aria-hidden="true">
-                      <td colSpan={schoolScheduleColumns.length + 1} style={{ height: schoolScheduleRange.start * SCHOOL_SCHEDULE_ROW_HEIGHT }} />
-                    </tr>
-                  )}
-                  {virtualSchoolItems.map((item) => (
-                    <tr key={item.id} className={schoolTarget?.id === item.id ? "selected" : ""}>
-                      <td className="school-schedule-course-cell">
-                        <strong>{item.title}</strong>
-                        <small>{item.courseCode || "--"}</small>
-                      </td>
-                      <td className="school-schedule-clamped-cell" title={item.className || undefined}><span>{item.className || "--"}</span></td>
-                      <td className="school-schedule-clamped-cell" title={item.combinedClassInfo || undefined}><span>{item.combinedClassInfo || "--"}</span></td>
-                      <td>{item.department || "--"}</td>
-                      <td>{item.teacher || "--"}</td>
-                      <td>{item.credits ?? "--"}</td>
-                      <td>{item.category || "--"}</td>
-                      <td>{item.nature || "--"}</td>
-                      <td>{item.affiliation || "--"}</td>
-                      <td>{item.time || "--"}</td>
-                      <td>{item.location || "--"}</td>
-                      <td>{item.status || "--"}</td>
-                      <td>
-                        <button className="link-button" onClick={() => saveSchoolTarget(item)}>
-                          {schoolTarget?.id === item.id ? "已作为目标" : "设为目标"}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {schoolScheduleRange.end < sortedSchoolItems.length && (
-                    <tr className="school-schedule-virtual-spacer" aria-hidden="true">
-                      <td colSpan={schoolScheduleColumns.length + 1} style={{ height: (sortedSchoolItems.length - schoolScheduleRange.end) * SCHOOL_SCHEDULE_ROW_HEIGHT }} />
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : schoolSchedule ? (
-          <EmptyState icon={BookOpen} title="没有匹配的教学班" detail="可更换课程关键字、教师、课程类型或学期后重新查询" />
-        ) : null}
-      </section>
-      <Dialog open={Boolean(schoolScheduleError)} onOpenChange={(open) => { if (!open) onDismissSchoolScheduleError(); }}>
-        {schoolScheduleError && <DialogContent className="school-schedule-error-dialog" overlayClassName="sync-error-dialog-overlay" showCloseButton={false}>
-          <DialogHeader className="school-schedule-error-heading">
-            <CircleAlert size={20} />
-            <div>
-              <DialogTitle>课表更新失败</DialogTitle>
-              <DialogDescription>
-                {schoolSchedule ? "上次读取的课表仍然可以查看。" : "暂时没有可显示的课表。"}
-              </DialogDescription>
-            </div>
-          </DialogHeader>
-          <p className="school-schedule-error-detail">{schoolScheduleError}</p>
-          <DialogFooter>
-            <button type="button" className="secondary-button" onClick={onDismissSchoolScheduleError}>
-              {schoolSchedule ? "继续使用上次数据" : "关闭"}
-            </button>
-            <button type="button" className="primary-button" onClick={() => { onDismissSchoolScheduleError(); runSchoolSearch(); }}>
-              <RefreshCw size={15} /> 再次更新
-            </button>
-          </DialogFooter>
-        </DialogContent>}
-      </Dialog>
+      <SchoolSchedulePanel
+        schoolSchedule={schoolSchedule}
+        schoolScheduleLoading={schoolScheduleLoading}
+        schoolScheduleError={schoolScheduleError}
+        schoolScheduleRefreshFailed={schoolScheduleRefreshFailed}
+        terms={terms}
+        preferredTermId={portal?.term.id || null}
+        schoolTarget={schoolTarget}
+        onSearchSchoolSchedule={onSearchSchoolSchedule}
+        onDismissSchoolScheduleError={onDismissSchoolScheduleError}
+        onSaveSchoolTarget={saveSchoolTarget}
+      />
     </div>
   );
 }

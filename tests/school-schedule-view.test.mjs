@@ -3,8 +3,16 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 test('school-wide schedule exposes teaching-class and combined-class columns', async () => {
-  const source = await readFile(new URL('../src/views/CourseSelectionView.tsx', import.meta.url), 'utf8')
-  const styles = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8')
+  const [source, styles] = await Promise.all([
+    Promise.all([
+      readFile(new URL('../src/views/course-selection/selection-helpers.ts', import.meta.url), 'utf8'),
+      readFile(new URL('../src/views/course-selection/SchoolSchedulePanel.tsx', import.meta.url), 'utf8'),
+    ]).then((parts) => parts.join('\n')),
+    Promise.all([
+      readFile(new URL('../src/styles/desktop-shell.css', import.meta.url), 'utf8'),
+      readFile(new URL('../src/styles/background-guardrails.css', import.meta.url), 'utf8'),
+    ]).then((parts) => parts.join('\n')),
+  ])
 
   assert.match(source, /key: "className", label: "教学班名称"/)
   assert.match(source, /key: "combinedClassInfo", label: "合班信息"/)
@@ -15,7 +23,10 @@ test('school-wide schedule exposes teaching-class and combined-class columns', a
 })
 
 test('school-wide schedule refresh keeps cached data visible and reports failures in-page', async () => {
-  const view = await readFile(new URL('../src/views/CourseSelectionView.tsx', import.meta.url), 'utf8')
+  const view = await Promise.all([
+    readFile(new URL('../src/views/CourseSelectionView.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/views/course-selection/SchoolSchedulePanel.tsx', import.meta.url), 'utf8'),
+  ]).then((parts) => parts.join('\n'))
   const appHook = await readFile(new URL('../src/hooks/useTheiaApp.ts', import.meta.url), 'utf8')
   const types = await readFile(new URL('../src/types.ts', import.meta.url), 'utf8')
 
@@ -30,9 +41,15 @@ test('school-wide schedule refresh keeps cached data visible and reports failure
 })
 
 test('school-wide schedule failure dialog owns an overlay above ordinary dialogs', async () => {
-  const view = await readFile(new URL('../src/views/CourseSelectionView.tsx', import.meta.url), 'utf8')
+  const view = await Promise.all([
+    readFile(new URL('../src/views/CourseSelectionView.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/views/course-selection/SchoolSchedulePanel.tsx', import.meta.url), 'utf8'),
+  ]).then((parts) => parts.join('\n'))
   const dialog = await readFile(new URL('../src/components/ui/dialog.tsx', import.meta.url), 'utf8')
-  const styles = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8')
+  const styles = await Promise.all([
+    readFile(new URL('../src/styles/desktop-shell.css', import.meta.url), 'utf8'),
+    readFile(new URL('../src/styles/background-guardrails.css', import.meta.url), 'utf8'),
+  ]).then((parts) => parts.join('\n'))
 
   assert.match(view, /className="school-schedule-error-dialog" overlayClassName="sync-error-dialog-overlay"/)
   assert.match(dialog, /overlayClassName\?: string/)

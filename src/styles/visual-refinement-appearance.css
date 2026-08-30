@@ -1,0 +1,830 @@
+/* Split from src/styles/visual-refinement.css; imported in source order by src/styles.css. */
+/* Selected background images sit behind translucent application chrome. */
+html[data-app-background="image"] .app-shell {
+  background: transparent;
+}
+
+html[data-app-background="image"] .app-shell::before {
+  opacity: var(--theia-background-image-opacity);
+}
+
+html.dark[data-app-background="image"] .app-shell::before {
+  opacity: var(--theia-background-image-opacity-dark);
+}
+
+html[data-app-background="image"] .workspace {
+  background: color-mix(
+    in srgb,
+    var(--background) var(--theia-background-workspace-opacity),
+    transparent
+  );
+  backdrop-filter: blur(var(--theia-background-glass-blur)) saturate(1.08);
+}
+
+html[data-app-background="image"] .titlebar,
+html[data-app-background="image"] .sidebar {
+  background: color-mix(
+    in srgb,
+    var(--sidebar) var(--theia-background-sidebar-opacity),
+    transparent
+  );
+  backdrop-filter: blur(var(--theia-background-glass-blur)) saturate(1.06);
+}
+
+html[data-app-background="image"] .topbar {
+  background: color-mix(
+    in srgb,
+    var(--background) var(--theia-background-topbar-opacity),
+    transparent
+  );
+  backdrop-filter: blur(var(--theia-background-glass-blur)) saturate(1.06);
+}
+
+html[data-app-background="image"] .appearance-background-preview.has-image {
+  background-size: cover;
+}
+
+/* A user-selected image turns the client into a glass workspace instead of a stack of opaque cards. */
+html[data-app-background="image"] {
+  --map-ground: transparent;
+  --surface-subtle: color-mix(
+    in srgb,
+    var(--secondary) var(--theia-background-surface-opacity),
+    transparent
+  );
+  --surface-raised: color-mix(
+    in srgb,
+    var(--card) var(--theia-background-surface-strong-opacity),
+    transparent
+  );
+  --surface-glass: color-mix(
+    in srgb,
+    var(--background) var(--theia-background-surface-opacity),
+    transparent
+  );
+}
+
+html[data-app-background="image"] body,
+html[data-app-background="image"] #root,
+html[data-app-background="image"] .canvas-surface,
+html[data-app-background="image"] .app-body,
+html[data-app-background="image"] .content-area {
+  background: transparent;
+}
+
+html[data-app-background="image"] .app-shell::after {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 0;
+  height: var(--theia-classical-texture-height);
+  background-image: var(--theia-app-background-texture-image);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  content: "";
+  filter: brightness(var(--theia-background-image-brightness))
+    contrast(var(--theia-background-image-contrast))
+    saturate(var(--theia-background-image-saturation)) grayscale(.28)
+    invert(var(--theia-backdrop-invert-mul));
+  mix-blend-mode: difference;
+  opacity: var(--theia-classical-texture-opacity);
+  pointer-events: none;
+  transform: translate3d(
+      var(--theia-background-offset-x),
+      var(--theia-background-offset-y),
+      0
+    )
+    scale(var(--theia-background-zoom));
+  transform-origin: center top;
+  transition: opacity .24s var(--ease-out);
+  will-change: transform;
+}
+
+html[data-app-background="image"] .panel,
+html[data-app-background="image"] .day-column,
+html[data-app-background="image"] .course-card,
+html[data-app-background="image"] .data-table-wrap,
+html[data-app-background="image"] .selection-target,
+html[data-app-background="image"] .selection-attempts,
+html[data-app-background="image"] .requirement-choice-group,
+html[data-app-background="image"] .requirement-course-details,
+html[data-app-background="image"] .sync-log-panel,
+html[data-app-background="image"] .fetch-log-row,
+html[data-app-background="image"] .activity-log-list,
+html[data-app-background="image"] .api-endpoint,
+html[data-app-background="image"] .connection-list,
+html[data-app-background="image"] .export-grid button,
+html[data-app-background="image"] .grade-summary > div,
+html[data-app-background="image"] .progress-summary > div,
+html[data-app-background="image"] .requirement-root,
+html[data-app-background="image"] .selection-catalog,
+html[data-app-background="image"] .selection-runner,
+html[data-app-background="image"] .exam-row,
+html[data-app-background="image"] .notice-list article,
+html[data-app-background="image"] .requirement-course-table,
+html[data-app-background="image"] .requirement-course-table-wrap,
+html[data-app-background="image"] .view-toolbar,
+html[data-app-background="image"] .schedule-toolbar,
+html[data-app-background="image"] .appearance-background-section,
+html[data-app-background="image"] .appearance-preset,
+html[data-app-background="image"] .appearance-visual-presets,
+html[data-app-background="image"] .appearance-visual-preset,
+html[data-app-background="image"] .about-hero {
+  background: color-mix(
+    in srgb,
+    var(--card) var(--theia-background-surface-opacity),
+    transparent
+  );
+  backdrop-filter: blur(var(--theia-background-glass-blur)) saturate(1.05);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--foreground) 7%, transparent);
+}
+
+html[data-app-background="image"] .course-slot {
+  background: color-mix(
+    in srgb,
+    var(--card) var(--theia-background-surface-strong-opacity),
+    transparent
+  );
+  backdrop-filter: blur(var(--theia-background-glass-blur)) saturate(1.05);
+}
+
+/* Academic plans can contain a full-width, multi-row course table. Applying
+ * nested backdrop filters to that table and the requirement tree forces
+ * Chromium to continuously recomposite the difference-blended texture. Keep
+ * the surface translucent, but rasterize it as an ordinary stable layer. */
+html[data-app-background="image"] .requirement-root,
+html[data-app-background="image"] .requirement-course-details,
+html[data-app-background="image"] .requirement-course-table,
+html[data-app-background="image"] .requirement-course-table-wrap {
+  background: color-mix(in srgb, var(--card) 76%, transparent);
+  backdrop-filter: none;
+  isolation: isolate;
+}
+
+/* Structural grids need a translucent frame too; otherwise the background
+ * disappears behind the largest surfaces even though individual cells are glass. */
+html[data-app-background="image"] .metric-strip,
+html[data-app-background="image"] .schedule-board {
+  background: color-mix(in srgb, var(--border) 58%, transparent);
+  border-color: color-mix(in srgb, var(--border) 76%, transparent);
+  backdrop-filter: blur(var(--theia-background-glass-blur)) saturate(1.04);
+}
+
+html[data-app-background="image"] .view-dashboard .dashboard-grid > .panel {
+  background: color-mix(
+    in srgb,
+    var(--card) var(--theia-background-surface-opacity),
+    transparent
+  );
+  backdrop-filter: blur(var(--theia-background-glass-blur)) saturate(1.05);
+}
+
+html[data-app-background="image"] .schedule-grid-cell,
+html[data-app-background="image"] .schedule-day-header,
+html[data-app-background="image"] .schedule-period-label {
+  background: color-mix(in srgb, var(--card) 34%, transparent);
+}
+
+html[data-app-background="image"] .schedule-corner,
+html[data-app-background="image"] .schedule-unscheduled {
+  background: color-mix(in srgb, var(--card) 48%, transparent);
+  backdrop-filter: blur(calc(var(--theia-background-glass-blur) * .7));
+}
+
+html[data-app-background="image"] .metric-strip button,
+html[data-app-background="image"] .quick-actions button,
+html[data-app-background="image"] [data-slot="select-trigger"],
+html[data-app-background="image"] .week-picker,
+html[data-app-background="image"] .schedule-pdf-button,
+html[data-app-background="image"] .segmented,
+html[data-app-background="image"] .segmented button.active,
+html[data-app-background="image"] .settings-dialog-close,
+html[data-app-background="image"] .appearance-motion-close,
+html[data-app-background="image"] .density-options,
+html[data-app-background="image"] .density-options button.active,
+html[data-app-background="image"] .notice-disclosure,
+html[data-app-background="image"] .requirement-course-tag,
+html[data-app-background="image"] .requirement-score-chip,
+html[data-app-background="image"] .settings-dialog-scroll .credential-form input,
+html[data-app-background="image"] .settings-dialog-scroll .numeric-setting input {
+  background: color-mix(
+    in srgb,
+    var(--card) var(--theia-background-control-opacity),
+    transparent
+  );
+}
+
+/* Keep the selected image intact: a background shorthand on the glass controls
+ * used to reset this preview's background-image to none. */
+html[data-app-background="image"] .appearance-background-preview.has-image {
+  background-color: color-mix(
+    in srgb,
+    var(--card) var(--theia-background-control-opacity),
+    transparent
+  );
+  background-image: var(--theia-app-background-image);
+  background-position: calc(50% + var(--theia-background-offset-x)) calc(50% + var(--theia-background-offset-y));
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+html[data-app-background="image"] .settings-dialog,
+html[data-app-background="image"] .settings-modal-nav,
+html[data-app-background="image"] .settings-dialog-header,
+html[data-app-background="image"] [data-slot="select-content"],
+html[data-app-background="image"] .schedule-popover,
+html[data-app-background="image"] .notice-detail-dialog,
+html[data-app-background="image"] .appearance-motion-popover,
+html[data-app-background="image"] .appearance-gradient-map-popover,
+html[data-app-background="image"] .command-palette,
+html[data-app-background="image"] .credential-modal {
+  background: color-mix(
+    in srgb,
+    var(--popover) var(--theia-background-surface-strong-opacity),
+    transparent
+  );
+  backdrop-filter: blur(var(--theia-background-glass-blur)) saturate(1.08);
+}
+
+html[data-app-background="image"] .campus-map-panel,
+html[data-app-background="image"] .map-stage {
+  background: transparent;
+}
+
+/* SVG component-transfer gives the source image a real Photoshop-like
+ * gradient map without reading the user's image into JavaScript. */
+html[data-gradient-map="enabled"] .app-shell::before {
+  filter: url("#theia-gradient-map-filter")
+    brightness(var(--theia-background-image-brightness))
+    contrast(var(--theia-background-image-contrast))
+    saturate(var(--theia-background-image-saturation))
+    blur(var(--theia-background-image-blur));
+}
+
+html[data-gradient-map="enabled"] .app-shell::after {
+  filter: url("#theia-gradient-map-filter")
+    brightness(var(--theia-background-image-brightness))
+    contrast(var(--theia-background-image-contrast))
+    saturate(var(--theia-background-image-saturation)) grayscale(.28)
+    invert(var(--theia-backdrop-invert-mul));
+}
+
+html[data-gradient-palette="light"],
+html[data-gradient-palette="light"] body,
+html[data-gradient-palette="dark"],
+html[data-gradient-palette="dark"] body {
+  color: var(--foreground);
+  background: var(--background);
+}
+
+html[data-app-background="image"] .map-layer-controls,
+html[data-app-background="image"] .map-zoom-controls,
+html[data-app-background="image"] .map-zoom-hud {
+  background: color-mix(
+    in srgb,
+    var(--card) var(--theia-background-control-opacity),
+    transparent
+  );
+  backdrop-filter: blur(var(--theia-background-glass-blur)) saturate(1.08);
+}
+
+@media (max-width: 860px) {
+  .schedule-board {
+    grid-template-columns: 72px repeat(7, minmax(128px, 1fr));
+    min-width: 968px;
+  }
+
+  .schedule-period-label {
+    font-size: 9px;
+  }
+}
+
+/* Appearance is a creative workspace: give the controls room to breathe. */
+.appearance-settings .appearance-subsection-heading {
+  gap: 5px;
+  margin-bottom: 14px;
+}
+
+.appearance-settings .appearance-subsection-heading > strong,
+.appearance-settings .appearance-visual-presets-heading strong {
+  font-size: 15px;
+}
+
+.appearance-settings .appearance-subsection-heading > small,
+.appearance-settings .appearance-visual-presets-heading > small {
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.appearance-preset-grid {
+  grid-template-columns: repeat(auto-fit, minmax(186px, 1fr));
+  gap: 14px;
+  margin-bottom: 28px;
+}
+
+.appearance-preset {
+  min-height: 142px;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 19px;
+}
+
+.appearance-preset-swatch {
+  height: 55px;
+  gap: 4px;
+  padding: 9px;
+  border-radius: 13px;
+}
+
+.appearance-preset strong {
+  font-size: 13px;
+}
+
+.appearance-preset small {
+  font-size: 11px;
+}
+
+.appearance-visual-presets {
+  gap: 20px;
+  margin-bottom: 28px;
+  padding: 20px;
+  border-radius: 22px;
+}
+
+.appearance-visual-presets-heading {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px 16px;
+}
+
+.appearance-visual-presets-heading > small {
+  grid-column: 1 / -1;
+  max-width: 680px;
+  text-align: left;
+}
+
+.appearance-save-preset-trigger {
+  min-height: 40px;
+  padding-inline: 14px;
+  border-radius: 13px;
+  white-space: nowrap;
+}
+
+.appearance-save-preset-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px 16px;
+  align-items: end;
+  padding: 15px;
+  background: color-mix(in srgb, var(--card) 66%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 19%, var(--border));
+  border-radius: 17px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 20%, transparent);
+  animation: theia-soft-in .18s var(--ease-out) both;
+}
+
+.appearance-save-preset-form label {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.appearance-save-preset-form label > span {
+  display: grid;
+  gap: 2px;
+}
+
+.appearance-save-preset-form strong {
+  color: var(--foreground);
+  font-size: 12px;
+}
+
+.appearance-save-preset-form small {
+  color: var(--muted-foreground);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.appearance-save-preset-form input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  border: 1px solid var(--input);
+  border-radius: 12px;
+  outline: none;
+}
+
+.appearance-save-preset-form input:focus {
+  border-color: color-mix(in srgb, var(--primary) 58%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 13%, transparent);
+}
+
+.appearance-save-preset-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-bottom: 1px;
+}
+
+.appearance-save-preset-actions [data-slot="button"] {
+  min-height: 40px;
+  border-radius: 12px;
+}
+
+.appearance-save-preset-form > p {
+  grid-column: 1 / -1;
+  margin: -2px 0 0;
+  color: var(--destructive);
+  font-size: 11px;
+}
+
+.appearance-visual-preset-group {
+  gap: 12px;
+}
+
+.appearance-visual-preset-group-heading {
+  gap: 14px;
+  padding: 0 3px;
+}
+
+.appearance-visual-preset-group-heading strong {
+  font-size: 11px;
+}
+
+.appearance-visual-preset-group-heading span {
+  font-size: 10px;
+}
+
+.appearance-visual-preset-grid {
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 13px;
+}
+
+.appearance-visual-preset {
+  min-height: 153px;
+  gap: 11px;
+  padding: 12px;
+  border-radius: 17px;
+}
+
+.appearance-visual-preset-swatch {
+  height: 63px;
+  border-radius: 12px;
+}
+
+.appearance-visual-preset-swatch i {
+  top: 11px;
+  bottom: 11px;
+}
+
+.appearance-visual-preset-copy {
+  gap: 3px;
+}
+
+.appearance-visual-preset-copy strong {
+  font-size: 12px;
+}
+
+.appearance-visual-preset-copy small {
+  font-size: 10px;
+}
+
+.appearance-visual-preset-meta {
+  gap: 5px;
+}
+
+.appearance-visual-preset-meta i {
+  width: 10px;
+  height: 10px;
+}
+
+.appearance-visual-preset-meta output {
+  font-size: 9px;
+}
+
+.appearance-custom-preset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 2px 3px 0;
+}
+
+.appearance-custom-preset-actions button {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--card) 48%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
+  border-radius: 10px;
+  font-size: 10px;
+}
+
+.appearance-custom-preset-actions button:hover {
+  color: var(--destructive);
+  background: color-mix(in srgb, var(--destructive) 8%, transparent);
+  border-color: color-mix(in srgb, var(--destructive) 32%, var(--border));
+}
+
+.appearance-background-section {
+  gap: 18px;
+  margin-bottom: 28px;
+  padding: 18px;
+  border-radius: 22px;
+}
+
+.appearance-background-preview {
+  min-height: 124px;
+  padding: 17px;
+  border-radius: 17px;
+}
+
+.appearance-background-preview.has-image > div {
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 13px;
+}
+
+.appearance-background-preview span {
+  font-size: 10px;
+}
+
+.appearance-background-preview strong {
+  font-size: 15px;
+}
+
+.appearance-background-preview small {
+  font-size: 11px;
+}
+
+.appearance-background-preview > i {
+  right: 17px;
+  bottom: 17px;
+  width: 42px;
+  height: 24px;
+}
+
+.appearance-background-actions {
+  gap: 9px;
+}
+
+.appearance-background-actions [data-slot="button"] {
+  min-width: 142px;
+  min-height: 41px;
+  padding-inline: 12px;
+  border-radius: 13px;
+}
+
+.appearance-motion-popover,
+.appearance-gradient-map-popover {
+  gap: 18px;
+  margin-top: 5px;
+  padding: 21px;
+  border-radius: 22px;
+}
+
+.appearance-motion-heading,
+.appearance-motion-toggle {
+  gap: 16px;
+}
+
+.appearance-motion-heading > div,
+.appearance-motion-toggle > span {
+  gap: 4px;
+}
+
+.appearance-motion-heading span {
+  font-size: 10px;
+}
+
+.appearance-motion-heading strong,
+.appearance-motion-toggle strong {
+  font-size: 14px;
+}
+
+.appearance-motion-toggle {
+  min-height: 68px;
+  padding: 12px 13px;
+  background: color-mix(in srgb, var(--secondary) 48%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 10%, var(--border));
+  border-radius: 14px;
+}
+
+.appearance-motion-toggle small {
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.appearance-motion-close {
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+}
+
+.appearance-motion-slider {
+  grid-template-columns: minmax(170px, 1.05fr) minmax(120px, 1.45fr) 52px;
+  gap: 14px;
+  font-size: 11px;
+}
+
+.appearance-motion-slider > span {
+  gap: 3px;
+}
+
+.appearance-motion-slider strong {
+  overflow: visible;
+  font-size: 12px;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.appearance-motion-slider small {
+  overflow: visible;
+  font-size: 10px;
+  line-height: 1.4;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.appearance-motion-slider output {
+  font-size: 11px;
+}
+
+.appearance-motion-note {
+  gap: 9px;
+  padding-top: 14px;
+  font-size: 11px;
+}
+
+.gradient-map-ramp {
+  height: 52px;
+  border-radius: 14px;
+}
+
+.gradient-map-stop-input::-webkit-slider-thumb {
+  width: 22px;
+  height: 22px;
+}
+
+.gradient-map-stop-values {
+  font-size: 10px;
+}
+
+.gradient-map-stop-values i {
+  width: 9px;
+  height: 9px;
+}
+
+.gradient-map-color-grid {
+  gap: 13px;
+}
+
+.gradient-map-color-control {
+  min-height: 94px;
+  gap: 13px;
+  padding: 14px;
+  border-radius: 15px;
+}
+
+.gradient-map-color-control > span:first-child {
+  gap: 4px;
+}
+
+.gradient-map-color-control strong {
+  font-size: 12px;
+}
+
+.gradient-map-color-control small {
+  overflow: visible;
+  font-size: 10px;
+  line-height: 1.35;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.gradient-map-color-control input[type="color"] {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+}
+
+.gradient-map-color-control output {
+  font-size: 9px;
+}
+
+.gradient-map-swap-button {
+  width: fit-content;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 14px;
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--secondary) 62%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--border));
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.gradient-map-swap-button:hover {
+  color: var(--primary-foreground);
+  background: var(--primary);
+  border-color: var(--primary);
+  box-shadow: 0 10px 20px -16px color-mix(in srgb, var(--primary) 86%, transparent);
+}
+
+.gradient-map-palette-preview {
+  grid-template-columns: auto repeat(4, 19px) minmax(0, 1fr);
+  min-height: 42px;
+  gap: 9px;
+  padding: 10px 12px;
+  border-radius: 13px;
+  font-size: 10px;
+}
+
+.gradient-map-palette-preview > span {
+  font-size: 11px;
+}
+
+.gradient-map-palette-preview > i {
+  width: 19px;
+  height: 19px;
+}
+
+.gradient-map-mode-note {
+  gap: 9px;
+  padding: 11px 12px;
+  border-radius: 13px;
+  font-size: 11px;
+}
+
+@media (max-width: 860px) {
+  .appearance-visual-presets-heading {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .appearance-visual-presets-heading > small {
+    grid-column: auto;
+  }
+
+  .appearance-save-preset-trigger {
+    width: 100%;
+  }
+
+  .appearance-save-preset-form {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .appearance-save-preset-actions {
+    justify-content: flex-end;
+  }
+
+  .appearance-motion-slider {
+    grid-template-columns: minmax(0, 1fr) 54px;
+  }
+
+  .appearance-motion-slider > span {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 560px) {
+  .appearance-visual-presets,
+  .appearance-background-section,
+  .appearance-motion-popover,
+  .appearance-gradient-map-popover {
+    padding: 15px;
+    border-radius: 18px;
+  }
+
+  .appearance-preset-grid,
+  .appearance-visual-preset-grid,
+  .gradient-map-color-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .appearance-background-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .appearance-background-actions [data-slot="button"] {
+    min-width: 0;
+  }
+
+  .gradient-map-palette-preview {
+    grid-template-columns: auto repeat(4, 17px);
+  }
+
+  .gradient-map-palette-preview small {
+    grid-column: 1 / -1;
+  }
+}
+

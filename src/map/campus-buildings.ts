@@ -29,6 +29,8 @@ export interface BuildingMark {
   x: number;
   y: number;
   markedAt: string;
+  /** Custom user-entered label; when present it overrides the def label. */
+  name?: string;
 }
 
 export const BUILDING_DEFS: BuildingDef[] = [
@@ -165,11 +167,70 @@ export function buildingDefByKey(key: string | null | undefined): BuildingDef | 
   return BUILDING_DEFS.find((def) => def.key === key);
 }
 
-// ---- Persisted building marks ----------------------------------------------
+/**
+ * Normalize a schedule-derived building key to a mark key that exists in
+ * DEFAULT_BUILDING_MARKS. "一教A-301" resolves to firstA but the map only has
+ * one "first" mark, so firstA → first. Likewise secondC/secondD → second and
+ * labA/labB/labF → their dedicated marks when present.
+ */
+export function resolveMarkKey(key: string | null | undefined): string | null {
+  if (!key) return null;
+  if (key === "first" || key === "second" || key === "library" || key === "gym") return key;
+  if (key.startsWith("first")) return "first";
+  if (key.startsWith("second")) return "second";
+  if (key.startsWith("lab")) return key; // labA / labB / labF / labH are distinct
+  return key;
+}
+
+// ---- Fixed building marks ---------------------------------------------------
+//
+// Campus landmarks marked on the map by the user during the initial marking
+// pass. Coordinates are source-image pixels on the campus map. These are
+// built-in so navigation works out of the box; the marking UI was removed
+// after this data was collected.
+
+export const DEFAULT_BUILDING_MARKS: BuildingMark[] = [
+  // 紫竹苑 / 樱花苑 dormitory clusters
+  { key: "custom-紫竹苑1", x: 1788, y: 4807, name: "紫竹苑1", markedAt: "" },
+  { key: "custom-紫竹苑2", x: 2197, y: 4804, name: "紫竹苑2", markedAt: "" },
+  { key: "custom-紫竹苑3", x: 1795, y: 4279, name: "紫竹苑3", markedAt: "" },
+  { key: "custom-紫竹苑4", x: 2219, y: 4031, name: "紫竹苑4", markedAt: "" },
+  { key: "custom-樱花苑1", x: 1757, y: 6347, name: "樱花苑1", markedAt: "" },
+  { key: "custom-樱花苑2", x: 1823, y: 6893, name: "樱花苑2", markedAt: "" },
+  { key: "custom-樱花苑3", x: 2083, y: 5839, name: "樱花苑3", markedAt: "" },
+  { key: "custom-樱花苑4", x: 2207, y: 6336, name: "樱花苑4", markedAt: "" },
+  { key: "custom-樱花苑5", x: 2278, y: 6907, name: "樱花苑5", markedAt: "" },
+  { key: "custom-樱花苑6", x: 2682, y: 5812, name: "樱花苑6", markedAt: "" },
+  { key: "custom-樱花苑7", x: 2845, y: 6414, name: "樱花苑7", markedAt: "" },
+  // Dining and services
+  { key: "custom-紫竹食堂", x: 2194, y: 5233, name: "紫竹食堂", markedAt: "" },
+  { key: "custom-玉兰餐厅", x: 2775, y: 4142, name: "玉兰餐厅", markedAt: "" },
+  { key: "custom-后勤服务楼", x: 1799, y: 5836, name: "后勤服务楼", markedAt: "" },
+  { key: "custom-大学生活动中心", x: 2897, y: 4675, name: "大学生活动中心", markedAt: "" },
+  { key: "custom-校史博物馆", x: 2867, y: 5160, name: "校史博物馆", markedAt: "" },
+  // Academic buildings
+  // Note: first/一教, labA/实验楼A, labH/实验楼H are in the user's
+  // localStorage as custom- keys; DEFAULT entries for them would cause
+  // duplicate markers and are therefore omitted.
+  { key: "second", x: 3796, y: 4452, name: "第二教学楼", markedAt: "" },
+  { key: "library", x: 4242, y: 5035, markedAt: "" },
+  { key: "custom-文理楼", x: 5101, y: 5437, name: "文理楼", markedAt: "" },
+  { key: "gym", x: 3348, y: 8395, name: "体育馆", markedAt: "" },
+];
+
+export function readBuildingMarks(): BuildingMark[] {
+  // Defaults first, then any user re-marks stored in localStorage override the
+  // same key (so corrected coordinates win after a marking pass).
+  const stored = readStoredMarks();
+  if (!stored.length) return DEFAULT_BUILDING_MARKS;
+  const byKey = new Map(DEFAULT_BUILDING_MARKS.map((m) => [m.key, m]));
+  for (const mark of stored) byKey.set(mark.key, mark);
+  return [...byKey.values()];
+}
 
 const BUILDING_MARKS_KEY = "theia-campus-building-marks-v1";
 
-export function readBuildingMarks(): BuildingMark[] {
+function readStoredMarks(): BuildingMark[] {
   try {
     const raw = localStorage.getItem(BUILDING_MARKS_KEY);
     const parsed = raw ? (JSON.parse(raw) as unknown) : null;
@@ -185,6 +246,9 @@ export function readBuildingMarks(): BuildingMark[] {
         x: Math.round(item.x),
         y: Math.round(item.y),
         markedAt: String(item.markedAt || ""),
+        ...(typeof (item as BuildingMark).name === "string" && (item as BuildingMark).name
+          ? { name: (item as BuildingMark).name }
+          : {}),
       }));
   } catch {
     return [];
@@ -196,5 +260,26 @@ export function writeBuildingMarks(marks: BuildingMark[]): void {
     localStorage.setItem(BUILDING_MARKS_KEY, JSON.stringify(marks));
   } catch {
     // Marks are best-effort local preferences.
+  }
+}
+
+// ---- Home (default start) mark ---------------------------------------------
+
+const HOME_MARK_KEY = "theia-campus-home-mark-v1";
+
+export function readHomeMark(): string | null {
+  try {
+    return localStorage.getItem(HOME_MARK_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function saveHomeMark(key: string | null): void {
+  try {
+    if (key) localStorage.setItem(HOME_MARK_KEY, key);
+    else localStorage.removeItem(HOME_MARK_KEY);
+  } catch {
+    // best-effort
   }
 }

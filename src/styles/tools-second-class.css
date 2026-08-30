@@ -1,0 +1,145 @@
+/* Split from src/styles/tools.css; imported in source order by src/styles.css. */
+/* ── Second class calculator ─────────────────────────────────────────────── */
+.second-class-calc { display: grid; gap: 15px; max-width: 960px; }
+.second-class-dims { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.second-class-dim { padding: 14px; background: color-mix(in srgb, var(--secondary) 44%, transparent); border: 1px solid color-mix(in srgb, var(--border) 78%, transparent); border-radius: 11px; box-shadow: none; }
+.second-class-dim-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 11px; }
+.second-class-dim-label { color: var(--foreground); font-size: 12px; font-weight: 700; }
+.second-class-dim-max { color: var(--muted-foreground); font-size: 10px; }
+.second-class-dim-input { display: flex; align-items: center; gap: 7px; color: var(--muted-foreground); font-size: 11px; }
+.second-class-dim input { width: 76px; height: 34px; padding: 0 9px; color: var(--foreground); background: color-mix(in srgb, var(--card) 78%, transparent); border: 1px solid color-mix(in srgb, var(--input) 82%, transparent); border-radius: 8px; font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+.second-class-dim input:focus { border-color: var(--ring); outline: 2px solid color-mix(in srgb, var(--ring) 16%, transparent); outline-offset: 1px; }
+.second-class-bar { position: relative; height: 6px; background: color-mix(in srgb, var(--border) 72%, transparent); border-radius: 999px; overflow: hidden; margin-top: 12px; }
+.second-class-bar-fill { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--primary); transition: width .3s var(--ease-out); }
+.second-class-bar-fill.warn { background: var(--warning); }
+.second-class-bar-fill.fail { background: var(--destructive); }
+.second-class-bar-60 { position: absolute; top: -3px; bottom: -3px; left: 60%; width: 1px; background: color-mix(in srgb, var(--foreground) 42%, transparent); border-radius: 1px; }
+.second-class-warn { display: flex; align-items: center; gap: 6px; margin-top: 7px; color: var(--warning); font-size: 10px; }
+.second-class-total-row { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; padding: 0; color: var(--muted-foreground); font-size: 11px; }
+.second-class-total { color: var(--foreground); font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.second-class-total small { color: var(--muted-foreground); font-size: 11px; font-weight: 500; }
+.second-class-scholar-result { display: grid; gap: 5px; margin-top: 15px; padding: 13px 14px; background: color-mix(in srgb, var(--primary) 9%, transparent); border: 1px solid color-mix(in srgb, var(--primary) 19%, var(--border)); border-radius: 10px; font-size: 11px; }
+.second-class-scholar-result strong { color: var(--foreground); font-size: 13px; }
+.second-class-scholar-result span { color: var(--muted-foreground); }
+.second-class-dim.dim-moral { border-left: 3px solid var(--primary); }
+.second-class-dim.dim-academic { border-left: 3px solid var(--info); }
+.second-class-dim.dim-sports { border-left: 3px solid var(--success); }
+.second-class-dim.dim-arts { border-left: 3px solid var(--warning); }
+.second-class-dim.dim-labor { border-left: 3px solid color-mix(in srgb, #9b59b6 70%, var(--foreground)); }
+
+/* ── Second class handbook rules UI ─────────────────────────────────────── */
+.second-class-calc { width: 100%; max-width: 1160px; }
+.second-class-hero { display: flex; align-items: stretch; justify-content: space-between; gap: 22px; padding: 21px 22px; background: linear-gradient(112deg, color-mix(in srgb, var(--primary) 10%, var(--card)), var(--card)); border: 1px solid color-mix(in srgb, var(--primary) 22%, var(--border)); border-radius: 10px; box-shadow: var(--shadow); }
+.second-class-hero-copy { min-width: 0; }
+.second-class-kicker { display: inline-flex; align-items: center; gap: 6px; color: var(--primary); font-size: 10px; font-weight: 750; letter-spacing: .04em; }
+.second-class-hero h2 { margin: 8px 0 6px; color: var(--foreground); font-size: 22px; letter-spacing: 0; }
+.second-class-hero p { max-width: 650px; margin: 0; color: var(--muted-foreground); font-size: 11px; line-height: 1.65; }
+.second-class-hero-total { display: grid; align-content: center; justify-items: end; min-width: 145px; padding-left: 20px; border-left: 1px solid color-mix(in srgb, var(--primary) 18%, var(--border)); }
+.second-class-hero-total span, .second-class-hero-total small { color: var(--muted-foreground); font-size: 10px; }
+.second-class-hero-total strong { color: var(--primary); font-size: 34px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.second-class-view-tabs { display: inline-flex; gap: 3px; width: max-content; padding: 3px; background: color-mix(in srgb, var(--secondary) 84%, transparent); border: 1px solid color-mix(in srgb, var(--border) 78%, transparent); border-radius: 9px; }
+.second-class-view-tabs button { display: inline-flex; align-items: center; gap: 7px; min-height: 31px; padding: 0 12px; color: var(--muted-foreground); background: transparent; border: 1px solid transparent; border-radius: 6px; font-size: 11px; font-weight: 650; }
+.second-class-view-tabs button:hover { color: var(--foreground); }
+.second-class-view-tabs button.active { color: var(--primary); background: var(--card); border-color: color-mix(in srgb, var(--primary) 18%, var(--border)); box-shadow: 0 2px 6px -5px var(--foreground); }
+.second-class-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; overflow: hidden; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+.second-class-summary-grid > div { display: grid; align-content: center; gap: 5px; min-height: 83px; padding: 14px 17px; background: var(--card); }
+.second-class-summary-grid span, .second-class-summary-grid small { color: var(--muted-foreground); font-size: 10px; line-height: 1.45; }
+.second-class-summary-grid strong { color: var(--foreground); font-size: 18px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.second-class-notice { display: flex; align-items: flex-start; gap: 10px; padding: 11px 13px; color: var(--info); background: var(--info-soft); border: 1px solid color-mix(in srgb, var(--info) 20%, var(--border)); border-radius: 8px; }
+.second-class-notice svg { flex: 0 0 auto; margin-top: 2px; }
+.second-class-notice div { display: grid; gap: 3px; }
+.second-class-notice strong { color: var(--foreground); font-size: 11px; }
+.second-class-notice span { color: var(--muted-foreground); font-size: 10px; line-height: 1.55; }
+.second-class-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.second-class-section-heading > div { min-width: 0; }
+.second-class-rule-tag, .second-class-rule-count { display: inline-flex; flex: 0 0 auto; align-items: center; min-height: 24px; padding: 0 8px; color: var(--primary); background: var(--accent); border: 1px solid color-mix(in srgb, var(--primary) 17%, var(--border)); border-radius: 5px; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.second-class-dim-header > div { min-width: 0; display: grid; gap: 4px; }
+.second-class-dim-header small { overflow: hidden; color: var(--muted-foreground); font-size: 10px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+.second-class-score-inputs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.second-class-score-inputs label { display: grid; gap: 5px; min-width: 0; color: var(--muted-foreground); font-size: 10px; font-weight: 650; }
+.second-class-score-inputs label > div { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.second-class-score-inputs input { width: 100%; min-width: 0; height: 32px; padding: 0 8px; color: var(--foreground); background: color-mix(in srgb, var(--card) 88%, transparent); border: 1px solid color-mix(in srgb, var(--input) 82%, transparent); border-radius: 7px; font-size: 11px; font-variant-numeric: tabular-nums; }
+.second-class-score-inputs input:focus { border-color: var(--ring); outline: 2px solid color-mix(in srgb, var(--ring) 16%, transparent); outline-offset: 1px; }
+.second-class-score-inputs em { color: var(--muted-foreground); font-size: 10px; font-style: normal; white-space: nowrap; }
+.second-class-dim-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 7px; color: var(--muted-foreground); font-size: 10px; font-variant-numeric: tabular-nums; }
+.second-class-dim-footer span:last-child { color: var(--primary); font-weight: 750; }
+.second-class-threshold { display: flex; align-items: flex-start; gap: 9px; margin-top: 14px; padding: 10px 12px; border-radius: 8px; font-size: 11px; line-height: 1.45; }
+.second-class-threshold > span { display: inline-flex; flex: 0 0 auto; margin-top: 1px; }
+.second-class-threshold > div { display: grid; gap: 3px; }
+.second-class-threshold strong { color: inherit; }
+.second-class-threshold small { color: var(--muted-foreground); font-size: 10px; line-height: 1.55; }
+.second-class-threshold.ok { color: var(--success); background: var(--success-soft); border: 1px solid color-mix(in srgb, var(--success) 22%, var(--border)); }
+.second-class-threshold.danger { color: var(--destructive); background: var(--danger-soft); border: 1px solid color-mix(in srgb, var(--destructive) 22%, var(--border)); }
+.second-class-threshold.pending { color: var(--info); background: var(--info-soft); border: 1px solid color-mix(in srgb, var(--info) 22%, var(--border)); }
+.second-class-total-row > div { display: grid; gap: 4px; }
+.second-class-total-row > div > span { color: var(--foreground); font-size: 12px; font-weight: 700; }
+.second-class-total-row > div > small { color: var(--muted-foreground); font-size: 10px; }
+.second-class-formula-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-top: 15px; }
+.second-class-formula-grid > div { display: grid; gap: 5px; padding: 12px 13px; background: color-mix(in srgb, var(--primary) 7%, var(--card)); border: 1px solid color-mix(in srgb, var(--primary) 16%, var(--border)); border-radius: 8px; }
+.second-class-formula-grid span, .second-class-formula-grid small { color: var(--muted-foreground); font-size: 10px; line-height: 1.45; }
+.second-class-formula-grid strong { color: var(--foreground); font-size: 18px; font-variant-numeric: tabular-nums; }
+.second-class-inline-note { display: flex; align-items: center; gap: 7px; margin-top: 11px; color: var(--muted-foreground); font-size: 10px; }
+.second-class-rule-filters { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 3px; }
+.second-class-rule-filters label { display: grid; gap: 5px; min-width: 170px; color: var(--muted-foreground); font-size: 10px; font-weight: 650; }
+.second-class-rule-filters select { width: 100%; height: 34px; padding: 0 9px; color: var(--foreground); background: color-mix(in srgb, var(--secondary) 44%, transparent); border: 1px solid color-mix(in srgb, var(--input) 82%, transparent); border-radius: 7px; font-size: 11px; }
+.second-class-rule-filters select:focus { border-color: var(--ring); outline: 2px solid color-mix(in srgb, var(--ring) 16%, transparent); outline-offset: 1px; }
+.second-class-rules-table-wrap { max-width: 100%; max-height: 600px; margin-top: 14px; overflow: auto; border: 1px solid color-mix(in srgb, var(--border) 84%, transparent); border-radius: 8px; background: var(--card); }
+.second-class-rules-table { width: 100%; min-width: 840px; border-collapse: collapse; table-layout: fixed; font-size: 10px; }
+.second-class-rules-table th { position: sticky; top: 0; z-index: 1; padding: 10px 11px; color: var(--muted-foreground); background: color-mix(in srgb, var(--secondary) 92%, var(--card)); border-bottom: 1px solid var(--border); font-size: 10px; font-weight: 750; text-align: left; }
+.second-class-rules-table th:nth-child(1) { width: 11%; }
+.second-class-rules-table th:nth-child(2) { width: 12%; }
+.second-class-rules-table th:nth-child(3) { width: 30%; }
+.second-class-rules-table th:nth-child(4) { width: 27%; }
+.second-class-rules-table th:nth-child(5) { width: 20%; }
+.second-class-rules-table td { padding: 11px; color: var(--muted-foreground); border-top: 1px solid color-mix(in srgb, var(--border) 66%, transparent); vertical-align: top; line-height: 1.5; overflow-wrap: anywhere; }
+.second-class-rules-table td strong { color: var(--foreground); font-size: 10px; font-weight: 650; }
+.second-class-rules-table td:first-child { color: var(--foreground); white-space: nowrap; }
+.second-class-rule-score { color: var(--primary) !important; font-weight: 700; font-variant-numeric: tabular-nums; }
+.second-class-rule-dot { display: inline-block; width: 7px; height: 7px; margin-right: 6px; vertical-align: 1px; border-radius: 50%; background: var(--primary); }
+.second-class-rule-dot.dim-academic { background: var(--info); }
+.second-class-rule-dot.dim-sports { background: var(--success); }
+.second-class-rule-dot.dim-arts { background: var(--warning); }
+.second-class-rule-dot.dim-labor { background: #8f62a8; }
+.second-class-section-badge { display: inline-flex; padding: 3px 6px; border-radius: 4px; font-size: 9px; font-weight: 700; white-space: nowrap; }
+.second-class-section-badge.basic { color: var(--info); background: var(--info-soft); }
+.second-class-section-badge.extension { color: var(--warning); background: var(--warning-soft); }
+.second-class-table-note { display: flex; align-items: flex-start; gap: 7px; margin-top: 11px; color: var(--muted-foreground); font-size: 10px; line-height: 1.55; }
+.second-class-table-note svg { flex: 0 0 auto; margin-top: 1px; color: var(--info); }
+.second-class-dimension-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; margin-top: 3px; }
+.second-class-dimension-tab { display: grid; grid-template-columns: 30px minmax(0, 1fr); grid-template-rows: auto auto; align-items: center; column-gap: 8px; min-width: 0; min-height: 58px; padding: 9px 10px; color: var(--muted-foreground); background: color-mix(in srgb, var(--secondary) 48%, transparent); border: 1px solid color-mix(in srgb, var(--border) 78%, transparent); border-radius: 8px; text-align: left; transition: border-color .16s var(--ease-out), background .16s var(--ease-out), transform .16s var(--ease-out); }
+.second-class-dimension-tab:hover { color: var(--foreground); background: color-mix(in srgb, var(--card) 82%, transparent); border-color: color-mix(in srgb, var(--primary) 34%, var(--border)); transform: translateY(-1px); }
+.second-class-dimension-tab.active { color: var(--foreground); background: color-mix(in srgb, var(--primary) 10%, var(--card)); border-color: color-mix(in srgb, var(--primary) 48%, var(--border)); box-shadow: 0 7px 18px -18px var(--foreground); }
+.second-class-dimension-tab > strong { display: grid; place-items: center; grid-row: 1 / span 2; width: 28px; height: 28px; color: var(--primary); background: color-mix(in srgb, var(--primary) 13%, transparent); border: 1px solid color-mix(in srgb, var(--primary) 23%, var(--border)); border-radius: 7px; font-size: 16px; line-height: 1; }
+.second-class-dimension-tab > span { overflow: hidden; color: inherit; font-size: 11px; font-weight: 700; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.second-class-dimension-tab > small { color: var(--muted-foreground); font-size: 9px; line-height: 1.3; white-space: nowrap; }
+.second-class-dimension-tab.dim-academic > strong { color: var(--info); background: var(--info-soft); border-color: color-mix(in srgb, var(--info) 24%, var(--border)); }
+.second-class-dimension-tab.dim-sports > strong { color: var(--success); background: var(--success-soft); border-color: color-mix(in srgb, var(--success) 24%, var(--border)); }
+.second-class-dimension-tab.dim-arts > strong { color: var(--warning); background: var(--warning-soft); border-color: color-mix(in srgb, var(--warning) 24%, var(--border)); }
+.second-class-dimension-tab.dim-labor > strong { color: #8f62a8; background: color-mix(in srgb, #8f62a8 12%, transparent); border-color: color-mix(in srgb, #8f62a8 24%, var(--border)); }
+.second-class-rules-panel { display: grid; gap: 14px; padding: 14px; background: color-mix(in srgb, var(--secondary) 33%, transparent); border: 1px solid color-mix(in srgb, var(--border) 78%, transparent); border-radius: 9px; }
+.second-class-rules-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-bottom: 13px; border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent); }
+.second-class-rules-panel-title { display: flex; align-items: flex-start; gap: 9px; min-width: 0; }
+.second-class-rules-panel-title > .second-class-rule-dot { flex: 0 0 auto; margin-top: 5px; }
+.second-class-rules-panel-title > div { min-width: 0; }
+.second-class-rules-panel-title > div > span { color: var(--muted-foreground); font-size: 9px; }
+.second-class-rules-panel-title h4 { margin: 3px 0 3px; color: var(--foreground); font-size: 15px; font-weight: 750; }
+.second-class-rules-panel-title p { margin: 0; color: var(--muted-foreground); font-size: 10px; line-height: 1.5; }
+.second-class-rules-panel-total { display: grid; justify-items: end; flex: 0 0 auto; gap: 2px; }
+.second-class-rules-panel-total span, .second-class-rules-panel-total small { color: var(--muted-foreground); font-size: 9px; }
+.second-class-rules-panel-total strong { color: var(--primary); font-size: 26px; line-height: 1; font-variant-numeric: tabular-nums; }
+.second-class-rule-groups { display: grid; gap: 14px; }
+.second-class-rule-group { overflow: hidden; background: color-mix(in srgb, var(--card) 64%, transparent); border: 1px solid color-mix(in srgb, var(--border) 75%, transparent); border-radius: 8px; }
+.second-class-rule-group-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 13px; background: color-mix(in srgb, var(--secondary) 60%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent); }
+.second-class-rule-group-header > div { min-width: 0; }
+.second-class-rule-group-header h4 { margin: 6px 0 0; color: var(--muted-foreground); font-size: 10px; font-weight: 500; line-height: 1.45; }
+.second-class-rule-group-header > span { flex: 0 0 auto; color: var(--muted-foreground); font-size: 9px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.second-class-rule-card-list { display: grid; }
+.second-class-rule-card { padding: 12px 13px; border-top: 1px solid color-mix(in srgb, var(--border) 62%, transparent); }
+.second-class-rule-card:first-child { border-top: 0; }
+.second-class-rule-card-main { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.second-class-rule-card-main > strong { min-width: 0; color: var(--foreground); font-size: 11px; font-weight: 700; line-height: 1.5; }
+.second-class-rule-card-main > .second-class-rule-score { flex: 0 0 auto; max-width: 46%; color: var(--primary) !important; font-size: 10px; line-height: 1.5; text-align: right; }
+.second-class-rule-detail { display: flex; align-items: flex-start; gap: 6px; margin-top: 7px; color: var(--muted-foreground); font-size: 10px; line-height: 1.5; }
+.second-class-rule-detail svg { flex: 0 0 auto; margin-top: 2px; color: var(--info); }
+.second-class-rule-detail b { margin-right: 5px; color: var(--foreground); font-size: 9px; font-weight: 700; }
+

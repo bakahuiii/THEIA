@@ -1,0 +1,142 @@
+/* -------------------------------------------------------------------------
+* Unified THEIA surface contract
+ *
+ * Pages intentionally keep their own layout, but they now consume the same
+ * chrome geometry, surface elevation, control radius, and focus language.
+ * The Agent aliases these tokens locally, so its Codex-like treatment never
+ * writes back to the outer appearance preferences.
+ * ------------------------------------------------------------------------- */
+:root {
+  --theia-surface-radius: 14px;
+  --theia-control-radius: 9px;
+  --theia-surface-border: color-mix(in srgb, var(--border) 88%, transparent);
+  --theia-surface-shadow: 0 10px 28px -22px color-mix(in srgb, var(--foreground) 42%, transparent), 0 1px 2px color-mix(in srgb, var(--foreground) 8%, transparent);
+  --theia-surface-shadow-hover: 0 16px 34px -24px color-mix(in srgb, var(--foreground) 48%, transparent), 0 2px 5px color-mix(in srgb, var(--foreground) 10%, transparent);
+  /* Match usePersonalization's default 42% transparency before the
+   * preference hook applies the persisted values. */
+  --theia-background-workspace-opacity: 58%;
+  --theia-background-sidebar-opacity: 50%;
+  --theia-background-topbar-opacity: 46%;
+  --theia-background-surface-opacity: 58%;
+  --theia-background-surface-strong-opacity: 58%;
+  --theia-background-control-opacity: 58%;
+}
+
+html.dark {
+  --theia-surface-border: color-mix(in srgb, var(--border) 94%, transparent);
+  --theia-surface-shadow: 0 12px 30px -24px rgba(0, 0, 0, .72), 0 1px 2px rgba(0, 0, 0, .38);
+  --theia-surface-shadow-hover: 0 18px 40px -26px rgba(0, 0, 0, .8), 0 2px 6px rgba(0, 0, 0, .46);
+}
+
+html[data-app-background="image"] .workspace {
+  background: color-mix(in srgb, var(--background) var(--theia-background-workspace-opacity), transparent);
+}
+
+html[data-app-background="image"] .topbar {
+  background: color-mix(in srgb, var(--background) var(--theia-background-topbar-opacity), transparent);
+}
+
+.topbar {
+  min-height: 76px;
+  padding: 12px 28px;
+  gap: 14px;
+  border-bottom: 1px solid var(--theia-surface-border);
+  box-shadow: 0 5px 18px -20px color-mix(in srgb, var(--foreground) 50%, transparent);
+}
+
+.topbar .page-title { gap: 11px; }
+.topbar .page-title h1 { font-size: 20px; letter-spacing: -.025em; }
+.topbar .page-title p { margin-top: 3px; color: var(--muted-foreground); font-size: 10px; }
+.topbar .top-actions { gap: 7px; }
+.topbar .source-group,
+.topbar .sync-freshness,
+.topbar .profile-chip,
+.topbar .appearance-menu-trigger,
+.topbar .sync-button { min-height: 36px; }
+
+.topbar .source-group,
+.topbar .sync-freshness,
+.topbar .profile-chip {
+  border-color: var(--theia-surface-border);
+  background: color-mix(in srgb, var(--card) var(--theia-background-control-opacity), transparent);
+}
+
+.source-status.pending { color: var(--muted-foreground); opacity: .82; }
+.auth-pending-banner {
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--card) 72%, var(--secondary));
+  border-color: color-mix(in srgb, var(--border) 88%, transparent);
+}
+.auth-pending-banner > svg { flex: 0 0 auto; color: var(--primary); }
+.auth-pending-banner strong { color: var(--foreground); }
+.auth-pending-banner span { color: var(--muted-foreground); }
+
+.topbar-login-banner,
+.topbar-sync-banner {
+  align-self: center;
+  min-height: 40px;
+  border-radius: 10px;
+  box-shadow: var(--theia-surface-shadow);
+}
+
+.topbar-login-banner { flex-basis: clamp(190px, 23vw, 280px); max-width: 280px; }
+.topbar-sync-banner { flex-basis: clamp(210px, 25vw, 310px); max-width: 310px; }
+
+.content-area {
+  max-width: 1560px;
+  padding: 26px 32px 44px;
+}
+
+:where(.panel, .settings-section, .view-toolbar, .school-schedule-search, .communications-pane, .academic-calendar-header, .academic-calendar-asset, .sync-domain-overview, .sync-log-panel, .course-selection-panel) {
+  background: color-mix(in srgb, var(--card) var(--theia-background-surface-opacity), transparent);
+  border-color: var(--theia-surface-border);
+  border-radius: var(--theia-surface-radius);
+  box-shadow: var(--theia-surface-shadow);
+}
+
+:where(.dashboard-advisor-top, .quick-actions, .metric-strip) {
+  background: color-mix(in srgb, var(--card) var(--theia-background-surface-opacity), transparent);
+  border: 1px solid var(--theia-surface-border);
+  border-radius: var(--theia-surface-radius);
+  box-shadow: var(--theia-surface-shadow);
+}
+
+.view-dashboard .quick-actions,
+.view-dashboard .metric-strip { overflow: hidden; }
+.view-dashboard .quick-action { background: color-mix(in srgb, var(--card) 58%, transparent); }
+.view-dashboard .quick-action:hover { background: color-mix(in srgb, var(--card) 86%, transparent); }
+
+:where(.panel, .settings-section, .view-toolbar, .school-schedule-search, .communications-pane, .academic-calendar-header, .academic-calendar-asset, .sync-domain-overview, .sync-log-panel, .course-selection-panel):hover {
+  box-shadow: var(--theia-surface-shadow-hover);
+}
+
+:where(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  border-radius: var(--theia-control-radius);
+  border-color: var(--input);
+}
+
+:where(.primary-button, .secondary-button, .task-command, .icon-button, .view-toolbar button, .search-box) {
+  border-radius: var(--theia-control-radius);
+}
+
+:where(button, input, select, textarea, summary):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ring) 72%, transparent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 1100px) {
+  .topbar { padding-right: 20px; padding-left: 20px; }
+  .topbar-login-banner span,
+  .topbar-sync-banner small { display: none; }
+  .topbar-login-banner,
+  .topbar-sync-banner { flex-basis: 196px; max-width: 220px; }
+  .content-area { padding-right: 24px; padding-left: 24px; }
+}
+
+@media (max-width: 720px) {
+  .content-area { padding: 18px 15px 30px; }
+  .topbar { min-height: 70px; padding: 10px 15px; }
+  .topbar .page-title h1 { font-size: 17px; }
+  .advisor-workbench-v2 { border-radius: 12px; }
+}
+

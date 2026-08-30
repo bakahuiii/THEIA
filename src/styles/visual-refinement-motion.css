@@ -1,0 +1,622 @@
+/* Split from src/styles/visual-refinement.css; imported in source order by src/styles.css. */
+/* Appearance has one application-wide background plus a compact, configurable motion surface. */
+.appearance-background-section {
+  position: relative;
+  overflow: visible;
+}
+
+.appearance-background-preview.has-image {
+  background-image: var(--theia-app-background-image);
+  background-position: calc(50% + var(--theia-background-offset-x)) calc(50% + var(--theia-background-offset-y));
+}
+
+.appearance-motion-popover,
+.appearance-gradient-map-popover {
+  position: relative;
+  grid-column: 1 / -1;
+  width: 100%;
+  display: grid;
+  gap: 12px;
+  margin-top: 2px;
+  padding: 15px;
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--popover) 96%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 22%, var(--border));
+  border-radius: 16px;
+  box-shadow: 0 24px 56px -25px color-mix(in srgb, var(--foreground) 60%, transparent);
+  backdrop-filter: blur(18px) saturate(1.08);
+  animation: theia-soft-in .18s var(--ease-out) both;
+}
+
+.appearance-motion-heading,
+.appearance-motion-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.appearance-motion-heading > div,
+.appearance-motion-toggle > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.appearance-motion-heading span {
+  color: var(--primary);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: .09em;
+}
+
+.appearance-motion-heading strong,
+.appearance-motion-toggle strong {
+  color: var(--foreground);
+  font-size: 12px;
+}
+
+.appearance-motion-toggle small {
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+
+.appearance-motion-close {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+
+.appearance-motion-close:hover {
+  color: var(--foreground);
+  background: var(--accent);
+}
+
+.appearance-motion-slider {
+  display: grid;
+  grid-template-columns: minmax(96px, 1fr) minmax(70px, 1.6fr) 42px;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+
+.appearance-motion-slider > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.appearance-motion-slider strong {
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.appearance-motion-slider small {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 9px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.appearance-motion-slider input {
+  width: 100%;
+  accent-color: var(--primary);
+}
+
+.appearance-motion-slider input:disabled {
+  opacity: .45;
+}
+
+.appearance-motion-slider output {
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.appearance-motion-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-top: 10px;
+  color: var(--muted-foreground);
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+}
+
+.appearance-motion-note svg {
+  color: var(--primary);
+}
+
+.gradient-map-ramp {
+  position: relative;
+  height: 44px;
+  overflow: visible;
+  cursor: ew-resize;
+  border: 1px solid color-mix(in srgb, var(--foreground) 13%, var(--border));
+  border-radius: 12px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 36%, transparent);
+  touch-action: none;
+}
+
+.gradient-map-ramp::after {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(90deg, rgba(0, 0, 0, .13), transparent 38%, rgba(255, 255, 255, .16));
+  border-radius: inherit;
+  content: "";
+  pointer-events: none;
+}
+
+.gradient-map-stop-input {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  appearance: none;
+  background: transparent;
+  cursor: ew-resize;
+  pointer-events: none;
+}
+
+.gradient-map-stop-highlight {
+  z-index: 3;
+}
+
+.gradient-map-stop-input::-webkit-slider-runnable-track {
+  height: 6px;
+  background: transparent;
+  border: 0;
+}
+
+.gradient-map-stop-input::-webkit-slider-thumb {
+  width: 20px;
+  height: 20px;
+  margin-top: -7px;
+  appearance: none;
+  background: var(--gradient-map-stop-color);
+  border: 3px solid var(--card);
+  border-radius: 50%;
+  box-shadow: 0 2px 9px color-mix(in srgb, var(--foreground) 34%, transparent);
+  cursor: ew-resize;
+  pointer-events: auto;
+}
+
+.gradient-map-stop-input::-moz-range-track {
+  height: 6px;
+  background: transparent;
+  border: 0;
+}
+
+.gradient-map-stop-input::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: var(--gradient-map-stop-color);
+  border: 3px solid var(--card);
+  border-radius: 50%;
+  box-shadow: 0 2px 9px color-mix(in srgb, var(--foreground) 34%, transparent);
+  cursor: ew-resize;
+  pointer-events: auto;
+}
+
+.gradient-map-stop-values {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted-foreground);
+  font-size: 9px;
+}
+
+.gradient-map-stop-values span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.gradient-map-stop-values i {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+
+.gradient-map-stop-values output {
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.gradient-map-color-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.gradient-map-color-control {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  background: color-mix(in srgb, var(--secondary) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 12%, var(--border));
+  border-radius: 12px;
+}
+
+.gradient-map-color-control > span:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.gradient-map-color-control strong {
+  color: var(--foreground);
+  font-size: 11px;
+}
+
+.gradient-map-color-control small {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 9px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gradient-map-color-control > span:last-child {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.gradient-map-color-control input[type="color"] {
+  width: 31px;
+  height: 31px;
+  padding: 2px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.gradient-map-color-control output {
+  color: var(--muted-foreground);
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.gradient-map-palette-preview {
+  display: grid;
+  grid-template-columns: auto repeat(4, 16px) minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 8px 10px;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--secondary) 52%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 10%, var(--border));
+  border-radius: 11px;
+  font-size: 9px;
+}
+
+.gradient-map-palette-preview > span {
+  color: var(--foreground);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.gradient-map-palette-preview > i {
+  width: 16px;
+  height: 16px;
+  border: 1px solid color-mix(in srgb, var(--foreground) 18%, transparent);
+  border-radius: 50%;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18);
+}
+
+.gradient-map-palette-preview small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gradient-map-mode-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 10px;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 16%, var(--border));
+  border-radius: 11px;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.gradient-map-mode-note svg {
+  flex: 0 0 auto;
+  color: var(--primary);
+}
+
+@media (max-width: 860px) {
+  .appearance-background-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .appearance-motion-popover,
+  .appearance-gradient-map-popover {
+    width: 100%;
+  }
+
+  .gradient-map-color-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* The timetable is a shared period grid: each card occupies its actual rows. */
+.schedule-scroll {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 14px;
+  overscroll-behavior-inline: contain;
+}
+
+.schedule-board {
+  --schedule-period-count: 12;
+  position: relative;
+  display: grid;
+  grid-template-columns: 82px repeat(7, minmax(146px, 1fr));
+  grid-template-rows: 60px repeat(var(--schedule-period-count), minmax(86px, 1fr));
+  gap: 0;
+  min-width: 1104px;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+}
+
+.schedule-corner,
+.schedule-day-header,
+.schedule-period-label {
+  display: grid;
+  place-items: center;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--surface-subtle) 94%, var(--card));
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.schedule-corner {
+  z-index: 4;
+  grid-column: 1;
+  grid-row: 1;
+  border-right: 1px solid var(--border);
+}
+
+.schedule-day-header {
+  z-index: 3;
+  align-content: center;
+  gap: 4px;
+  border-left: 1px solid var(--border);
+}
+
+.schedule-day-header strong {
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.schedule-day-header span {
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.schedule-day-header.is-today {
+  background: color-mix(in srgb, var(--primary) 14%, var(--surface-subtle));
+  box-shadow: inset 0 -2px 0 var(--primary);
+}
+
+.schedule-day-header.is-today strong { color: var(--primary); }
+
+.schedule-period-label {
+  z-index: 2;
+  padding: 0 8px;
+  border-top: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+
+.schedule-grid-cell {
+  z-index: 0;
+  min-width: 0;
+  min-height: 86px;
+  background: color-mix(in srgb, var(--card) 90%, var(--surface-subtle));
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+}
+
+.course-slot {
+  --course-accent: var(--primary);
+  z-index: 3;
+  min-width: 0;
+  min-height: 0;
+  align-self: stretch;
+  margin: 6px;
+  padding: 11px 12px;
+  overflow: hidden;
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--card) 84%, var(--accent));
+  border: 1px solid color-mix(in srgb, var(--course-accent) 24%, var(--border));
+  border-left: 4px solid var(--course-accent);
+  border-radius: 13px;
+  box-shadow: 0 9px 19px -17px color-mix(in srgb, var(--foreground) 72%, transparent);
+  transform: translateZ(0);
+  transition: transform .2s var(--ease-out), box-shadow .2s var(--ease-out), background .2s var(--ease-out), border-color .2s var(--ease-out);
+}
+
+
+.course-slot:hover {
+  z-index: 5;
+  background: color-mix(in srgb, var(--card) 69%, var(--accent));
+  border-color: color-mix(in srgb, var(--course-accent) 53%, var(--border));
+  box-shadow: 0 17px 32px -20px color-mix(in srgb, var(--course-accent) 92%, transparent);
+  transform: translateY(-2px) scale(1.012);
+}
+
+.course-slot.is-today {
+  border-color: color-mix(in srgb, var(--course-accent) 70%, var(--border));
+  box-shadow: 0 12px 27px -19px color-mix(in srgb, var(--course-accent) 96%, transparent), 0 0 0 1px color-mix(in srgb, var(--course-accent) 22%, transparent);
+  animation: schedule-today-breathe 3.4s ease-in-out infinite;
+}
+
+.course-slot.is-today:hover { animation-play-state: paused; }
+
+@keyframes schedule-today-breathe {
+  0%, 100% { box-shadow: 0 12px 27px -19px color-mix(in srgb, var(--course-accent) 96%, transparent), 0 0 0 1px color-mix(in srgb, var(--course-accent) 22%, transparent); }
+  50% { box-shadow: 0 17px 34px -18px color-mix(in srgb, var(--course-accent) 100%, transparent), 0 0 0 4px color-mix(in srgb, var(--course-accent) 9%, transparent); }
+}
+
+.course-slot > span {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  color: var(--course-accent);
+  font-size: 14px;
+  font-weight: 750;
+  line-height: 1.15;
+}
+
+.course-slot h3 {
+  display: -webkit-box;
+  margin: 7px 0 8px;
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.course-slot h3 small {
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.course-slot p {
+  min-width: 0;
+  margin: 4px 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.course-slot > small {
+  display: block;
+  margin-top: 7px;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.course-slot.single-period p,
+.course-slot.single-period > small {
+  display: none;
+}
+
+.course-slot .stack-badge {
+  min-width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  color: var(--primary-foreground);
+  background: var(--course-accent);
+  border-radius: 999px;
+  font-size: 10px;
+}
+
+.schedule-unscheduled {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 11px 14px;
+  color: var(--muted-foreground);
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 11px;
+}
+
+.schedule-unscheduled strong {
+  color: var(--warning);
+  font-size: 11px;
+}
+
+/* Scores and GPA use the same semantic colors in every view. */
+.score-badge {
+  color: var(--foreground);
+  background: var(--secondary);
+  border: 1px solid var(--border);
+}
+
+.score-badge.low {
+  color: var(--destructive);
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--destructive) 28%, var(--border));
+}
+
+.score-badge.excellent {
+  color: var(--teal);
+  background: color-mix(in srgb, var(--teal) 14%, var(--card));
+  border-color: color-mix(in srgb, var(--teal) 30%, var(--border));
+}
+
+.gpa-value.warning {
+  color: var(--warning);
+}
+
+.gpa-point.warning {
+  stroke: var(--warning);
+}
+
+.gpa-value.excellent {
+  color: var(--teal);
+}
+
+.gpa-point.excellent {
+  stroke: var(--teal);
+}
+

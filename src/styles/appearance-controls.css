@@ -1,0 +1,102 @@
+/* ── Appearance settings controls ── */
+.appearance-mode-group { display: flex; gap: 4px; }
+.appearance-mode-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 11px; color: var(--muted-foreground); background: transparent; border: 1px solid var(--line-strong); border-radius: 6px; font-size: 11px; transition: color .12s, background .12s, border-color .12s; }
+.appearance-mode-btn:hover { color: var(--ink); background: var(--teal-soft); border-color: var(--teal); }
+.appearance-mode-btn.active { color: var(--teal); background: var(--teal-soft); border-color: var(--teal); font-weight: 650; }
+.appearance-zoom-group { display: flex; gap: 3px; flex-wrap: wrap; }
+.appearance-zoom-btn { min-height: 28px; padding: 0 9px; color: var(--muted-foreground); background: transparent; border: 1px solid var(--line-strong); border-radius: 5px; font-size: 11px; font-variant-numeric: tabular-nums; }
+.appearance-zoom-btn:hover { color: var(--ink); background: var(--teal-soft); }
+.appearance-zoom-btn.active { color: var(--teal); background: var(--teal-soft); border-color: var(--teal); font-weight: 650; }
+:root.dark {
+  --theme-bg-seed: #1a2230;
+  --theme-neutral-chrome: #111820;
+  --theme-card-seed: #1e2736;
+  --theme-neutral-card: #1e2736;
+  --theme-mix-chrome: 80%;
+  --theme-mix-card: 90%;
+  --canvas: #141b26;
+  --paper: #1e2736;
+  --panel: #1e2736;
+  --ink: #e0e8f0;
+  --muted: #7a90a0;
+  --subtle: #4a6070;
+  --line: #2a3545;
+  --line-strong: #344555;
+  --teal: #2aa89a;
+  --teal-soft: rgba(42,168,154,.14);
+  --blue: #4a8abf;
+  --red: #e05060;
+  --red-dark: #c03a48;
+  --shadow: 0 1px 2px rgba(0,0,0,.2), 0 4px 16px -8px rgba(0,0,0,.36);
+  --shadow-float: 0 8px 32px -12px rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.2);
+  color-scheme: dark;
+}
+:root.dark html, :root.dark body { background: var(--canvas); }
+:root.dark .topbar { background: rgba(20,27,38,.97); }
+:root.dark .panel { background: var(--paper); border-color: var(--line); }
+:root.dark .metric-strip { background: var(--paper); border-color: var(--line); }
+:root.dark .metric-strip button { background: var(--paper); }
+:root.dark .metric-strip button:hover { background: color-mix(in srgb, var(--paper) 85%, #fff); }
+:root.dark .quick-actions button { background: var(--paper); border-color: var(--line); }
+:root.dark .day-column { background: var(--paper); border-color: var(--line); }
+:root.dark .data-table-wrap { background: var(--paper); border-color: var(--line); }
+:root.dark .data-table th { background: color-mix(in srgb, var(--paper) 80%, var(--canvas)); }
+:root.dark .data-table tbody tr:hover { background: rgba(255,255,255,.04); }
+:root.dark .settings-section { background: transparent; }
+:root.dark .command-palette { background: rgba(24,34,48,.97); border-color: rgba(255,255,255,.08); }
+
+/* Reassert the semantic palette after the historical compatibility block. */
+:root.dark {
+  color-scheme: dark;
+  color: #edf5f3;
+  background: #101719;
+  --background: #101719;
+  --foreground: #edf5f3;
+  --card: #172022;
+  --card-foreground: #edf5f3;
+  --popover: #1b2527;
+  --popover-foreground: #edf5f3;
+  --primary: #64c2b5;
+  --primary-foreground: #0b2420;
+  --secondary: #202c2e;
+  --secondary-foreground: #d7e1df;
+  --muted: #202c2e;
+  --muted-foreground: #9bacad;
+  --accent: #243a37;
+  --accent-foreground: #a9e2d9;
+  --destructive: #f17a7f;
+  --destructive-foreground: #321116;
+  --border: #2d3b3d;
+  --input: #3b4c4f;
+  --ring: #71cec2;
+  --success: #6ac5a8;
+  --success-soft: #183a31;
+  --warning: #e3b56d;
+  --warning-soft: #3b2e18;
+  --info: #7bb4df;
+  --info-soft: #1c3345;
+  --sidebar: #12191f;
+  --sidebar-foreground: #d4e0e3;
+  --sidebar-primary: #83d6c9;
+  --sidebar-primary-foreground: #0e2723;
+  --sidebar-accent: #24333d;
+  --sidebar-accent-foreground: #f1fafb;
+  --sidebar-border: rgba(255, 255, 255, .085);
+  --sidebar-ring: #7fbed8;
+  --canvas: var(--background);
+  --paper: var(--card);
+  --panel: var(--secondary);
+  --ink: var(--foreground);
+  --subtle: color-mix(in srgb, var(--muted-foreground) 62%, var(--background));
+  --line: var(--border);
+  --line-strong: var(--input);
+  --teal: var(--primary);
+  --teal-soft: var(--accent);
+  --blue: var(--info);
+  --red: var(--destructive);
+  --red-dark: #f1979a;
+  --amber: var(--warning);
+  --shadow: 0 1px 2px rgba(0, 0, 0, .28), 0 8px 22px -14px rgba(0, 0, 0, .52);
+  --shadow-float: 0 20px 44px -24px rgba(0, 0, 0, .7), 0 2px 7px rgba(0, 0, 0, .3);
+}
+

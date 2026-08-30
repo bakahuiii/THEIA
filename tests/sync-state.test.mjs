@@ -1431,7 +1431,7 @@ test('disable invalidates an active run, blocks late commits and rejects new syn
     const pending = service.syncNow()
     await bothStarted
     const stateAfterStart = store.snapshot()
-    const stopping = service.disableAndWait()
+    const stopping = service.stopAndWait()
     releaseSources()
     await stopping
     await assert.rejects(pending, { code: 'sync_cancelled' })

@@ -1,0 +1,76 @@
+/* Keep the transient sync state inside the chrome so workbench content does not reflow. */
+.topbar { position: sticky; }
+.topbar .page-title { flex: 1 1 0; }
+.topbar .page-title h1,
+.topbar .page-title p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar .top-actions { flex: 0 0 auto; }
+.topbar-login-banner {
+  display: flex;
+  align-items: center;
+  flex: 0 1 clamp(180px, 21vw, 260px);
+  gap: 7px;
+  width: auto;
+  max-width: 260px;
+  min-width: 0;
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--warning) 24%, var(--border));
+  border-radius: 8px;
+  box-shadow: 0 8px 22px -18px rgba(119, 75, 17, .55);
+}
+.topbar-login-banner > svg { flex: 0 0 auto; color: var(--warning); }
+.topbar-login-banner > div { display: grid; min-width: 0; flex: 1; gap: 1px; }
+.topbar-login-banner strong,
+.topbar-login-banner span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar-login-banner strong { color: var(--warning); font-size: 10px; }
+.topbar-login-banner span { color: color-mix(in srgb, var(--warning) 67%, var(--muted-foreground)); font-size: 9px; }
+.topbar-login-banner button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 8px;
+  color: var(--warning-foreground, var(--primary-foreground));
+  background: var(--warning);
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.topbar-login-banner button:hover { filter: brightness(1.06); }
+.topbar-sync-banner {
+  display: flex;
+  align-items: flex-start;
+  flex: 0 1 clamp(180px, 21vw, 260px);
+  gap: 8px;
+  width: auto;
+  max-width: 260px;
+  min-width: 0;
+  margin: 0;
+  padding: 8px 11px;
+  border: 1px solid color-mix(in srgb, var(--success) 24%, var(--border));
+  border-radius: 8px;
+  box-shadow: 0 8px 22px -18px rgba(18, 77, 71, .55);
+  pointer-events: none;
+}
+.topbar-sync-banner > svg { flex: 0 0 auto; margin-top: 2px; color: var(--success); }
+.topbar-sync-banner > div { display: grid; min-width: 0; gap: 1px; }
+.topbar-sync-banner strong,
+.topbar-sync-banner span,
+.topbar-sync-banner small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar-sync-banner strong { font-size: 11px; }
+.topbar-sync-banner span { font-size: 10px; }
+.topbar-sync-banner small { font-size: 9px; }
+
+@media (max-width: 920px) {
+  .topbar-login-banner { flex-basis: clamp(180px, 28vw, 240px); max-width: 240px; }
+  .topbar-sync-banner { flex-basis: clamp(180px, 28vw, 240px); max-width: 240px; }
+}
+
+@media (max-width: 720px) {
+  .topbar-login-banner { display: none; }
+  .topbar-sync-banner { display: none; }
+}
+

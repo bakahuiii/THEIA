@@ -1,0 +1,965 @@
+/* ── Image-background contrast guardrails ─────────────────────────────── */
+/* A photograph has no reliable luminance contract. Keep the side navigation
+ * translucent, but reserve enough dark contrast for its light navigation text
+ * even when a user selects a very bright image and maximum transparency. */
+:root {
+  --theia-sidebar-readable-scrim: rgb(7 15 25 / .46);
+  --theia-sidebar-readable-edge: rgb(255 255 255 / .14);
+  --theia-sidebar-readable-text: rgb(248 251 255 / .94);
+  --theia-sidebar-readable-muted: rgb(232 239 247 / .68);
+}
+
+:root.dark {
+  --theia-sidebar-readable-scrim: rgb(1 5 12 / .5);
+  --theia-sidebar-readable-edge: rgb(255 255 255 / .11);
+  --theia-sidebar-readable-text: rgb(246 249 255 / .95);
+  --theia-sidebar-readable-muted: rgb(224 232 241 / .7);
+}
+
+html[data-app-background="image"] .sidebar {
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--sidebar-primary) 14%, transparent),
+      transparent 52%,
+      color-mix(in srgb, var(--background) 14%, transparent)
+    ),
+    linear-gradient(
+      180deg,
+      var(--theia-sidebar-readable-scrim),
+      color-mix(in srgb, var(--theia-sidebar-readable-scrim) 82%, transparent)
+    ),
+    color-mix(
+      in srgb,
+      var(--sidebar) var(--theia-background-sidebar-opacity),
+      transparent
+    );
+  border-right-color: var(--theia-sidebar-readable-edge);
+}
+
+html[data-app-background="image"] .titlebar {
+  background:
+    linear-gradient(
+      105deg,
+      color-mix(in srgb, var(--sidebar-primary) 12%, transparent),
+      transparent 58%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theia-sidebar-readable-scrim) 92%, transparent),
+      var(--theia-sidebar-readable-scrim)
+    ),
+    color-mix(
+      in srgb,
+      var(--sidebar) var(--theia-background-sidebar-opacity),
+      transparent
+    );
+  border-bottom-color: var(--theia-sidebar-readable-edge);
+}
+
+html[data-app-background="image"] .sidebar .brand-wordmark strong,
+html[data-app-background="image"] .sidebar .sync-summary > div {
+  color: var(--theia-sidebar-readable-text);
+}
+
+html[data-app-background="image"] .sidebar .brand-wordmark span,
+html[data-app-background="image"] .sidebar .sidebar-status-dock > span:last-child,
+html[data-app-background="image"] .sidebar .sync-summary > span,
+html[data-app-background="image"] .sidebar .sidebar-bottom > button,
+html[data-app-background="image"] .sidebar .nav-group-label {
+  color: var(--theia-sidebar-readable-muted);
+}
+
+html[data-app-background="image"] .sidebar nav button {
+  color: color-mix(in srgb, var(--theia-sidebar-readable-text) 76%, transparent);
+}
+
+html[data-app-background="image"] .sidebar .sidebar-status-dock,
+html[data-app-background="image"] .sidebar .sync-summary {
+  background: rgb(255 255 255 / .045);
+  border-color: rgb(255 255 255 / .1);
+}
+
+html[data-app-background="image"] .sidebar .sync-chip {
+  color: color-mix(in srgb, var(--theia-sidebar-readable-text) 72%, transparent);
+  background: rgb(255 255 255 / .06);
+  border-color: rgb(255 255 255 / .11);
+}
+
+html[data-app-background="image"] .titlebar-title {
+  color: color-mix(in srgb, var(--theia-sidebar-readable-text) 76%, transparent);
+}
+
+html[data-app-background="image"] .titlebar-context {
+  color: var(--theia-sidebar-readable-muted);
+}
+
+html[data-app-background="image"] .settings-modal-nav {
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--sidebar-primary) 13%, transparent),
+      transparent 55%
+    ),
+    linear-gradient(
+      180deg,
+      var(--theia-sidebar-readable-scrim),
+      color-mix(in srgb, var(--theia-sidebar-readable-scrim) 84%, transparent)
+    ),
+    color-mix(
+      in srgb,
+      var(--sidebar) var(--theia-background-sidebar-opacity),
+      transparent
+    );
+  border-right-color: var(--theia-sidebar-readable-edge);
+  color: var(--theia-sidebar-readable-text);
+  backdrop-filter: blur(var(--theia-background-glass-blur)) saturate(1.08);
+}
+
+html[data-app-background="image"] .settings-modal-brand > strong {
+  color: var(--theia-sidebar-readable-text);
+}
+
+html[data-app-background="image"] .settings-modal-brand > small {
+  color: var(--theia-sidebar-readable-muted);
+}
+
+html[data-app-background="image"] .settings-modal-nav button {
+  color: color-mix(in srgb, var(--theia-sidebar-readable-text) 78%, transparent);
+}
+
+html[data-app-background="image"] .settings-modal-nav button.active,
+html[data-app-background="image"] .settings-modal-nav button:hover {
+  color: var(--sidebar-accent-foreground);
+}
+
+html.dark[data-app-background="image"] .settings-dialog-main {
+  background: color-mix(
+    in srgb,
+    var(--background) var(--theia-background-workspace-opacity),
+    transparent
+  );
+}
+
+html.dark[data-app-background="image"] .sync-button {
+  background: color-mix(in srgb, var(--info-soft) 68%, transparent);
+  border-color: color-mix(in srgb, var(--info) 24%, var(--border));
+  backdrop-filter: blur(var(--theia-background-glass-blur)) saturate(1.08);
+}
+
+/* The old dark-mode compatibility rules have a higher selector specificity
+ * than the generic glass layer above. Reassert the glass treatment at the
+ * same level so dark mode is genuinely as transparent as light mode. */
+html.dark[data-app-background="image"] .workspace {
+  background: color-mix(
+    in srgb,
+    var(--background) var(--theia-background-workspace-opacity),
+    transparent
+  );
+  backdrop-filter: blur(var(--theia-background-glass-blur)) saturate(1.08);
+}
+
+html.dark[data-app-background="image"] .topbar {
+  background:
+    linear-gradient(
+      105deg,
+      color-mix(in srgb, var(--primary) 13%, transparent),
+      transparent 55%,
+      color-mix(in srgb, var(--primary) 7%, transparent)
+    ),
+    color-mix(
+      in srgb,
+      var(--background) var(--theia-background-topbar-opacity),
+      transparent
+    );
+  backdrop-filter: blur(var(--theia-background-glass-blur)) saturate(1.1);
+}
+
+html.dark[data-app-background="image"] :is(
+  .panel,
+  .day-column,
+  .course-card,
+  .data-table-wrap,
+  .selection-target,
+  .selection-attempts,
+  .requirement-choice-group,
+  .requirement-course-details,
+  .sync-log-panel,
+  .fetch-log-row,
+  .activity-log-list,
+  .api-endpoint,
+  .connection-list,
+  .grade-summary > div,
+  .progress-summary > div,
+  .requirement-root,
+  .selection-catalog,
+  .selection-runner,
+  .exam-row,
+  .notice-list article,
+  .requirement-course-table,
+  .requirement-course-table-wrap,
+  .view-toolbar,
+  .schedule-toolbar,
+  .appearance-background-section,
+  .appearance-preset,
+  .appearance-visual-presets,
+  .appearance-visual-preset,
+  .about-hero
+) {
+  background: color-mix(
+    in srgb,
+    var(--card) var(--theia-background-surface-opacity),
+    transparent
+  );
+  backdrop-filter: blur(var(--theia-background-glass-blur)) saturate(1.05);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--foreground) 7%, transparent);
+}
+
+html.dark[data-app-background="image"] :is(
+  .metric-strip,
+  .schedule-board
+) {
+  background: color-mix(in srgb, var(--border) 58%, transparent);
+  border-color: color-mix(in srgb, var(--border) 76%, transparent);
+  backdrop-filter: blur(var(--theia-background-glass-blur)) saturate(1.04);
+}
+
+html.dark[data-app-background="image"] .view-dashboard .dashboard-grid > .panel {
+  background: color-mix(
+    in srgb,
+    var(--card) var(--theia-background-surface-opacity),
+    transparent
+  );
+  backdrop-filter: blur(var(--theia-background-glass-blur)) saturate(1.05);
+}
+
+html.dark[data-app-background="image"] :is(
+  .metric-strip button,
+  .quick-actions button,
+  [data-slot="select-trigger"],
+  .week-picker,
+  .schedule-pdf-button,
+  .segmented,
+  .segmented button.active,
+  .settings-dialog-close,
+  .appearance-motion-close,
+  .density-options,
+  .density-options button.active,
+  .notice-disclosure,
+  .requirement-course-tag,
+  .requirement-score-chip,
+  .settings-dialog-scroll .credential-form input,
+  .settings-dialog-scroll .numeric-setting input
+) {
+  background: color-mix(
+    in srgb,
+    var(--card) var(--theia-background-control-opacity),
+    transparent
+  );
+}
+
+/* Each academic requirement reveals 20% more of the parent surface than the
+ * level above it. The alpha is supplied by the node so depth keeps working
+ * beyond the visual depth-3 style class, while text remains fully opaque. */
+.requirement-node:not(.depth-0) > .requirement-node-head {
+  background: color-mix(
+    in srgb,
+    var(--card) var(--requirement-surface-opacity, 80%),
+    transparent
+  );
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--primary) 22%, transparent);
+}
+
+html.dark[data-app-background="image"] :is(
+  .settings-dialog,
+  .settings-modal-nav,
+  .settings-dialog-header,
+  [data-slot="select-content"],
+  .schedule-popover,
+  .notice-detail-dialog,
+  .appearance-motion-popover,
+  .appearance-gradient-map-popover,
+  .command-palette,
+  .credential-modal
+) {
+  background: color-mix(
+    in srgb,
+    var(--popover) var(--theia-background-surface-strong-opacity),
+    transparent
+  );
+  backdrop-filter: blur(var(--theia-background-glass-blur)) saturate(1.08);
+}
+
+html.dark[data-app-background="image"] .course-slot {
+  background: color-mix(
+    in srgb,
+    var(--card) var(--theia-background-surface-strong-opacity),
+    transparent
+  );
+  backdrop-filter: blur(var(--theia-background-glass-blur)) saturate(1.05);
+}
+
+/* ── Visual polish: round-corner harmony & topbar flush fix ──────────────
+ *
+ * The topbar sits flush against the titlebar's bottom edge, so its top
+ * corners should be square. Only the bottom corners "float" over the
+ * content area and receive the brand radius.
+ */
+.topbar {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/* The authentication header is one rounded surface. Remove legacy lower-edge
+ * rules that left a square-ended line visible beside its rounded corners. */
+.topbar {
+  border-bottom: 0;
+  overflow: clip;
+}
+
+.topbar::after {
+  display: none;
+}
+
+/* Notification banners (login, sync, message) are self-contained cards that
+ * appear below the topbar. Restore the top border so each card reads as a
+ * complete, closed shape instead of an open-top strip.
+ */
+.login-banner,
+.preview-banner,
+.message-bar,
+.sync-live-banner {
+  border-top-width: 1px;
+}
+
+/* Unify topbar action button heights.
+ * appearance-menu-trigger is 38 × 38; icon-button was 36 × 36.
+ * Making them the same height removes the visual step in the top-right row.
+ */
+.icon-button {
+  width: 38px;
+  height: 38px;
+}
+
+/* Profile avatar: guarantee circle regardless of cascade order. */
+.profile-chip > div {
+  border-radius: 50% !important;
+}
+
+.sync-freshness {
+  min-width: 0;
+  max-width: 248px;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--card) 86%, var(--primary));
+  border: 1px solid color-mix(in srgb, var(--border) 82%, var(--primary));
+  border-radius: var(--theia-control-radius);
+}
+
+.sync-freshness > span { min-width: 0; display: grid; gap: 1px; }
+.sync-freshness strong,
+.sync-freshness small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sync-freshness strong { color: var(--foreground); font-size: 10px; }
+.sync-freshness small { color: var(--muted-foreground); font-size: 9px; }
+.sync-freshness.syncing { color: var(--info); border-color: color-mix(in srgb, var(--info) 28%, var(--border)); }
+.sync-freshness.failed { color: var(--destructive); border-color: color-mix(in srgb, var(--destructive) 30%, var(--border)); }
+.sync-freshness.ready { color: var(--success); }
+
+.sync-error-dialog { max-width: 520px; border-color: color-mix(in srgb, var(--destructive) 28%, var(--border)); }
+.sync-error-dialog,
+.school-schedule-error-dialog { z-index: 530 !important; }
+.sync-error-dialog-overlay { z-index: 520 !important; }
+.sync-error-dialog-heading { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; text-align: left; }
+.sync-error-dialog-heading > svg { margin-top: 1px; color: var(--destructive); }
+.sync-error-dialog-heading > div { min-width: 0; display: grid; gap: 6px; }
+.sync-error-dialog-message { max-height: 180px; overflow: auto; padding: 12px; color: var(--destructive); background: var(--danger-soft); border: 1px solid color-mix(in srgb, var(--destructive) 22%, var(--border)); border-radius: var(--theia-control-radius); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.sync-error-dialog-freshness { margin: 0; color: var(--muted-foreground); font-size: 11px; }
+
+@media (max-width: 1180px) {
+  .sync-freshness small { display: none; }
+}
+
+@media (max-width: 620px) {
+  .sync-freshness { max-width: 112px; padding: 5px 8px; }
+}
+
+/* Sidebar collapse button: align with the app's control-radius token. */
+.sidebar-collapse {
+  border-radius: var(--theia-control-radius);
+}
+
+/* Content panels on dashboard: bump to the same 16 px radius used for all
+ * other cards so that adjacent elements share the same corner language.
+ */
+.panel {
+  border-radius: var(--radius);
+}
+
+/* Data connections keep the two authentication paths legible without making
+ * either one look like a subordinate fallback. */
+.data-connections-section > .settings-title {
+  margin-bottom: 18px;
+}
+
+.data-connections-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.data-connection-card {
+  min-width: 0;
+  padding: 18px;
+  background: color-mix(in srgb, var(--card) 84%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 18px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--foreground) 6%, transparent), 0 10px 25px color-mix(in srgb, var(--foreground) 4%, transparent);
+}
+
+.data-connection-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  min-height: 48px;
+}
+
+.data-connection-card-header .settings-icon {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+}
+
+.data-connection-card h2 {
+  margin: 1px 0 4px;
+  color: var(--foreground);
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+.data-connection-card p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.data-connection-form {
+  margin-top: 16px !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 11px;
+}
+
+.data-connection-form > :is(.credential-security, .credential-error, .data-connection-status, .setting-row, .button-row, .primary-button) {
+  grid-column: 1 / -1;
+}
+
+.data-connection-form > .primary-button {
+  justify-self: start;
+}
+
+.data-connection-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 31px;
+  padding: 7px 9px;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--accent) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.data-api-toggle {
+  margin-top: 2px;
+}
+
+.settings-dialog-scroll .credential-form .secret-input::placeholder {
+  color: var(--foreground);
+  opacity: .76;
+  letter-spacing: .08em;
+}
+
+html[data-app-background="image"] .data-connection-card {
+  background: color-mix(in srgb, var(--card) var(--theia-background-surface-opacity), transparent);
+  backdrop-filter: blur(var(--theia-background-glass-blur)) saturate(1.06);
+}
+
+/* Academic progress uses the same rounded hierarchy as the rest of THEIA:
+ * one outer surface, softer branch rows, then compact data wells. Keep this
+ * layer last so legacy page rules cannot flatten the corners again. */
+.progress-summary,
+.requirement-root,
+.selected-course-section .data-table-wrap {
+  overflow: hidden;
+  border-radius: var(--radius);
+}
+
+.requirement-root {
+  padding-inline: 22px;
+}
+
+.requirement-root > .requirement-node > .requirement-node-head {
+  padding-inline: 4px;
+}
+
+.progress-summary > div:first-child {
+  border-top-left-radius: inherit;
+  border-bottom-left-radius: inherit;
+}
+
+.progress-summary > div:last-child {
+  border-top-right-radius: inherit;
+  border-bottom-right-radius: inherit;
+}
+
+.requirement-children {
+  border-radius: 0 var(--theia-control-radius) var(--theia-control-radius) 0;
+}
+
+.requirement-choice-branch {
+  padding: 2px 8px 5px;
+  border-radius: var(--theia-control-radius);
+  background: color-mix(in srgb, var(--secondary) 24%, transparent);
+}
+
+.requirement-node:not(.depth-0) > .requirement-node-head {
+  overflow: hidden;
+  padding-inline: 12px;
+  border-radius: var(--theia-control-radius);
+}
+
+.requirement-course-details {
+  overflow: hidden;
+  border-radius: calc(var(--radius) - 4px);
+}
+
+.requirement-course-table-wrap {
+  overflow: auto;
+  border-radius: calc(var(--radius) - 6px);
+}
+
+/* Keep the academic table dense without letting low-value short columns take
+ * room away from course names and course attributes. The colgroup makes the
+ * layout deterministic even when one term label is unexpectedly long. */
+.requirement-course-table {
+  table-layout: fixed;
+}
+
+.requirement-col-status { width: 7%; }
+.requirement-col-year { width: 6%; }
+.requirement-col-term { width: 4%; }
+.requirement-col-code { width: 9%; }
+.requirement-col-title { width: 16%; }
+.requirement-col-hours { width: 5%; }
+.requirement-col-nature { width: 10%; }
+.requirement-col-credits { width: 5%; }
+.requirement-col-category { width: 10%; }
+.requirement-col-score { width: 6%; }
+.requirement-col-point { width: 4%; }
+
+.requirement-root {
+  padding-inline: 26px;
+}
+
+.requirement-root > .requirement-node > .requirement-node-head {
+  padding-inline: 8px;
+}
+
+.requirement-node:not(.depth-0) > .requirement-node-head {
+  overflow: visible;
+  padding-inline: 18px;
+}
+
+.requirement-node-head {
+  grid-template-columns: minmax(240px, 1fr) minmax(112px, auto) minmax(118px, .46fr);
+  gap: 20px;
+}
+
+.requirement-title-line,
+.requirement-detail-tags {
+  min-width: 0;
+}
+
+.requirement-course-table thead tr:first-child th:first-child {
+  border-top-left-radius: calc(var(--radius) - 7px);
+}
+
+.requirement-course-table thead tr:first-child th:last-child {
+  border-top-right-radius: calc(var(--radius) - 7px);
+}
+
+/* School-wide schedule search is a paged catalog. The controls remain compact
+ * enough for repeated lookup while making result count and page state explicit. */
+.school-schedule-controls {
+  grid-template-columns: minmax(126px, .65fr) minmax(126px, .65fr) minmax(220px, 1.55fr) repeat(4, minmax(136px, 1fr)) auto;
+  gap: 12px;
+}
+
+@media (max-width: 1500px) {
+  .school-schedule-controls {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.school-schedule-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 44px;
+  padding: 8px 2px 0;
+}
+
+.school-schedule-page-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.school-schedule-page-size [data-slot="select-trigger"] {
+  min-width: 88px;
+  height: 34px;
+}
+
+.school-schedule-page-buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.school-schedule-page-group {
+  display: contents;
+}
+
+.school-schedule-page-group > i {
+  width: 18px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  font-style: normal;
+  line-height: 32px;
+  text-align: center;
+}
+
+.school-schedule-page-buttons > button,
+.school-schedule-page-group > button {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--secondary) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  transition: color .16s var(--ease-out), background .16s var(--ease-out), border-color .16s var(--ease-out), transform .16s var(--ease-out);
+}
+
+.school-schedule-page-buttons > button:hover:not(:disabled),
+.school-schedule-page-group > button:hover:not(:disabled) {
+  color: var(--foreground);
+  background: var(--accent);
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
+  transform: translateY(-1px);
+}
+
+.school-schedule-page-group > button.active {
+  color: var(--primary-foreground);
+  background: var(--primary);
+  border-color: var(--primary);
+  box-shadow: 0 7px 16px -12px color-mix(in srgb, var(--primary) 92%, transparent);
+}
+
+.school-schedule-page-buttons > button:disabled,
+.school-schedule-page-group > button:disabled {
+  cursor: default;
+  opacity: .42;
+}
+
+/* The school-wide catalog is intentionally tabular: every field remains
+ * scan-friendly, and headers control the complete local result set. */
+.school-schedule-results {
+  min-width: 0;
+  max-height: none;
+  overflow: visible;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.school-schedule-heading-meta {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  color: var(--muted-foreground);
+  text-align: right;
+}
+
+.school-schedule-heading-meta > span {
+  font-size: 11px;
+}
+
+.school-schedule-heading-meta > small {
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.school-schedule-heading-meta > small.fresh {
+  color: var(--success);
+}
+
+.school-schedule-heading-meta > small.syncing {
+  color: var(--primary);
+}
+
+.school-schedule-heading-meta > small.failed {
+  color: var(--destructive);
+}
+
+.school-schedule-error-dialog {
+  width: min(440px, calc(100vw - 28px));
+  gap: 18px;
+}
+
+.school-schedule-error-heading {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  text-align: left;
+}
+
+.school-schedule-error-heading > svg {
+  color: var(--destructive);
+}
+
+.school-schedule-error-heading > div {
+  display: grid;
+  gap: 7px;
+}
+
+.school-schedule-error-detail {
+  max-height: min(32dvh, 220px);
+  margin: 0;
+  padding: 11px 12px;
+  color: var(--muted-foreground);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-size: 11px;
+  line-height: 1.6;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
+.school-schedule-table-wrap {
+  height: min(68dvh, 760px);
+  min-height: 430px;
+  overflow: auto;
+  border-radius: var(--radius);
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted-foreground) 36%, transparent) transparent;
+}
+
+.school-schedule-table {
+  min-width: 1640px;
+  table-layout: fixed;
+}
+
+.school-schedule-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0;
+  background: color-mix(in srgb, var(--secondary) 94%, var(--card));
+  white-space: nowrap;
+}
+
+.school-schedule-table th:nth-child(1) { width: 190px; }
+.school-schedule-table th:nth-child(2) { width: 160px; }
+.school-schedule-table th:nth-child(3) { width: 210px; }
+.school-schedule-table th:nth-child(4) { width: 130px; }
+.school-schedule-table th:nth-child(5) { width: 100px; }
+.school-schedule-table th:nth-child(6) { width: 60px; }
+.school-schedule-table th:nth-child(7) { width: 115px; }
+.school-schedule-table th:nth-child(8) { width: 120px; }
+.school-schedule-table th:nth-child(9) { width: 130px; }
+.school-schedule-table th:nth-child(10) { width: 155px; }
+.school-schedule-table th:nth-child(11) { width: 100px; }
+.school-schedule-table th:nth-child(12) { width: 75px; }
+.school-schedule-table th:nth-child(13) { width: 95px; }
+
+.school-schedule-sort {
+  width: 100%;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 12px;
+  color: var(--muted-foreground);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .02em;
+  text-align: left;
+  transition: color .15s var(--ease-out), background .15s var(--ease-out);
+}
+
+.school-schedule-sort svg {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--muted-foreground) 60%, transparent);
+}
+
+.school-schedule-sort:hover,
+.school-schedule-sort.active {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 7%, transparent);
+}
+
+.school-schedule-sort.active svg {
+  color: var(--primary);
+}
+
+.school-schedule-action-header {
+  padding: 0 12px !important;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .02em;
+  text-align: center !important;
+}
+
+.school-schedule-table td {
+  padding: 12px;
+  color: var(--muted-foreground);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  vertical-align: middle;
+}
+
+.school-schedule-clamped-cell > span {
+  display: -webkit-box;
+  max-height: 2.8em;
+  overflow: hidden;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.school-schedule-table tbody tr {
+  height: 72px;
+  transition: background .16s var(--ease-out);
+}
+
+.school-schedule-table tbody tr.school-schedule-virtual-spacer {
+  height: auto;
+}
+
+.school-schedule-virtual-spacer td {
+  min-height: 0;
+  padding: 0 !important;
+  border: 0 !important;
+  line-height: 0;
+}
+
+.school-schedule-table tbody tr:hover {
+  background: color-mix(in srgb, var(--accent) 54%, transparent);
+}
+
+.school-schedule-table tbody tr.selected {
+  background: color-mix(in srgb, var(--primary) 9%, transparent);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.school-schedule-course-cell {
+  display: grid;
+  gap: 4px;
+}
+
+.school-schedule-course-cell strong {
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 1.42;
+}
+
+.school-schedule-course-cell small {
+  color: var(--muted-foreground);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 9px;
+}
+
+.selection-catalog-results {
+  display: grid;
+  gap: 12px;
+}
+
+.selection-catalog-toolbar,
+.selection-catalog-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.selection-catalog-toolbar > span {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.selection-catalog-filter {
+  width: min(260px, 48%);
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--secondary) 68%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 10px;
+}
+
+.selection-catalog-filter:focus-within {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--card) 78%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 38%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 13%, transparent);
+}
+
+.selection-catalog-filter input {
+  min-width: 0;
+  flex: 1;
+  color: var(--foreground);
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font-size: 11px;
+}
+
+.selection-catalog-filter input::placeholder {
+  color: var(--muted-foreground);
+}
+
+.selection-catalog-pagination {
+  min-height: 34px;
+}
+

@@ -592,4 +592,10 @@ export class WebmailService {
     if (this.window && !this.window.isDestroyed()) this.window.destroy()
     this.window = null
   }
+
+  async stopAndWait() {
+    const active = this.active
+    this.stop()
+    await Promise.allSettled(active ? [active] : [])
+  }
 }
