@@ -23,6 +23,7 @@ const api = {
   },
   getActivityLog: () => ipcRenderer.invoke('theia:get-activity-log'),
   getIrisStatus: () => ipcRenderer.invoke('theia:get-iris-status'),
+  getUpdateStatus: () => ipcRenderer.invoke('theia:get-update-status'),
   openIrisControlPanel: () => ipcRenderer.invoke('theia:open-iris-control-panel'),
   saveIrisSettings: (settings) => ipcRenderer.invoke('theia:save-iris-settings', settings),
   saveIrisCredentials: (credentials) => ipcRenderer.invoke('theia:save-iris-credentials', credentials),
@@ -30,6 +31,8 @@ const api = {
   startIris: () => ipcRenderer.invoke('theia:start-iris'),
   stopIris: () => ipcRenderer.invoke('theia:stop-iris'),
   restartIris: () => ipcRenderer.invoke('theia:restart-iris'),
+  checkForUpdates: () => ipcRenderer.invoke('theia:check-for-updates'),
+  installUpdate: () => ipcRenderer.invoke('theia:install-update'),
   getAuthStatus: () => ipcRenderer.invoke('theia:get-auth-status'),
   getCredentialStatus: () => ipcRenderer.invoke('theia:get-credential-status'),
   getAcademicApiCredentialStatus: () => ipcRenderer.invoke('theia:get-academic-api-credential-status'),
@@ -113,6 +116,11 @@ const api = {
     const listener = (_event, value) => callback(value)
     ipcRenderer.on('theia:auth-status', listener)
     return () => ipcRenderer.removeListener('theia:auth-status', listener)
+  },
+  onUpdateStatus: (callback) => {
+    const listener = (_event, value) => callback(value)
+    ipcRenderer.on('theia:update-status', listener)
+    return () => ipcRenderer.removeListener('theia:update-status', listener)
   },
   onCourseSelection: (callback) => {
     const listener = (_event, value) => callback(value)

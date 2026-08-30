@@ -142,6 +142,7 @@ const NO_ARGUMENT_CHANNELS = [
   'theia:get-course-work-queue',
   'theia:get-iris-status', 'theia:open-iris-control-panel', 'theia:clear-iris-credentials',
   'theia:start-iris', 'theia:stop-iris', 'theia:restart-iris',
+  'theia:get-update-status', 'theia:check-for-updates', 'theia:install-update',
 ]
 
 export const THEIA_IPC_SCHEMAS = new Map(NO_ARGUMENT_CHANNELS.map((channel) => [channel, noArgs]))

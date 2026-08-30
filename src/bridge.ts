@@ -7,6 +7,7 @@ import type {
   ActivityLogEntry,
   AuthStatus,
   FitnessScoreResult,
+  GithubUpdateStatus,
   MotionVenueCatalog,
   MotionVenueStatus,
   TheiaBridge,
@@ -123,6 +124,20 @@ function cacheDemoMotionStatus(result: MotionVenueStatus) {
   publishWebSnapshot();
 }
 
+function unsupportedUpdateStatus(): GithubUpdateStatus {
+  return {
+    supported: false,
+    state: "unsupported",
+    currentVersion: webState.appVersion || "web",
+    availableVersion: null,
+    releaseName: null,
+    releaseDate: null,
+    lastCheckedAt: null,
+    progress: null,
+    error: null,
+  };
+}
+
 const webBridge: TheiaBridge = {
   async getSnapshot() {
     return structuredClone(webState);
@@ -192,6 +207,15 @@ const webBridge: TheiaBridge = {
       providers: { theia: true },
     };
   },
+  async getUpdateStatus(): Promise<GithubUpdateStatus> {
+    return unsupportedUpdateStatus();
+  },
+  async checkForUpdates(): Promise<GithubUpdateStatus> {
+    return unsupportedUpdateStatus();
+  },
+  async installUpdate(): Promise<GithubUpdateStatus> {
+    return unsupportedUpdateStatus();
+  },
   async saveIrisSettings() { throw new Error("Iris 设置仅在桌面客户端中可用"); },
   async openIrisControlPanel() { throw new Error("Iris 控制面板仅在桌面客户端中可用"); },
   async saveIrisCredentials() { throw new Error("Iris 凭据仅在桌面客户端中可用"); },
@@ -202,6 +226,9 @@ const webBridge: TheiaBridge = {
   async getAuthStatus() {
     const connected = demo;
     return { jwglxt: { connected }, theol: { connected } };
+  },
+  onUpdateStatus() {
+    return () => undefined;
   },
   async getCredentialStatus() {
     return { saved: false, encryptionAvailable: false };

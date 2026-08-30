@@ -14,6 +14,7 @@ import {
   registerCourseWorkQueueIpc,
   registerMailboxIpc,
   registerMotionVenueIpc,
+  registerGithubUpdateIpc,
   registerModelRuntimeIpc,
   registerWindowIpc,
   registerUserDataIpc,
@@ -37,6 +38,7 @@ export function registerRuntimeIpc({
   shell,
   store,
   getMainWindow,
+  updateRuntime,
   modelService,
   modelVault,
   getLocalApi,
@@ -146,6 +148,7 @@ export function registerRuntimeIpc({
     academicPlanAssetBaseUrl,
     sendSnapshot,
   })
+  registerGithubUpdateIpc({ ipcMain, updateRuntime })
   registerUserDataIpc({ ipcMain, store })
   registerAuthIpc({
     ipcMain,

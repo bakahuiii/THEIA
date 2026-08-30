@@ -75,6 +75,9 @@ export interface TheiaBridge {
   onAdvisorStream(callback: (event: AdvisorStreamEvent) => void): () => void;
   getActivityLog(): Promise<ActivityLogEntry[]>;
   getIrisStatus(): Promise<IrisCompanionStatus>;
+  getUpdateStatus(): Promise<GithubUpdateStatus>;
+  checkForUpdates(): Promise<GithubUpdateStatus>;
+  installUpdate(): Promise<GithubUpdateStatus>;
   openIrisControlPanel(): Promise<{ opened: boolean; url?: string }>;
   saveIrisSettings(settings: { enabled?: boolean; visibleProviders?: string[]; providers?: Record<string, boolean> }): Promise<IrisCompanionStatus>;
   saveIrisCredentials(credentials: { appId: string; appSecret: string; ownerOpenid?: string }): Promise<{ saved: boolean; encryptionAvailable: boolean }>;
@@ -200,6 +203,7 @@ export interface TheiaBridge {
   onSyncProgress(cb: (p: { stage: string; status: string; label?: string; error?: string; scope?: "domain" }) => void): () => void;
   onSnapshot(callback: (state: CampusState) => void): () => void;
   onAuthStatus(callback: (status: AuthStatus) => void): () => void;
+  onUpdateStatus(callback: (status: GithubUpdateStatus) => void): () => void;
   onCourseSelection(callback: (snapshot: CourseSelectionSnapshot) => void): () => void;
   onCourseWorkQueue(callback: (snapshot: CourseWorkQueueSnapshot) => void): () => void;
   onNewMail(callback: (mail: EmailMessage) => void): () => void;
@@ -214,6 +218,25 @@ export interface TheiaBridge {
   getAppearancePresets?: () => Promise<{ exists: boolean; updatedAt: string | null; presets: unknown[] }>;
   saveAppearancePresets?: (presets: unknown[]) => Promise<{ updatedAt: string; presets: unknown[] }>;
   onAppearanceMode?: (callback: (mode: "light" | "dark" | "system") => void) => () => void;
+}
+
+export interface GithubUpdateProgress {
+  percent: number;
+  transferredBytes: number;
+  totalBytes: number;
+  bytesPerSecond: number;
+}
+
+export interface GithubUpdateStatus {
+  supported: boolean;
+  state: "unsupported" | "idle" | "checking" | "available" | "downloading" | "downloaded" | "not-available" | "error";
+  currentVersion: string;
+  availableVersion: string | null;
+  releaseName: string | null;
+  releaseDate: string | null;
+  lastCheckedAt: string | null;
+  progress: GithubUpdateProgress | null;
+  error: string | null;
 }
 
 declare global {

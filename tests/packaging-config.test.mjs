@@ -10,16 +10,22 @@ import { stripJpegMetadata } from '../scripts/strip-jpeg-metadata.mjs'
 
 test('Windows packaging writes THEIA executable metadata and unpacks the offline OCR runtime', async () => {
   const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
-  assert.equal(packageJson.version, '0.6.0')
+  assert.equal(packageJson.version, '0.6.1')
   assert.equal(packageJson.build.productName, 'THEIA')
   assert.equal(packageJson.build.appId, 'io.github.bakahuiii.theia')
   assert.equal(packageJson.build.nsis.guid, '2467e4eb-7496-532c-ab2c-b64234a36eb3')
   assert.equal(packageJson.build.win.signAndEditExecutable, true)
   assert.equal(packageJson.build.win.forceCodeSigning, false)
+  assert.deepEqual(packageJson.build.publish, [{
+    provider: 'github',
+    owner: 'bakahuiii',
+    repo: 'THEIA',
+  }])
   assert.deepEqual(packageJson.build.extraFiles, [{
     from: 'scripts/fix-theia-startup.bat',
     to: 'fix-theia-startup.bat',
   }])
+  assert.equal(packageJson.dependencies['electron-updater'], '6.8.9')
   assert.equal(packageJson.overrides.nanoid, '3.3.18')
   for (const pattern of [
     'node_modules/tesseract.js/**/*',

@@ -107,7 +107,7 @@ test('data export IPC writes local JSON and opens only the injected data root', 
       getDocumentsDirectory: () => root,
       getDataRoot: () => join(root, 'data'),
       store: { snapshot: () => ({ schema: 'test', courses: [] }) },
-      getVersion: () => '0.6.0',
+      getVersion: () => '0.6.1',
     })
 
     const exported = await ipcMain.handlers.get('theia:export-data')(null, { format: 'json' })
