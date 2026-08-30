@@ -111,6 +111,7 @@ test('automatic release notes keep artifact checksums and publish state explicit
   })
   assert.match(published, /DEF456/)
   assert.match(published, /GitHub Release：https:\/\/github\.com\/bakahuiii\/THEIA\/releases\/tag\/v0\.6\.3/)
+  assert.equal((published.match(/^## 发布文件$/gm) || []).length, 1)
 })
 
 test('source archive verification rejects implicit directories and rewritten paths', async (context) => {

@@ -64,9 +64,12 @@ export function renderReleaseDocument(markdown, {
   published = false,
   releaseUrl = null,
 } = {}) {
-  const marker = '\n## 发布状态'
-  const markerIndex = String(markdown || '').indexOf(marker)
-  const base = (markerIndex >= 0 ? String(markdown).slice(0, markerIndex) : String(markdown)).trimEnd()
+  const source = String(markdown || '')
+  const markerIndex = ['\n## 发布文件', '\n## 发布状态']
+    .map((marker) => source.indexOf(marker))
+    .filter((index) => index >= 0)
+    .sort((left, right) => left - right)[0]
+  const base = (markerIndex >= 0 ? source.slice(0, markerIndex) : source).trimEnd()
   const lines = ['## 发布文件', '']
   for (const artifact of artifacts) {
     lines.push(`- \`${artifact.name}\` — ${artifact.description}，${artifact.bytes} bytes，SHA-256 \`${artifact.sha256}\``)
@@ -108,7 +111,7 @@ async function updateReleaseDocument({ projectRoot, version, artifacts, sourcePe
 
 async function commitReleaseDocument(projectRoot, version, documentPath) {
   const status = await capture('git', ['status', '--short', '--untracked-files=all'], { cwd: projectRoot })
-  const lines = status.stdout.trim().split(/\r?\n/).filter(Boolean)
+  const lines = status.stdout.split(/\r?\n/).filter(Boolean)
   if (!lines.length) return false
   const relativePath = documentPath.slice(projectRoot.length + 1).replaceAll('\\', '/')
   const onlyDocument = lines.every((line) => line.slice(3).replaceAll('\\', '/') === relativePath)
