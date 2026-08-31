@@ -1,6 +1,6 @@
 # Advisor P1-P3 本地决策工作台
 
-本文记录 P0 可信底座之上已经落地的 P1-P3 无模型能力、保守降级规则、安全动作边界和验收方法。P0 的快照、数据质量、证据与 claim 合同见 [16-advisor-p0-foundation.md](16-advisor-p0-foundation.md)；当前 Agent 运行时见 [20-a-b-c-advisor-agent-sidecar.md](20-a-b-c-advisor-agent-sidecar.md)；完整路线和历史决策见 [THEIA AI 顾问接入与实施方案](THEIA_AI_ADVISOR_IMPLEMENTATION_PLAN.md)。
+本文记录 P0 可信底座之上已经落地的 P1-P3 无模型能力、保守降级规则、安全动作边界和验收方法。P0 的快照、数据质量、证据与 claim 合同见 [16-advisor-p0-foundation.md](16-advisor-p0-foundation.md)；当前 Agent 运行时见 [20-a-b-c-advisor-agent-sidecar.md](20-a-b-c-advisor-agent-sidecar.md)；当前交接与后续维护入口见 [21-advisor-handoff.md](21-advisor-handoff.md)。
 
 ## 1. 当前结论
 

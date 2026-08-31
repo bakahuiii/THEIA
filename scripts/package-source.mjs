@@ -8,7 +8,6 @@ import JSZip from 'jszip'
 
 export const SOURCE_FILES = [
   '.gitignore',
-  'AI_DIRECTION.md',
   'DEVELOPMENT.md',
   'LICENSE',
   'README.md',
