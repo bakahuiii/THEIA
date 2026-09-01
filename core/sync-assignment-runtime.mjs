@@ -44,14 +44,29 @@ export function pauseAssignmentScan() {
     }
   }
 
-export async function runTheolInteraction(operation) {
-    const resume = this.pauseAssignmentScan()
+export async function runTheolInteraction(operation, { onAuthRequired = null } = {}) {
+    let resume = this.pauseAssignmentScan()
+    let recovered = false
     try {
-      return await this.runTheolExclusive(operation)
+      while (true) {
+        try {
+          return await this.runTheolExclusive(operation)
+        } catch (error) {
+          if (recovered || error?.name !== 'AuthRequiredError' || typeof onAuthRequired !== 'function') throw error
+          recovered = true
+          // Authentication actors also need the THEOL exclusive queue. Release
+          // this operation before waiting for the actor to finish, then acquire
+          // the scan pause again before retrying the read-only operation.
+          resume?.({ schedule: false })
+          resume = null
+          await onAuthRequired(error)
+          resume = this.pauseAssignmentScan()
+        }
+      }
     } finally {
-      resume()
+      resume?.({ schedule: false })
     }
-  }
+}
 
 export async function waitForAssignmentScan() {
     while (this.assignmentActive) {
@@ -219,9 +234,33 @@ export function flushAssignmentScan() {
         return
       }
       this.assignmentRequestedRunId = null
+      this.onProgress({
+        stage: 'assignments',
+        status: 'syncing',
+        label: '正在后台获取作业与测试…',
+        scope: 'domain',
+      })
       const pending = this.runTheolExclusive(() => this.runAssignmentScan(runId, generation))
       this.assignmentActive = pending
-      pending.catch((error) => this.onBackgroundError(error)).finally(() => {
+      pending.then((snapshot) => {
+        if (!snapshot) return
+        const outcome = snapshot.sync?.domains?.assignments
+        const failed = ['failed', 'auth-required'].includes(outcome?.status)
+        this.onProgress({
+          stage: 'assignments',
+          status: failed ? 'error' : 'done',
+          ...(failed ? { error: outcome.errorCode || outcome.status } : {}),
+          scope: 'domain',
+        })
+      }, (error) => {
+        this.onProgress({
+          stage: 'assignments',
+          status: 'error',
+          error: compactError(error),
+          scope: 'domain',
+        })
+        this.onBackgroundError(error)
+      }).finally(() => {
         if (this.assignmentActive === pending) {
           this.assignmentActive = null
           this.assignmentAbortController = null

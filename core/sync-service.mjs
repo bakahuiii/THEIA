@@ -144,6 +144,13 @@ export class SyncService {
       || Boolean(this.assignmentRequestedRunId)
       || Boolean(this.assignmentActive)
     const domainScoped = !foreground && sources.some((source) => domainsBySource[source] !== null && domainsBySource[source] !== undefined)
+    const theolDomains = domainsBySource.theol
+    // Course refreshes are the source of truth for the assignment scan's
+    // roster. Queue the scan after both full and course-scoped refreshes so a
+    // normal foreground sync and silent session recovery cannot leave the
+    // assignments page permanently stale.
+    const refreshesTheolCourses = sources.includes('theol')
+      && (theolDomains === null || (Array.isArray(theolDomains) && theolDomains.includes('courses')))
     const batch = this.beginSyncBatch(generation, { domainScoped })
     this.cancelAssignmentScan()
     this.assignmentScanPending = resumeAssignmentScan
@@ -185,8 +192,7 @@ export class SyncService {
       .then((snapshot) => {
         if (
           this.isSyncGenerationCurrent(generation)
-          && sources.includes('theol')
-          && record.domainsBySource.theol === null
+          && refreshesTheolCourses
         ) {
           this.assignmentScanPending = true
         }
@@ -322,7 +328,10 @@ export class SyncService {
         })
         if (this.assignmentScanPending && !this.syncDisabled) {
           this.assignmentScanPending = false
-          this.scheduleAssignmentScan(runId)
+          // Scoped runs intentionally keep the batch runId out of the global
+          // sync state. Use the committed state runId for their follow-up so
+          // the scan is accepted by runAssignmentScan's stale-result guard.
+          this.scheduleAssignmentScan(domainScoped ? this.store.snapshot().sync.runId : runId)
         }
         return snapshot
       } catch (error) {

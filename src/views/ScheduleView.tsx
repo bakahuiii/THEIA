@@ -108,6 +108,11 @@ function periodLabel(period: number) {
   return `第${numerals[period] || period}节`;
 }
 
+function periodTimeLabel(calendar: AcademicCalendar | null | undefined, period: number) {
+  const time = calendar?.periodTimes?.find((item) => item.period === period);
+  return time ? `${time.startTime}-${time.endTime}` : "时间待解析";
+}
+
 function clampPopoverPosition(x: number, y: number, height = 420) {
   const viewportWidth = window.innerWidth;
   const availableWidth = Math.max(0, viewportWidth - POPOVER_MARGIN * 2);
@@ -469,8 +474,10 @@ export function ScheduleView({
               className="schedule-period-label"
               key={`period-${period}`}
               style={{ gridColumn: 1, gridRow: period + 1 }}
+              aria-label={`${periodLabel(period)} ${periodTimeLabel(calendar, period)}`}
             >
-              {periodLabel(period)}
+              <span className="schedule-period-number">{periodLabel(period)}</span>
+              <small className="schedule-period-time">{periodTimeLabel(calendar, period)}</small>
             </div>
           );
         })}

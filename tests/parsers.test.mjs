@@ -365,6 +365,21 @@ test('THEOL online tests use the row title and unique test result endpoint', () 
   assert.ok(assignments[0].dueAt)
 })
 
+test('THEOL assignments parse non-table task containers and header-located deadlines', () => {
+  const course = { id: '30175', title: '大学英语1', sourceUrl: 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=30175' }
+  const assignments = parseTheolAssignments(`
+    <table>
+      <tr><th>标题</th><th>提交状态</th><th>截止时间</th><th>操作</th></tr>
+      <tr><td><a href="hwtask.view.jsp?hwtid=98857727">第九章作业</a></td><td>未提交</td><td>2099-08-30 23:59:00</td><td>查看</td></tr>
+    </table>
+    <div class="task-card"><a href="hwtask.view.jsp?hwtid=98857728">补充练习</a><span>截止：2099-09-01 23:59</span></div>
+  `, { course, sourceUrl: 'https://course.buct.edu.cn/meol/common/hw/student/hwtask.jsp' })
+
+  assert.deepEqual(assignments.map((item) => item.title), ['第九章作业', '补充练习'])
+  assert.ok(assignments.every((item) => item.dueAt))
+  assert.equal(assignments[0].status, 'pending')
+})
+
 test('THEOL error page is not treated as an authenticated session', () => {
   const result = parseTheolHome('<html><head><title>错误！</title></head><body>null！</body></html>', 'https://course.buct.edu.cn/meol/personal.do')
   assert.equal(result.loggedIn, false)

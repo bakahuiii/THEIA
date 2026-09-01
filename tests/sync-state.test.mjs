@@ -1545,6 +1545,8 @@ test('platform fast sync overlaps academic sync and assignments start only after
     const assignmentStarted = new Promise((resolveStarted) => { observeAssignmentStart = resolveStarted })
     let observeAssignmentCommit
     const assignmentCommitted = new Promise((resolveCommit) => { observeAssignmentCommit = resolveCommit })
+    let observeAssignmentDone
+    const assignmentDone = new Promise((resolveDone) => { observeAssignmentDone = resolveDone })
     let activeTheol = 0
     let maxActiveTheol = 0
     const events = []
@@ -1601,6 +1603,11 @@ test('platform fast sync overlaps academic sync and assignments start only after
       },
       onProgress: (event) => {
         if (event.stage === 'all' && ['done', 'error'].includes(event.status)) events.push('main-complete')
+        if (event.stage === 'assignments' && event.status === 'syncing') events.push('assignments-syncing')
+        if (event.stage === 'assignments' && event.status === 'done') {
+          events.push('assignments-done')
+          observeAssignmentDone()
+        }
       },
       onChange: (state) => {
         if (state.assignments.some((item) => item.id === 'assignment-new')) observeAssignmentCommit()
@@ -1620,11 +1627,78 @@ test('platform fast sync overlaps academic sync and assignments start only after
     assert.equal(maxActiveTheol, 1)
     releaseAssignments()
     await assignmentCommitted
+    await assignmentDone
+    assert.ok(events.indexOf('assignments-syncing') > events.indexOf('main-complete'))
+    assert.ok(events.indexOf('assignments-done') > events.indexOf('assignments-syncing'))
     assert.deepEqual(store.snapshot().assignments.map((item) => item.id), ['assignment-new'])
     assert.equal(store.snapshot().sync.domains.assignments.status, 'succeeded')
     assert.equal(store.snapshot().sync.lastCompletedAt, mainSnapshot.sync.lastCompletedAt)
     service.stop()
   } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('a THEOL course refresh schedules an assignment scan with the committed run id', async () => {
+  const root = await mkdtemp(resolve(tmpdir(), 'theia-course-refresh-assignments-'))
+  let service
+  try {
+    const store = new CampusStore(root)
+    await store.load()
+    await store.update((state) => ({
+      ...state,
+      sync: { ...state.sync, runId: 'stable-run' },
+    }))
+
+    let assignmentStarted
+    const assignmentStartedPromise = new Promise((resolveStarted) => { assignmentStarted = resolveStarted })
+    service = new SyncService({
+      store,
+      jwglxt: {},
+      theol: {
+        async sync() {
+          return {
+            courses: [{
+              id: 'theol-course',
+              title: 'THEOL course',
+              source: 'theol',
+              sourceUrl: 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=1',
+            }],
+            notices: [],
+            errors: [],
+            source: { connected: true },
+          }
+        },
+        async syncAssignments() {
+          assignmentStarted()
+          return {
+            assignments: [{ id: 'assignment-new', title: '当前作业', source: 'theol', courseId: 'theol-course' }],
+            successfulCourseIds: ['theol-course'],
+            failedCourseIds: [],
+            errors: [],
+            source: { connected: true },
+          }
+        },
+      },
+    })
+
+    const mainSnapshot = await service.syncNow({
+      sources: ['theol'],
+      domains: ['courses'],
+    })
+    assert.deepEqual(mainSnapshot.assignments, [])
+    await Promise.race([
+      assignmentStartedPromise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('assignment scan did not start')), 1_000)),
+    ])
+    await service.waitForAssignmentScan()
+
+    const finalSnapshot = store.snapshot()
+    assert.deepEqual(finalSnapshot.assignments.map((item) => item.id), ['assignment-new'])
+    assert.equal(finalSnapshot.sync.runId, 'stable-run')
+    assert.equal(finalSnapshot.sync.domains.assignments.outcomes.theol.status, 'succeeded')
+  } finally {
+    service?.stop()
     await rm(root, { recursive: true, force: true })
   }
 })

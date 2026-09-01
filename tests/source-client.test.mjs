@@ -218,6 +218,24 @@ test('session client uses a supplied browser page loader for rendered HTML', asy
   assert.equal(page.text, '<html><body>ready</body></html>')
 })
 
+test('session client classifies THEOL timeout permission pages as authentication failures', async () => {
+  const client = new SessionClient(
+    { cookies: { get: async () => [] } },
+    {
+      pageLoader: async (url) => ({
+        url,
+        text: '<html><body>您没有权限访问本页面！可能的原因为登录时间超时，请重新登录！</body></html>',
+      }),
+      requestSession: { fetch: async () => { throw new Error('page loader should be used') } },
+    },
+  )
+
+  await assert.rejects(
+    client.page('https://course.buct.edu.cn/meol/common/hw/student/hwtask.view.jsp?hwtid=1', { source: 'THEOL 作业' }),
+    (error) => error?.name === 'AuthRequiredError' && error?.source === 'THEOL 作业',
+  )
+})
+
 test('session client passes an external abort signal to the browser page loader', async () => {
   const controller = new AbortController()
   let received

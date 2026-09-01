@@ -182,7 +182,9 @@ export class AcademicCalendarAssetsService {
     // OCR failed. Retry that parse on the next refresh even when the source
     // URL is unchanged; otherwise one transient OCR failure would pin stale
     // vacation dates until the university publishes another image.
-    if (calendarChanged || !this.manifest.calendar || this.manifest.calendarError || force) {
+    const calendarNeedsPeriodTimes = Boolean(this.manifest.calendar)
+      && !Object.prototype.hasOwnProperty.call(this.manifest.calendar, 'periodTimes')
+    if (calendarChanged || !this.manifest.calendar || this.manifest.calendarError || calendarNeedsPeriodTimes || force) {
       try {
         this.onDiagnostic('academic_calendar.ocr_started', { key: 'calendar' })
         const calendar = normalizeAcademicCalendar(await this.ocrRunner({ imagePath: this.pathFor('calendar') }))

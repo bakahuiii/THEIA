@@ -252,6 +252,117 @@ test('THEOL assignment sync removes tasks whose real due time has passed', async
   assert.equal(result.domainOutcomes.assignments.completeness, 'complete')
 })
 
+test('THEOL assignment sync follows task-list pagination', async () => {
+  const course = {
+    id: '101', title: 'Course One', source: 'theol',
+    sourceUrl: 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=101',
+  }
+  const requested = []
+  const adapter = new TheolAdapter({
+    async page(url) {
+      requested.push(url)
+      if (url === course.sourceUrl) {
+        return {
+          url,
+          text: '<script>const courseId=101</script><a href="/meol/common/hw/student/hwtask.jsp">课程作业</a>',
+        }
+      }
+      if (url.includes('s_gotopage=') === false) {
+        return {
+          url,
+          text: '<input name="lid" value="101"><table><tr><td><a href="hwtask.view.jsp?hwtid=9101">第一页作业</a></td><td>2099-08-20 23:59</td><td>未提交</td></tr></table><a href="hwtask.jsp?s_gotopage=2">[下一页]</a>',
+        }
+      }
+      return {
+        url,
+        text: '<input name="lid" value="101"><table><tr><td><a href="hwtask.view.jsp?hwtid=9102">第二页作业</a></td><td>2099-08-21 23:59</td><td>未提交</td></tr></table><a href="hwtask.jsp?s_page=last">[尾页]</a>',
+      }
+    },
+  })
+
+  const result = await adapter.syncAssignments([course])
+  assert.deepEqual(requested, [
+    course.sourceUrl,
+    'https://course.buct.edu.cn/meol/common/hw/student/hwtask.jsp?lid=101',
+    'https://course.buct.edu.cn/meol/common/hw/student/hwtask.jsp?s_gotopage=2&lid=101',
+  ])
+  assert.deepEqual(result.assignments.map((item) => item.title), ['第一页作业', '第二页作业'])
+  assert.deepEqual(result.successfulCourseIds, ['101'])
+  assert.deepEqual(result.failedCourseIds, [])
+  assert.equal(result.domainOutcomes.assignments.receivedRecordCount, 2)
+  assert.equal(result.domainOutcomes.assignments.completeness, 'complete')
+})
+
+test('THEOL assignment sync retains earlier pages when a later page fails', async () => {
+  const course = {
+    id: '101', title: 'Course One', source: 'theol',
+    sourceUrl: 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=101',
+  }
+  const adapter = new TheolAdapter({
+    async page(url) {
+      if (url === course.sourceUrl) {
+        return {
+          url,
+          text: '<script>const courseId=101</script><a href="/meol/common/hw/student/hwtask.jsp">课程作业</a>',
+        }
+      }
+      if (url.includes('s_gotopage=2')) throw new Error('page two unavailable')
+      return {
+        url,
+        text: '<input name="lid" value="101"><table><tr><td><a href="hwtask.view.jsp?hwtid=9103">第一页作业</a></td><td>2099-08-20 23:59</td><td>未提交</td></tr></table><a href="hwtask.jsp?s_gotopage=2">[下一页]</a>',
+      }
+    },
+  })
+
+  const result = await adapter.syncAssignments([course])
+  assert.deepEqual(result.assignments.map((item) => item.title), ['第一页作业'])
+  assert.deepEqual(result.successfulCourseIds, [])
+  assert.deepEqual(result.failedCourseIds, ['101'])
+  assert.equal(result.domainOutcomes.assignments.emptyConfirmed, false)
+  assert.equal(result.domainOutcomes.assignments.completeness, 'partial')
+  assert.match(result.errors[0], /page two unavailable/)
+})
+
+test('THEOL mobile fallback does not hide an incomplete paginated course', async () => {
+  const course = {
+    id: '101', title: 'Course One', source: 'theol',
+    sourceUrl: 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=101',
+  }
+  const adapter = new TheolAdapter({
+    async page(url) {
+      if (url === course.sourceUrl) {
+        return {
+          url,
+          text: '<script>const courseId=101</script><a href="/meol/common/hw/student/hwtask.jsp">课程作业</a>',
+        }
+      }
+      if (url.includes('s_gotopage=2')) throw new Error('page two unavailable')
+      return {
+        url,
+        text: '<input name="lid" value="101"><table><tr><td><a href="hwtask.view.jsp?hwtid=9104">第一页作业</a></td><td>2099-08-20 23:59</td><td>未提交</td></tr></table><a href="hwtask.jsp?s_gotopage=2">[下一页]</a>',
+      }
+    },
+    async json() {
+      return {
+        status: 1,
+        datas: [{
+          courseId: 101,
+          courseName: 'Course One',
+          reminderListHomework: [{ id: 9105, title: '移动端补充作业', publishStatus: true, deadline: '2099-08-22 23:59:00' }],
+        }],
+      }
+    },
+  })
+
+  const result = await adapter.syncAssignments([course])
+  assert.deepEqual(result.assignments.map((item) => item.title), ['第一页作业', '移动端补充作业'])
+  assert.deepEqual(result.successfulCourseIds, [])
+  assert.deepEqual(result.failedCourseIds, ['101'])
+  assert.equal(result.source.mobileFallback.status, 'used')
+  assert.equal(result.domainOutcomes.assignments.completeness, 'partial')
+  assert.match(result.errors.join('; '), /page two unavailable/)
+})
+
 test('THEOL falls back to the mobile pending-task feed after a course-page failure', async () => {
   const course = {
     id: '101', title: 'Course One', source: 'theol',

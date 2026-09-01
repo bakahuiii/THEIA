@@ -156,6 +156,12 @@ export interface AcademicCalendarPdfAnalysis {
   teachingSchedule: Record<string, unknown> | null;
 }
 
+export interface AcademicPeriodTime {
+  period: number;
+  startTime: string;
+  endTime: string;
+}
+
 export interface AcademicCalendar {
   schema: string;
   schoolYear: string | null;
@@ -163,6 +169,7 @@ export interface AcademicCalendar {
   semesters: Array<{ label: string; startDate: string; endDate: string; weeks: number }>;
   vacations: Array<{ label: string; startDate: string; endDate: string }>;
   specialDates: Array<{ label: string; date: string }>;
+  periodTimes: AcademicPeriodTime[];
   currentWeek?: { schoolYear: string | null; semesterIndex: number; semesterLabel: string; termId: string | null; week: number; of: number; date: string } | null;
 }
 

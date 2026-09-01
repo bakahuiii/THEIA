@@ -304,7 +304,7 @@ function assignmentLink(rawHref, sourceUrl) {
   const url = new URL(href)
   const match = [
     { path: /\/(?:hwtask\.view|hwtask_blended)\.jsp$/i, parameter: 'hwtid', kind: 'assignment' },
-    { path: /\/stu_qtest_(?:navigate|result|more_result|pre|over)\.jsp$/i, parameter: 'testId', kind: 'online-test' },
+    { path: /\/stu_qtest_(?:navigate|result|more_result|over)\.jsp$/i, parameter: 'testId', kind: 'online-test' },
   ].find((candidate) => candidate.path.test(url.pathname))
   if (!match) return null
   const identifiers = url.searchParams.getAll(match.parameter).map((value) => value.trim()).filter(Boolean)
@@ -313,15 +313,29 @@ function assignmentLink(rawHref, sourceUrl) {
 }
 
 function assignmentTitle($, node, link, kind) {
-  if (kind === 'assignment') return linkText($, link)
+  if (kind === 'assignment') return linkText($, link) || normalizeText($(node).attr('title'))
   const firstCell = $(node).children('td').first()
-  return normalizeText(firstCell.clone().find('a, button, img, input').remove().end().text())
-    || normalizeText(firstCell.text())
+  if (firstCell.length) {
+    return normalizeText(firstCell.clone().find('a, button, img, input').remove().end().text())
+      || normalizeText(firstCell.text())
+  }
+  return normalizeText($(node).clone().find('a, button, img, input').remove().end().text())
+    || linkText($, link)
+}
+
+function assignmentDeadlineColumnIndex($, node) {
+  const table = $(node).closest('table')
+  if (!table.length) return -1
+  const header = table.find('tr').toArray().find((row) => $(row).find('th').length > 0)
+  if (!header) return -1
+  return $(header).children('th, td').toArray().findIndex((cell) => /(?:截止|结束|完成期限|提交期限)/u.test(normalizeText($(cell).text())))
 }
 
 function assignmentDueText($, node, kind, text) {
   const cells = $(node).children('td')
-  const structured = kind === 'online-test' ? cells.eq(2).text() : cells.eq(1).text()
+  const deadlineColumn = assignmentDeadlineColumnIndex($, node)
+  const fallbackColumn = kind === 'online-test' ? 2 : 1
+  const structured = cells.eq(deadlineColumn >= 0 ? deadlineColumn : fallbackColumn).text()
   const datePattern = /([0-9]{4}[年./-][0-9]{1,2}[月./-][0-9]{1,2}(?:日)?(?:\s+[0-9]{1,2}:?[0-9]{2}(?::[0-9]{2})?)?)/
   return normalizeText(structured).match(datePattern)?.[1]
     || text.match(/(?:截止|结束|完成时间|提交时间)[:：]?\s*([0-9]{4}[年./-][0-9]{1,2}[月./-][0-9]{1,2}(?:日)?(?:\s+[0-9]{1,2}:?[0-9]{2}(?::[0-9]{2})?)?)/)?.[1]
@@ -331,19 +345,17 @@ function assignmentDueText($, node, kind, text) {
 export function parseTheolAssignments(html, { course, sourceUrl, capturedAt = new Date().toISOString() } = {}) {
   const $ = cheerio.load(html)
   const items = []
-  $('tr, li, .task, .homework, .hw-item, .list-item').each((_index, node) => {
+  const seen = new Set()
+  $('a[href]').each((_index, link) => {
+    const task = assignmentLink($(link).attr('href'), sourceUrl)
+    if (!task) return
+    const row = $(link).closest('tr, li, .task, .homework, .hw-item, .list-item').first()
+    const node = row.length ? row : $(link).parent()
     const text = normalizeText($(node).text())
     if (!text) return
-    let link = null
-    let task = null
-    $(node).find('a[href]').each((_linkIndex, candidate) => {
-      if (task) return
-      const parsed = assignmentLink($(candidate).attr('href'), sourceUrl)
-      if (!parsed) return
-      link = candidate
-      task = parsed
-    })
-    if (!task || !link) return
+    const itemKey = `${task.kind}:${task.identifier}`
+    if (seen.has(itemKey)) return
+    seen.add(itemKey)
     const title = assignmentTitle($, node, link, task.kind)
     if (!title) return
     const score = text.match(/(?:成绩|得分)[:：]?\s*([0-9]+(?:\.\d+)?)/)?.[1] || null

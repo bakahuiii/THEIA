@@ -15,6 +15,7 @@ export async function startCourseWorkQueue({
   getMainWindow,
   getAuthEpoch,
   assertAuthEpoch,
+  recoverTheolReadSession = null,
   writeDiagnostic,
   sendSnapshot,
 }) {
@@ -53,6 +54,10 @@ export async function startCourseWorkQueue({
         result = await syncService.runTheolInteraction(() => {
           assertCurrent()
           return courseWorkService.prepare(job.assignmentId)
+        }, {
+          onAuthRequired: typeof recoverTheolReadSession === 'function'
+            ? () => recoverTheolReadSession(epoch)
+            : null,
         })
       } else if (job.operation === 'model') {
         result = await modelService.process(job.assignmentId, store.snapshot().settings)

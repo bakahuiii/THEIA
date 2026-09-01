@@ -6,6 +6,8 @@ const require = createRequire(import.meta.url)
 const DAY_MS = 86_400_000
 const REGION_SCALE = 4
 const REGION_PADDING = 16
+const PERIOD_TIME_THRESHOLD = 160
+const PERIOD_TIME_REFERENCE = { width: 2428, height: 1280 }
 
 const CALENDAR_REGIONS = [
   { key: 'semester-1', kind: 'semester', label: '第一学期', x: 0.525, y: 0.073, width: 0.215, height: 0.04, pageSegMode: '11' },
@@ -19,6 +21,17 @@ const CALENDAR_REGIONS = [
 ]
 
 const REGION_BY_KEY = new Map(CALENDAR_REGIONS.map((region) => [region.key, region]))
+const PERIOD_TIME_ROWS = [
+  [229, 277], [294, 340], [420, 466], [547, 593], [610, 656], [673, 721],
+  [738, 784], [865, 911], [927, 975], [991, 1039], [1055, 1103], [1118, 1166],
+].map(([top, bottom], index) => ({
+  period: index + 1,
+  full: { x: 330 / PERIOD_TIME_REFERENCE.width, y: top / PERIOD_TIME_REFERENCE.height, width: 210 / PERIOD_TIME_REFERENCE.width, height: (bottom - top) / PERIOD_TIME_REFERENCE.height },
+  start: { x: 335 / PERIOD_TIME_REFERENCE.width, y: top / PERIOD_TIME_REFERENCE.height, width: 90 / PERIOD_TIME_REFERENCE.width, height: (bottom - top) / PERIOD_TIME_REFERENCE.height },
+  end: { x: 435 / PERIOD_TIME_REFERENCE.width, y: top / PERIOD_TIME_REFERENCE.height, width: 100 / PERIOD_TIME_REFERENCE.width, height: (bottom - top) / PERIOD_TIME_REFERENCE.height },
+  alternateStart: { x: 320 / PERIOD_TIME_REFERENCE.width, y: top / PERIOD_TIME_REFERENCE.height, width: 110 / PERIOD_TIME_REFERENCE.width, height: (bottom - top) / PERIOD_TIME_REFERENCE.height },
+  alternateEnd: { x: 420 / PERIOD_TIME_REFERENCE.width, y: top / PERIOD_TIME_REFERENCE.height, width: 130 / PERIOD_TIME_REFERENCE.width, height: (bottom - top) / PERIOD_TIME_REFERENCE.height },
+}))
 
 function dateOnly(year, month, day) {
   const date = new Date(Date.UTC(year, month - 1, day))
@@ -142,13 +155,42 @@ function uniqueBy(items, keyFor) {
   return [...new Map(items.map((item) => [keyFor(item), item])).values()]
 }
 
+function normalizedClock(value) {
+  const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})$/u)
+  if (!match) return null
+  const hour = Number(match[1])
+  const minute = Number(match[2])
+  if (hour > 23 || minute > 59) return null
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+}
+
+export function parseAcademicCalendarPeriodTimes(value) {
+  const normalized = String(value || '')
+    .replace(/[０-９]/gu, (character) => String.fromCharCode(character.charCodeAt(0) - 0xff10 + 0x30))
+    .replace(/[：﹕]/gu, ':')
+    .replace(/[—–－〜～]/gu, '~')
+  const times = []
+  const pattern = /(\d{1,2})\s*[:.]\s*(\d{2})\s*(?:~|-|至|到)\s*(\d{1,2})\s*[:.]\s*(\d{2})/gu
+  for (const match of normalized.matchAll(pattern)) {
+    const startTime = normalizedClock(`${match[1]}:${match[2]}`)
+    const endTime = normalizedClock(`${match[3]}:${match[4]}`)
+    if (!startTime || !endTime || startTime >= endTime) continue
+    times.push({ period: times.length + 1, startTime, endTime })
+  }
+  return times.slice(0, 16)
+}
+
 export function parseAcademicCalendarOcrItems(items) {
   let schoolYear = null
   const semesters = []
   const vacations = []
   const specialDates = []
+  const periodTimes = []
   for (const item of Array.isArray(items) ? items : []) {
     const text = String(item?.text || '').trim()
+    if (item?.key === 'period-times' || parseAcademicCalendarPeriodTimes(text).length >= 2) {
+      periodTimes.push(...parseAcademicCalendarPeriodTimes(text))
+    }
     schoolYear ||= schoolYearIn(text)
     if (!/20\d{2}/.test(text)) continue
     let dates = datesIn(text)
@@ -207,6 +249,7 @@ export function parseAcademicCalendarOcrItems(items) {
     semesters: uniqueSemesters,
     vacations: uniqueVacations.sort((left, right) => left.startDate.localeCompare(right.startDate)),
     specialDates: uniqueBy(specialDates, (item) => `${item.label}\0${item.date}`).sort((left, right) => left.date.localeCompare(right.date)),
+    periodTimes: uniqueBy(periodTimes, (item) => `${item.period}\0${item.startTime}\0${item.endTime}`).sort((left, right) => left.period - right.period).slice(0, 16),
   }
 }
 
@@ -275,7 +318,9 @@ function otsuThreshold(image, rectangle) {
 
 function preprocessedRegionBmp(image, region) {
   const rectangle = pixelRectangle(image, region)
-  const threshold = region.preprocess === 'grayscale' ? null : otsuThreshold(image, rectangle)
+  const threshold = region.preprocess === 'grayscale'
+    ? null
+    : Number.isFinite(region.threshold) ? region.threshold : otsuThreshold(image, rectangle)
   const scale = Number.isInteger(region.scale) && region.scale > 0 ? region.scale : REGION_SCALE
   const padding = Number.isInteger(region.padding) && region.padding >= 0 ? region.padding : REGION_PADDING
   const width = rectangle.width * scale + padding * 2
@@ -315,6 +360,160 @@ function preprocessedRegionBmp(image, region) {
   return bmp
 }
 
+function normalizedNumericText(value) {
+  return String(value || '')
+    .replace(/[０-９]/gu, (character) => String.fromCharCode(character.charCodeAt(0) - 0xff10 + 0x30))
+}
+
+function clockFromDigits(value) {
+  const digits = String(value || '')
+  if (digits.length !== 4) return null
+  const hour = Number(digits.slice(0, 2))
+  const minute = Number(digits.slice(2))
+  if (hour > 23 || minute > 59) return null
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+}
+
+function numericClockCandidates(value) {
+  const normalized = normalizedNumericText(value)
+  const candidates = new Map()
+  const add = (time, score) => {
+    if (!time) return
+    candidates.set(time, Math.max(score, candidates.get(time) || 0))
+  }
+  for (const match of normalized.matchAll(/(\d{1,2})\s*[:：.]\s*(\d{1,2})/gu)) {
+    const minute = match[2].length === 1 ? `${match[2]}0` : match[2]
+    add(clockFromDigits(`${match[1].padStart(2, '0')}${minute}`), match[2].length === 1 ? 9 : 18)
+  }
+  const digits = (normalized.match(/\d/g) || []).join('')
+  add(clockFromDigits(digits), 14)
+  if (digits.length === 3) {
+    add(clockFromDigits(`0${digits}`), 7)
+    add(clockFromDigits(`${digits.slice(0, 2)}${digits.slice(2)}0`), 7)
+  }
+  if (digits.length > 4 && digits.length <= 6) {
+    for (let index = 0; index < digits.length; index += 1) {
+      add(clockFromDigits(digits.slice(0, index) + digits.slice(index + 1)), 6)
+    }
+    if (digits.length === 6) {
+      for (let first = 0; first < digits.length; first += 1) {
+        for (let second = first + 1; second < digits.length; second += 1) {
+          add(clockFromDigits(digits.split('').filter((_digit, index) => index !== first && index !== second).join('')), 4)
+        }
+      }
+    }
+  }
+  return [...candidates.entries()].map(([time, score]) => ({ time, score }))
+}
+
+function periodTimePairCandidates(value) {
+  const normalized = normalizedNumericText(value).replace(/[—–－〜～]/gu, '~')
+  const splitAt = normalized.indexOf('~')
+  let leftText = ''
+  let rightText = ''
+  if (splitAt >= 0) {
+    leftText = normalized.slice(0, splitAt)
+    rightText = normalized.slice(splitAt + 1)
+  } else {
+    const hyphens = [...normalized.matchAll(/-/gu)].map((match) => match.index).filter((index) => Number.isInteger(index))
+    const split = hyphens
+      .map((index) => ({ index, left: (normalized.slice(0, index).match(/\d/g) || []).length, right: (normalized.slice(index + 1).match(/\d/g) || []).length }))
+      .filter((item) => item.left >= 3 && item.right >= 3)
+      .sort((a, b) => Math.abs(a.left - a.right) - Math.abs(b.left - b.right))[0]
+    if (split) {
+      leftText = normalized.slice(0, split.index)
+      rightText = normalized.slice(split.index + 1)
+    }
+  }
+  if (!leftText || !rightText) {
+    const digits = (normalized.match(/\d/g) || []).join('')
+    const splits = []
+    for (let index = 4; index <= digits.length - 4; index += 1) {
+      const left = numericClockCandidates(digits.slice(0, index))
+      const right = numericClockCandidates(digits.slice(index))
+      for (const start of left) for (const end of right) splits.push({ start, end, source: 'full' })
+    }
+    return splits
+  }
+  const pairs = []
+  for (const start of numericClockCandidates(leftText)) {
+    for (const end of numericClockCandidates(rightText)) pairs.push({ start, end, source: 'full' })
+  }
+  return pairs
+}
+
+function periodTimePairFromObservation(observation, referenceDuration = null) {
+  const pairs = [
+    ...periodTimePairCandidates(observation.full || ''),
+    ...numericClockCandidates(observation.start || '').flatMap((start) => numericClockCandidates(observation.end || '').map((end) => ({ start, end, source: 'cells' }))),
+  ]
+  const fullDigits = (normalizedNumericText(observation.full || '').match(/\d/g) || []).join('')
+  if (fullDigits.length >= 4) {
+    pairs.push(...numericClockCandidates(fullDigits.slice(0, 4)).flatMap((start) => numericClockCandidates(observation.end || '').map((end) => ({ start, end, source: 'full-start-cell-end' }))))
+    pairs.push(...numericClockCandidates(observation.start || '').flatMap((start) => numericClockCandidates(fullDigits.slice(-4)).map((end) => ({ start, end, source: 'cell-start-full-end' }))))
+  }
+  const validPairs = pairs
+    .map((pair) => ({
+      ...pair,
+      duration: (Date.parse(`1970-01-01T${pair.end.time}:00Z`) - Date.parse(`1970-01-01T${pair.start.time}:00Z`)) / 60_000,
+    }))
+    .filter((pair) => pair.duration >= 20 && pair.duration <= 180)
+  if (!validPairs.length) return null
+  return validPairs.sort((left, right) => {
+    const leftReference = referenceDuration === null ? 0 : Math.max(0, 24 - Math.abs(left.duration - referenceDuration) * 2)
+    const rightReference = referenceDuration === null ? 0 : Math.max(0, 24 - Math.abs(right.duration - referenceDuration) * 2)
+    const leftScore = left.start.score + left.end.score + leftReference + (left.source.startsWith('full') ? 3 : 0)
+    const rightScore = right.start.score + right.end.score + rightReference + (right.source.startsWith('full') ? 3 : 0)
+    return rightScore - leftScore
+  })[0]
+}
+
+function median(values) {
+  const ordered = values.filter(Number.isFinite).sort((left, right) => left - right)
+  return ordered.length ? ordered[Math.floor(ordered.length / 2)] : null
+}
+
+async function recognizePeriodTimeRows(worker, image) {
+  const observations = []
+  const recognize = async (region, pageSegMode) => {
+    const result = await worker.recognize(preprocessedRegionBmp(image, {
+      ...region,
+      preprocess: 'threshold',
+      threshold: PERIOD_TIME_THRESHOLD,
+      scale: 5,
+      padding: 16,
+    }), {
+      tessedit_pageseg_mode: pageSegMode,
+      tessedit_char_whitelist: '0123456789:.-~',
+    }, { text: true })
+    return String(result?.data?.text || '').trim()
+  }
+  for (const row of PERIOD_TIME_ROWS) {
+    const observation = {
+      period: row.period,
+      full: await recognize(row.full, '7'),
+      start: await recognize(row.start, '13'),
+      end: await recognize(row.end, '13'),
+    }
+    observations.push(observation)
+  }
+  const provisional = observations.map((observation) => periodTimePairFromObservation(observation)).filter(Boolean)
+  const referenceDuration = median(provisional.map((pair) => pair.duration))
+  for (const [index, observation] of observations.entries()) {
+    const pair = periodTimePairFromObservation(observation, referenceDuration)
+    if (!pair || (referenceDuration !== null && Math.abs(pair.duration - referenceDuration) > 10)) {
+      observation.start = await recognize(PERIOD_TIME_ROWS[index].alternateStart, '13')
+      observation.end = await recognize(PERIOD_TIME_ROWS[index].alternateEnd, '13')
+    }
+  }
+  return observations
+    .map((observation) => {
+      const pair = periodTimePairFromObservation(observation, referenceDuration)
+      return pair ? { period: observation.period, startTime: pair.start.time, endTime: pair.end.time } : null
+    })
+    .filter(Boolean)
+}
+
 function decodeCalendarJpeg(image) {
   return require('jpeg-js').decode(image, {
     useTArray: true,
@@ -329,6 +528,7 @@ export function defaultOcrRuntime() {
   const unpacked = (value) => String(value).replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2')
   return {
     language: { ...language, langPath: unpacked(language.langPath) },
+    numericLanguage: { ...require('@tesseract.js-data/eng'), langPath: unpacked(require('@tesseract.js-data/eng').langPath) },
     workerPath: unpacked(require.resolve('tesseract.js/src/worker-script/node/index.js')),
     corePath: unpacked(dirname(require.resolve('tesseract.js-core/tesseract-core-lstm.wasm.js'))),
   }
@@ -352,6 +552,25 @@ export async function runAcademicCalendarOcr(imagePath, { createWorkerImpl, onRe
       decoded = decodeCalendarJpeg(encoded)
     } catch { /* Runtime probe and legacy callers may provide a non-JPEG image. */ }
 
+    let periodTimes = []
+    if (decoded && decoded.width >= 100) {
+      try {
+        const numericWorker = await createWorker(runtime.numericLanguage.code, 1, {
+          workerPath: runtime.workerPath,
+          corePath: runtime.corePath,
+          langPath: runtime.numericLanguage.langPath,
+          gzip: runtime.numericLanguage.gzip,
+          cacheMethod: 'none',
+          errorHandler: () => {},
+        })
+        try {
+          periodTimes = await recognizePeriodTimeRows(numericWorker, decoded)
+          onRegionText({ key: 'period-times', text: periodTimes.map((item) => `${item.period} ${item.startTime}-${item.endTime}`).join('\n') })
+        } finally {
+          await numericWorker.terminate()
+        }
+      } catch { /* A missing numeric worker must not block calendar-date OCR. */ }
+    }
     if (decoded) {
       const regions = []
       for (const region of CALENDAR_REGIONS) {
@@ -363,13 +582,16 @@ export async function runAcademicCalendarOcr(imagePath, { createWorkerImpl, onRe
         regions.push({ key: region.key, text })
       }
       const parsed = parseAcademicCalendarOcrRegions(regions)
+      parsed.periodTimes = periodTimes
       if (parsed.semesters.length >= 2) return parsed
     }
 
     const result = await worker.recognize(imagePath, {}, { text: true, blocks: true })
     let items = linesFromBlocks(result?.data?.blocks)
     if (!items.length && result?.data?.text) items = [{ x: 0, y: 0, text: result.data.text }]
-    return parseAcademicCalendarOcrItems(items)
+    const parsed = parseAcademicCalendarOcrItems(items)
+    if (periodTimes.length) parsed.periodTimes = periodTimes
+    return parsed
   } finally {
     await worker.terminate()
   }

@@ -169,7 +169,10 @@ export function htmlLooksLikeLogin(html, finalUrl = '') {
   const lower = String(html).toLowerCase()
   const hasPasswordField = /<input\b[^>]*type\s*=\s*["']?password\b/i.test(lower)
   const hasLoginMarker = /password|login|sso|cas|统一身份认证|请输入密码|密码登录/i.test(lower)
-  return (urlText.includes('experimental-auth-endpoint') || urlText.includes('/login') || hasPasswordField) && hasLoginMarker
+  const hasExpiredSessionMarker = /没有权限访问本页面|登录时间超时|登录已超时|会话已过期|会话超时/u.test(lower)
+    || (/请重新登录/u.test(lower) && /权限|超时|过期/u.test(lower))
+  return hasExpiredSessionMarker
+    || ((urlText.includes('experimental-auth-endpoint') || urlText.includes('/login') || hasPasswordField) && hasLoginMarker)
 }
 
 const SENSITIVE_DIAGNOSTIC_KEYS = [

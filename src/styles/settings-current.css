@@ -369,3 +369,78 @@
   .about-update { grid-template-columns: auto minmax(0, 1fr); }
   .about-update-actions { grid-column: 2; justify-self: start; }
 }
+
+/* Icon contract: every icon surface uses proportional rounded corners so
+ * small controls and large marks keep the same visual language. Keep
+ * overflow off icon buttons because their tooltip pseudo-element sits outside
+ * the button; image-backed marks still clip their contents to the frame. */
+:root { --theia-icon-radius: 30%; }
+
+:is(
+  .icon-button,
+  .mobile-menu,
+  .sidebar-close,
+  .sidebar-collapse,
+  .advisor-v2-icon-button,
+  .advisor-v2-clear,
+  .advisor-v2-send,
+  .advisor-island-action,
+  .innovation-icon-button,
+  .appearance-motion-close,
+  .settings-dialog-close,
+  [data-slot="dialog-close"],
+  [data-slot="sheet-close"],
+  [data-size="icon"],
+  [data-size="icon-xs"],
+  [data-size="icon-sm"],
+  [data-size="icon-lg"]
+) {
+  border-radius: var(--theia-icon-radius);
+}
+
+:is(
+  .settings-icon,
+  .appearance-menu-heading-icon,
+  .dashboard-advisor-icon,
+  .github-update-indicator-icon,
+  .about-update-icon,
+  .about-android-icon,
+  .interface-runtime-status-icon,
+  .quick-action-icon,
+  .notice-source,
+  .portal-card-icon,
+  .communications-pane-icon,
+  .academic-records-domain-icon,
+  .academic-plan-file-icon,
+  .academic-calendar-pdf-heading-icon,
+  .selection-plan-target-icon,
+  .advisor-v2-agent-mark,
+  .advisor-v2-empty-mark,
+  .advisor-island-mark,
+  .advisor-insights-heading-mark,
+  .advisor-agent-mark,
+  .advisor-agent-empty-mark,
+  .innovation-module-mark
+) {
+  overflow: hidden;
+  border-radius: var(--theia-icon-radius) !important;
+}
+
+.brand-mark,
+.about-mark {
+  overflow: hidden;
+  border-radius: var(--theia-icon-radius);
+}
+
+.brand-mark img,
+.about-mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+.titlebar-icon { border-radius: var(--theia-icon-radius); }
+
+.profile-chip > div { border-radius: 50% !important; }

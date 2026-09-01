@@ -11,7 +11,7 @@ import { stripJpegMetadata } from '../scripts/strip-jpeg-metadata.mjs'
 
 test('Windows packaging writes THEIA executable metadata and unpacks the offline OCR runtime', async () => {
   const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
-  assert.equal(packageJson.version, '0.7.0')
+  assert.equal(packageJson.version, '0.7.1')
   assert.equal(packageJson.build.productName, 'THEIA')
   assert.equal(packageJson.build.appId, 'io.github.bakahuiii.theia')
   assert.equal(packageJson.build.nsis.guid, '2467e4eb-7496-532c-ab2c-b64234a36eb3')
@@ -32,6 +32,7 @@ test('Windows packaging writes THEIA executable metadata and unpacks the offline
     'node_modules/tesseract.js/**/*',
     'node_modules/tesseract.js-core/**/*',
     'node_modules/@tesseract.js-data/chi_sim/**/*',
+    'node_modules/@tesseract.js-data/eng/**/*',
     'node_modules/bmp-js/**/*',
     'node_modules/is-url/**/*',
     'node_modules/regenerator-runtime/**/*',

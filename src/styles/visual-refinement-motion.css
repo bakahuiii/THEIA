@@ -384,10 +384,10 @@
   --schedule-period-count: 12;
   position: relative;
   display: grid;
-  grid-template-columns: 82px repeat(7, minmax(146px, 1fr));
+  grid-template-columns: 96px repeat(7, minmax(146px, 1fr));
   grid-template-rows: 60px repeat(var(--schedule-period-count), minmax(86px, 1fr));
   gap: 0;
-  min-width: 1104px;
+  min-width: 1118px;
   overflow: hidden;
   isolation: isolate;
   background: var(--border);
@@ -444,10 +444,31 @@
 
 .schedule-period-label {
   z-index: 2;
+  align-content: center;
+  gap: 3px;
   padding: 0 8px;
   border-top: 1px solid var(--border);
   border-right: 1px solid var(--border);
   font-variant-numeric: tabular-nums;
+}
+
+.schedule-period-number,
+.schedule-period-time {
+  display: block;
+}
+
+.schedule-period-number {
+  color: var(--foreground);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.schedule-period-time {
+  color: var(--muted-foreground);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.1;
+  white-space: nowrap;
 }
 
 .schedule-grid-cell {
@@ -619,4 +640,3 @@
 .gpa-point.excellent {
   stroke: var(--teal);
 }
-

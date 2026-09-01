@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { access } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { defaultOcrRuntime, parseAcademicCalendarOcrItems, parseAcademicCalendarOcrRegions, probeAcademicCalendarOcrRuntime, runAcademicCalendarOcr } from '../core/academic-calendar-ocr.mjs'
+import { defaultOcrRuntime, parseAcademicCalendarOcrItems, parseAcademicCalendarOcrRegions, parseAcademicCalendarPeriodTimes, probeAcademicCalendarOcrRuntime, runAcademicCalendarOcr } from '../core/academic-calendar-ocr.mjs'
 
 const require = createRequire(import.meta.url)
 const jpeg = require('jpeg-js')
@@ -27,6 +27,7 @@ test('academic-calendar OCR items retain semester, vacation, and special-date se
 
 test('academic-calendar OCR regions tolerate joined year digits and infer a missing winter-vacation line', () => {
   const parsed = parseAcademicCalendarOcrRegions([
+    { key: 'period-times', text: '1 08 : 00 ~ 08 : 45\\n2 08:50-09:35' },
     { key: 'semester-1', text: '第 一 孙 期 “202> 年 9 月 1 日 ~ 一 2026 年 1 月 18 日 )' },
     { key: 'semester-2', text: '第 一 子 期 (2026 卅 3 月 2 日 ~ 一 2026 平 7 月 5 月 )' },
     { key: 'semester-3', text: '宇 三 工 一 | C2026 一 月 6 1 月 2 巳 “' },
@@ -45,6 +46,17 @@ test('academic-calendar OCR regions tolerate joined year digits and infer a miss
     { label: '暑假', startDate: '2026-07-27', endDate: '2026-08-30' },
   ])
   assert.deepEqual(parsed.specialDates, [{ label: '春节', date: '2026-02-17' }])
+  assert.deepEqual(parsed.periodTimes, [
+    { period: 1, startTime: '08:00', endTime: '08:45' },
+    { period: 2, startTime: '08:50', endTime: '09:35' },
+  ])
+})
+
+test('academic-calendar period-time parser accepts OCR punctuation and full-width digits', () => {
+  assert.deepEqual(parseAcademicCalendarPeriodTimes('０８：００～０８：４５\\n13 . 30 至 14 . 15'), [
+    { period: 1, startTime: '08:00', endTime: '08:45' },
+    { period: 2, startTime: '13:30', endTime: '14:15' },
+  ])
 })
 
 test('default academic-calendar OCR uses bundled local worker, core, and Chinese data', async () => {

@@ -10,7 +10,10 @@ function deferred() {
 
 function createFinishRuntime({ authActors, authPendingSources, getUnifiedAuthVerification, requestUnifiedAuthVerification }) {
   return createAuthRuntime({
-    authActorManager: { isCurrent: () => true },
+    authActorManager: {
+      isCurrent: () => true,
+      open: async () => [{ source: 'theol', authenticated: true, lifecycle: Promise.resolve() }],
+    },
     authActors,
     authPendingSources,
     authRecovery: {
@@ -96,4 +99,60 @@ test('a failed campus login does not start unified verification by itself', asyn
 
   await runtime.finishAuthActor(actor('jwglxt', false))
   assert.equal(verificationRequests, 0)
+})
+
+test('THEOL read recovery clears a stale verification and waits for the login actor', async () => {
+  const verifiedSessions = { theol: { cookieValue: 'stale' } }
+  const statuses = [
+    { connected: false, authRequired: true, url: 'https://course.buct.edu.cn/meol/personal.do' },
+    { connected: true, url: 'https://course.buct.edu.cn/meol/personal.do' },
+  ]
+  const loginRequests = []
+  const remembered = []
+  const openedActor = { source: 'theol', authenticated: true, lifecycle: Promise.resolve() }
+  const runtime = createAuthRuntime({
+    authActorManager: {
+      isCurrent: () => true,
+      open: async (options) => {
+        loginRequests.push(options)
+        return [openedActor]
+      },
+    },
+    authActors: new Map(),
+    authPendingSources: new Set(),
+    authRecovery: { jwglxt: {}, theol: {} },
+    authSources: ['jwglxt', 'theol'],
+    silentAuthSyncDomains: {},
+    credentialAttempts: new Map(),
+    pendingSourceOpens: [],
+    verifiedSessions,
+    getAuthEpoch: () => 1,
+    getSyncService: () => ({}),
+    getSyncOrchestrator: () => ({}),
+    getCredentialVault: () => ({ status: async () => ({ saved: true }) }),
+    getSchoolProxyReady: () => Promise.resolve(),
+    freshSourceStatus: async () => statuses.shift(),
+    rememberVerifiedSession: async (source, url, epoch) => remembered.push({ source, url, epoch }),
+    loginTargetDetails: () => ({ url: 'https://course.buct.edu.cn/meol/homepage/common/sso_login.jsp' }),
+    assertAuthEpoch: () => {},
+    broadcastAuthStatus: async () => {},
+    writeDiagnostic: () => {},
+  })
+
+  const result = await runtime.recoverTheolReadSession(1)
+  assert.equal(result.connected, true)
+  assert.equal(verifiedSessions.theol, null)
+  assert.deepEqual(loginRequests, [{
+    background: true,
+    requestedSources: ['theol'],
+    expectedEpoch: 1,
+    userInitiated: false,
+    requireBrowser: true,
+    skipSync: true,
+  }])
+  assert.deepEqual(remembered, [{
+    source: 'theol',
+    url: 'https://course.buct.edu.cn/meol/personal.do',
+    epoch: 1,
+  }])
 })

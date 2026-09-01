@@ -629,6 +629,53 @@ export function createAuthRuntime({
     return status
   }
 
+  async function recoverTheolReadSession(expectedEpoch = getAuthEpoch()) {
+    const epoch = expectedEpoch
+    assertAuthEpoch(epoch)
+    await getSchoolProxyReady().catch(() => undefined)
+    assertAuthEpoch(epoch)
+
+    // The failed work-page request is authoritative evidence that the cached
+    // JSESSIONID is no longer usable. Clear only the THEOL verification so the
+    // actor cannot incorrectly reuse that stale browser session.
+    verifiedSessions.theol = null
+    const status = await freshSourceStatus('theol')
+    if (status?.connected) {
+      await rememberVerifiedSession('theol', status.url || loginTargetDetails('theol').url, epoch)
+      return status
+    }
+    if (status && status.authRequired === false) {
+      throw new Error(status.error || '北化在线THEOL会话检查失败')
+    }
+
+    const credentials = await getCredentialVault().status().catch(() => ({ saved: false }))
+    const hasSavedCredentials = Boolean(credentials?.saved && !credentials?.error)
+    void writeDiagnostic('course_work.read_auth_recovery_started', {
+      background: hasSavedCredentials,
+    })
+    const actors = await openLoginWindow({
+      background: hasSavedCredentials,
+      sources: ['theol'],
+      expectedEpoch: epoch,
+      requireBrowser: true,
+      skipSync: true,
+    })
+    const actor = actors?.find?.((candidate) => candidate?.source === 'theol')
+    if (actor?.lifecycle) await actor.lifecycle
+    assertAuthEpoch(epoch)
+
+    const refreshed = await freshSourceStatus('theol')
+    if (!refreshed?.connected) {
+      void writeDiagnostic('course_work.read_auth_recovery_failed', {
+        actorAuthenticated: Boolean(actor?.authenticated),
+      })
+      throw new AuthRequiredError('Course work', refreshed?.url || loginTargetDetails('theol').url)
+    }
+    await rememberVerifiedSession('theol', refreshed.url || loginTargetDetails('theol').url, epoch)
+    void writeDiagnostic('course_work.read_auth_recovery_succeeded', {})
+    return refreshed
+  }
+
   async function flushPendingSourceOpens(source, epoch = getAuthEpoch()) {
     const requests = pendingSourceOpens.filter((request) => request.source === source)
     for (let index = pendingSourceOpens.length - 1; index >= 0; index -= 1) {
@@ -674,6 +721,7 @@ export function createAuthRuntime({
     openLoginWindow,
     freshJwglxtBrowserStatus,
     recoverCourseSelectionReadSession,
+    recoverTheolReadSession,
     closeLiveCaptureActors,
     waitForLiveCaptureAuthentication,
     runAuthActor,

@@ -58,6 +58,7 @@ export async function initializeServiceIntegration({
   sendCourseSelectionSnapshot,
   courseSelectionSnapshot,
   recoverCourseSelectionReadSession,
+  recoverTheolReadSession,
   academicAttachmentRepairs,
   openSourceWindow,
   openIrisControlPanel,
@@ -135,6 +136,7 @@ export async function initializeServiceIntegration({
     getMainWindow,
     getAuthEpoch,
     assertAuthEpoch,
+    recoverTheolReadSession,
     writeDiagnostic,
     sendSnapshot,
   })
@@ -273,6 +275,7 @@ export async function initializeServiceIntegration({
     sendCourseSelectionSnapshot,
     courseSelectionSnapshot,
     recoverCourseSelectionReadSession,
+    recoverTheolReadSession,
     academicCalendarAssetsService,
     academicAttachmentStore,
     academicAttachmentRepairs,

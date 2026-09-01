@@ -291,8 +291,8 @@ html[data-app-background="image"] .map-zoom-hud {
 
 @media (max-width: 860px) {
   .schedule-board {
-    grid-template-columns: 72px repeat(7, minmax(128px, 1fr));
-    min-width: 968px;
+    grid-template-columns: 88px repeat(7, minmax(128px, 1fr));
+    min-width: 984px;
   }
 
   .schedule-period-label {

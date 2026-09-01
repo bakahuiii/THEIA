@@ -9,6 +9,29 @@ function text(value, max = 100) {
   return String(value || '').trim().replace(/[（(：:，,]+$/, '').trim().slice(0, max) || null
 }
 
+function clockTime(value) {
+  const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})$/u)
+  if (!match) return null
+  const hour = Number(match[1])
+  const minute = Number(match[2])
+  if (hour > 23 || minute > 59) return null
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+}
+
+function normalizePeriodTimes(value) {
+  return (Array.isArray(value) ? value : [])
+    .map((item) => {
+      const period = Number(item?.period)
+      const startTime = clockTime(item?.startTime)
+      const endTime = clockTime(item?.endTime)
+      if (!Number.isInteger(period) || period < 1 || period > 16 || !startTime || !endTime || startTime >= endTime) return null
+      return { period, startTime, endTime }
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.period - right.period)
+    .filter((item, index, items) => index === 0 || item.period !== items[index - 1].period)
+}
+
 export function normalizeAcademicCalendar(value) {
   const source = value && typeof value === 'object' ? value : {}
   const schoolYear = /^20\d{2}-20\d{2}$/.test(String(source.schoolYear || '')) ? String(source.schoolYear) : null
@@ -38,6 +61,7 @@ export function normalizeAcademicCalendar(value) {
     semesters,
     vacations,
     specialDates,
+    periodTimes: normalizePeriodTimes(source.periodTimes),
   }
 }
 

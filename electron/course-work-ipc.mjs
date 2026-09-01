@@ -22,6 +22,7 @@ export function registerCourseWorkWorkflowIpc({
   renderMarkdownToPdf,
   getAuthEpoch = () => 0,
   assertAuthEpoch,
+  recoverTheolReadSession = null,
   waitForSchoolProxy = async () => {},
   locateCourseResource,
   openSchedulePdf,
@@ -39,6 +40,10 @@ export function registerCourseWorkWorkflowIpc({
     const result = await syncService.runTheolInteraction(() => {
       assertAuthEpoch(epoch)
       return courseWorkService.prepare(assignmentId)
+    }, {
+      onAuthRequired: typeof recoverTheolReadSession === 'function'
+        ? () => recoverTheolReadSession(epoch)
+        : null,
     })
     assertAuthEpoch(epoch)
     sendSnapshot()

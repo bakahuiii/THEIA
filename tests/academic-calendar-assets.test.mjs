@@ -31,6 +31,7 @@ test('academic calendar caches the three official assets until the refresh bound
         schoolYear: '2025-2026',
         semesters: [{ label: '第一学期', startDate: '2025-09-01', endDate: '2026-01-18', weeks: 20 }],
         vacations: [], specialDates: [],
+        periodTimes: [{ period: 1, startTime: '08:00', endTime: '08:45' }],
       }),
     })
     await service.load()
@@ -40,6 +41,7 @@ test('academic calendar caches the three official assets until the refresh bound
     assert.equal(result.assets.calendar.filename, 'calendar_current.jpg')
     assert.equal(result.calendar.schoolYear, '2025-2026')
     assert.equal(result.calendar.semesters[0].weeks, 20)
+    assert.deepEqual(result.calendar.periodTimes, [{ period: 1, startTime: '08:00', endTime: '08:45' }])
     assert.equal(result.assets.teachingSchedule.filename, 'teaching_schedule_current.pdf')
     assert.match(await readFile(service.pathFor('teachingSchedule'), 'utf8'), /^%PDF/)
     await service.refresh()

@@ -344,7 +344,27 @@ export function useTheiaApp() {
       setMsg(`新邮件 · ${mail.subject || "(无主题)"}`, "info");
     });
     const offProgress = bridge.onSyncProgress((progress) => {
-      if (progress.scope === "domain") return;
+      if (progress.scope === "domain") {
+        // Assignment capture runs after the visible campus sync. Keep its
+        // short background phase visible so the task list does not look stuck
+        // while the per-course scan is still running.
+        if (progress.stage === "assignments") {
+          if (progress.status === "syncing") {
+            setSyncing(true);
+            setSyncStage("assignments");
+            setSyncProgress(progress.label || "正在后台获取作业与测试…");
+          } else {
+            setSyncing(false);
+            setSyncStage(null);
+            setSyncProgress(
+              progress.status === "error"
+                ? "作业与测试更新失败"
+                : "作业与测试更新完成",
+            );
+          }
+        }
+        return;
+      }
       if (progress.stage === "all" && progress.status === "syncing") {
         syncFailureObserver.beginAttempt();
         setSyncFailure(null);
@@ -837,6 +857,7 @@ export function useTheiaApp() {
         "selected-courses": 82,
         theol: 88,
         notices: 94,
+        assignments: 96,
       }[syncStage || ""] || 18
     : 100;
   const syncFreshness = useMemo<SyncFreshness>(() => describeSyncFreshness(state?.sync, {

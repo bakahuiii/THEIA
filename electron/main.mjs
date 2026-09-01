@@ -345,6 +345,7 @@ authRuntime = createAuthRuntime({
 const openLoginWindow = (...args) => authRuntime.openLoginWindow(...args)
 const freshJwglxtBrowserStatus = (...args) => authRuntime.freshJwglxtBrowserStatus(...args)
 const recoverCourseSelectionReadSession = (...args) => authRuntime.recoverCourseSelectionReadSession(...args)
+const recoverTheolReadSession = (...args) => authRuntime.recoverTheolReadSession(...args)
 const closeLiveCaptureActors = (...args) => authRuntime.closeLiveCaptureActors(...args)
 const waitForLiveCaptureAuthentication = (...args) => authRuntime.waitForLiveCaptureAuthentication(...args)
 const clearAuthActorTimers = (actor) => authRuntime.clearAuthActorTimers(actor)
@@ -1116,6 +1117,7 @@ async function startServices() {
     sendCourseSelectionSnapshot,
     courseSelectionSnapshot,
     recoverCourseSelectionReadSession,
+    recoverTheolReadSession,
     academicAttachmentRepairs,
     openSourceWindow,
     openIrisControlPanel,

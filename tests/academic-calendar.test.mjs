@@ -5,11 +5,20 @@ import { academicCalendarWeek, normalizeAcademicCalendar } from '../core/academi
 test('academic calendar maps a date to the official term and teaching week', () => {
   const calendar = normalizeAcademicCalendar({
     schoolYear: '2025-2026',
+    periodTimes: [
+      { period: 2, startTime: '8:50', endTime: '09:35' },
+      { period: 1, startTime: '08:00', endTime: '08:45' },
+      { period: 99, startTime: '10:00', endTime: '10:45' },
+    ],
     semesters: [
       { label: '第一学期', startDate: '2025-09-01', endDate: '2026-01-18', weeks: 20 },
       { label: '第二学期', startDate: '2026-03-02', endDate: '2026-07-05', weeks: 18 },
     ],
   })
+  assert.deepEqual(calendar.periodTimes, [
+    { period: 1, startTime: '08:00', endTime: '08:45' },
+    { period: 2, startTime: '08:50', endTime: '09:35' },
+  ])
   assert.deepEqual(academicCalendarWeek(calendar, new Date('2025-09-01T12:00:00')), {
     schoolYear: '2025-2026', semesterIndex: 1, semesterLabel: '第一学期', termId: '2025-3', week: 1, of: 20, date: '2025-09-01',
   })

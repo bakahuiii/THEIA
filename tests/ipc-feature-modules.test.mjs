@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { access, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { AuthRequiredError } from '../core/source-client.mjs'
 import { registerAuthIpc } from '../electron/auth-ipc.mjs'
 import { registerCourseWorkWorkflowIpc } from '../electron/course-work-ipc.mjs'
 import { registerDataExportIpc } from '../electron/data-export-ipc.mjs'
@@ -34,7 +35,7 @@ function registerCourseWorkForTest(overrides = {}) {
       ...overrides.courseWorkService,
     },
     sessionClient: null,
-    syncService: { runTheolInteraction: (operation) => operation(), retryCourseResources: async () => ({}) },
+    syncService: overrides.syncService || { runTheolInteraction: (operation) => operation(), retryCourseResources: async () => ({}) },
     store: overrides.store || {
       snapshot: () => ({ settings: { dataRoot: 'wrong-config-field' }, assignments: [], notices: [], courses: [] }),
       update: async (update) => update({ workspaces: [] }),
@@ -46,6 +47,7 @@ function registerCourseWorkForTest(overrides = {}) {
     renderMarkdownToPdf: async () => Buffer.from('%PDF-'),
     getAuthEpoch: () => 1,
     assertAuthEpoch: () => {},
+    recoverTheolReadSession: overrides.recoverTheolReadSession,
     waitForSchoolProxy: async () => {},
     locateCourseResource: () => { throw new Error('not used') },
     openSchedulePdf: async () => true,
@@ -91,6 +93,40 @@ test('course-work IPC keeps its handlers in one duplicate-checked feature module
   await ipcMain.handlers.get('theia:summarize-notices')()
   assert.equal(request[1].dataRoot, 'expected-user-data-root')
   assert.notEqual(request[1].dataRoot, 'wrong-config-field')
+})
+
+test('course-work preparation passes authentication failures to the bounded THEOL recovery hook', async () => {
+  let prepareCalls = 0
+  const recoveryEpochs = []
+  const interactionOptions = []
+  const { ipcMain } = registerCourseWorkForTest({
+    courseWorkService: {
+      prepare: async () => {
+        prepareCalls += 1
+        if (prepareCalls === 1) throw new AuthRequiredError('THEOL 作业', 'https://course.buct.edu.cn/meol/task')
+        return { snapshot: { recovered: true } }
+      },
+    },
+    syncService: {
+      retryCourseResources: async () => ({}),
+      async runTheolInteraction(operation, options) {
+        interactionOptions.push(options)
+        try {
+          return await operation()
+        } catch (error) {
+          await options?.onAuthRequired?.(error)
+          return operation()
+        }
+      },
+    },
+    recoverTheolReadSession: async (epoch) => { recoveryEpochs.push(epoch) },
+  })
+
+  const result = await ipcMain.handlers.get('theia:prepare-course-work')(null, 'assignment-1')
+  assert.deepEqual(result, { recovered: true })
+  assert.equal(prepareCalls, 2)
+  assert.deepEqual(recoveryEpochs, [1])
+  assert.equal(typeof interactionOptions[0].onAuthRequired, 'function')
 })
 
 test('course material and assignment IPC open only validated local archive files', async () => {

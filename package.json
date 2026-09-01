@@ -1,7 +1,7 @@
 {
   "name": "theia-campus-client",
   "private": true,
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "THEIA, a local-first desktop workspace for Beijing University of Chemical Technology campus services.",
   "author": "bakahuiii",
   "license": "MIT",
@@ -33,6 +33,7 @@
   "dependencies": {
     "@tencent-connect/qqbot-nodejs": "^1.0.4",
     "@tesseract.js-data/chi_sim": "^1.0.0",
+    "@tesseract.js-data/eng": "^1.0.0",
     "cheerio": "^1.1.2",
     "electron-updater": "6.8.9",
     "iconv-lite": "^0.7.0",
@@ -136,6 +137,7 @@
       "node_modules/tesseract.js/**/*",
       "node_modules/tesseract.js-core/**/*",
       "node_modules/@tesseract.js-data/chi_sim/**/*",
+      "node_modules/@tesseract.js-data/eng/**/*",
       "node_modules/bmp-js/**/*",
       "node_modules/is-url/**/*",
       "node_modules/regenerator-runtime/**/*",

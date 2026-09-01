@@ -20,7 +20,8 @@ const PERSONAL = new URL('personal.do', BASE).toString()
 const COURSE_LIST = new URL('lesson/blen.student.lesson.list.jsp', BASE).toString()
 const WELCOME = new URL('welcomepage/student/index.jsp', BASE).toString()
 const MOBILE_UNDONE_TASKS = 'http://course.buct.edu.cn/mobile/stuUnDoTaskList.do'
-const PARSER_VERSION = 'theol-adapter/4'
+const PARSER_VERSION = 'theol-adapter/5'
+const TASK_LIST_PAGE_LIMIT = 20
 const COURSE_IDENTITY_PARAMETERS = new Set(['courseid', 'lid', 'cateid'])
 
 class CourseContextMismatchError extends Error {
@@ -128,6 +129,45 @@ function taskListLinks(links, courseId) {
     { title: '课程作业', url: new URL(`common/hw/student/hwtask.jsp?lid=${id}`, BASE).toString() },
     { title: '在线测试', url: new URL(`common/question/test/student/list.jsp?cateId=${id}`, BASE).toString() },
   ]
+}
+
+function taskListPageUrl(rawHref, baseUrl, courseId = null) {
+  try {
+    const url = new URL(rawHref, baseUrl)
+    const base = new URL(baseUrl)
+    if (url.origin !== base.origin) return null
+    const isTestList = /\/question[\/_]test[\/_]student[\/_]list\.jsp$/i.test(url.pathname)
+    if (!isTestList && !/\/hwtask\.jsp$/i.test(url.pathname)) return null
+    if (courseId) {
+      const parameter = isTestList ? 'cateId' : 'lid'
+      if (!url.searchParams.has(parameter)) url.searchParams.set(parameter, String(courseId))
+    }
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
+function taskListNextUrl(html, sourceUrl, courseId) {
+  const $ = cheerio.load(String(html || ''))
+  const candidates = []
+  $('a[href]').each((_index, node) => {
+    const label = normalizeText([
+      $(node).text(),
+      $(node).attr('title'),
+      $(node).attr('aria-label'),
+      $(node).find('[title]').first().attr('title'),
+      $(node).find('[alt]').first().attr('alt'),
+    ].filter(Boolean).join(' '))
+    const rel = normalizeText($(node).attr('rel'))
+    if (!/(?:next|下一页|下页)/i.test(`${label} ${rel}`)) return
+    if ($(node).attr('aria-disabled') === 'true' || /(?:disabled|不可用)/i.test($(node).attr('class') || '')) return
+    const url = taskListPageUrl($(node).attr('href'), sourceUrl, courseId)
+    if (!url) return
+    candidates.push({ url, priority: /(?:^|\s)next(?:\s|$)/i.test(rel) ? 0 : 1 })
+  })
+  candidates.sort((left, right) => left.priority - right.priority)
+  return candidates.find((item) => item.url !== sourceUrl)?.url || null
 }
 
 function materialIdentitySafe(result, course) {
@@ -609,6 +649,7 @@ export class TheolAdapter {
     const assignments = []
     const successfulCourseIds = []
     const failedCourseIds = []
+    const incompleteCourseIds = new Set()
     const listedCourses = Array.isArray(courses)
       ? courses.filter((item) => item?.source === 'theol' && item.sourceUrl)
       : []
@@ -627,20 +668,45 @@ export class TheolAdapter {
         }
         const course = parseTheolCourse(courseResult.text, { course: listedCourse, sourceUrl: courseResult.url, capturedAt })
         const courseAssignments = []
+        const visitedTaskListUrls = new Set()
         for (const taskLink of taskListLinks(course.assignmentLinks || [], listedCourse.id)) {
           if (!shouldContinue()) return { aborted: true, capturedAt, errors }
-          try {
-            const taskResult = await this.client.page(taskLink.url, { source: `Task list ${listedCourse.title}`, signal })
-            if (!taskListCourseIdentityMatches(taskResult, listedCourse)) {
-              throw new CourseContextMismatchError('THEOL returned a different course task context')
+          let nextTaskListUrl = taskListPageUrl(taskLink.url, taskLink.url, listedCourse.id) || taskLink.url
+          let pagesVisited = 0
+          while (nextTaskListUrl) {
+            if (!shouldContinue()) return { aborted: true, capturedAt, errors }
+            if (pagesVisited >= TASK_LIST_PAGE_LIMIT) {
+              courseComplete = false
+              incompleteCourseIds.add(String(listedCourse.id))
+              errors.push(`${listedCourse.title}: THEOL 作业列表分页超过 ${TASK_LIST_PAGE_LIMIT} 页限制`)
+              break
             }
-            courseAssignments.push(...parseTheolAssignments(taskResult.text, { course, sourceUrl: taskResult.url, capturedAt }))
-          } catch (error) {
-            if (!shouldContinue() || signal?.aborted) return { aborted: true, capturedAt, errors }
-            if (error instanceof AuthRequiredError) throw error
-            if (error instanceof CourseContextMismatchError) throw error
-            courseComplete = false
-            errors.push(`${listedCourse.title}: ${compactError(error)}`)
+            if (visitedTaskListUrls.has(nextTaskListUrl)) break
+            visitedTaskListUrls.add(nextTaskListUrl)
+            try {
+              const taskResult = await this.client.page(nextTaskListUrl, { source: `Task list ${listedCourse.title}`, signal })
+              if (!taskListCourseIdentityMatches(taskResult, listedCourse)) {
+                throw new CourseContextMismatchError('THEOL returned a different course task context')
+              }
+              courseAssignments.push(...parseTheolAssignments(taskResult.text, { course, sourceUrl: taskResult.url, capturedAt }))
+              pagesVisited += 1
+              const candidateNextUrl = taskListNextUrl(taskResult.text, taskResult.url, listedCourse.id)
+              if (candidateNextUrl && visitedTaskListUrls.has(candidateNextUrl)) {
+                courseComplete = false
+                incompleteCourseIds.add(String(listedCourse.id))
+                errors.push(`${listedCourse.title}: THEOL 作业列表分页链接重复`)
+                break
+              }
+              nextTaskListUrl = candidateNextUrl
+            } catch (error) {
+              if (!shouldContinue() || signal?.aborted) return { aborted: true, capturedAt, errors }
+              if (error instanceof AuthRequiredError) throw error
+              if (error instanceof CourseContextMismatchError) throw error
+              courseComplete = false
+              incompleteCourseIds.add(String(listedCourse.id))
+              errors.push(`${listedCourse.title}: ${compactError(error)}`)
+              break
+            }
           }
         }
         assignments.push(...courseAssignments)
@@ -668,7 +734,9 @@ export class TheolAdapter {
           primaryAssignmentIds = new Set(assignments.map((item) => item.id))
           mobileFallbackIds = new Set(mobile.assignments.map((item) => item.id))
           assignments.push(...mobile.assignments)
-          for (const course of listedCourses) successfulCourseIds.push(String(course.id))
+          for (const course of listedCourses) {
+            if (!incompleteCourseIds.has(String(course.id))) successfulCourseIds.push(String(course.id))
+          }
           mobileFallback = {
             attempted: true,
             status: 'used',
@@ -679,14 +747,18 @@ export class TheolAdapter {
           // keep any remaining failures (courses the mobile fallback does
           // not know about) to avoid masking partial scan issues.
           const mobileCourseIds = new Set(mobile.assignments.map((item) => item.courseId).filter(Boolean))
-          const remaining = failedCourseIds.filter((id) => !mobileCourseIds.has(id))
+          const remaining = failedCourseIds.filter((id) => !mobileCourseIds.has(id) || incompleteCourseIds.has(id))
           failedCourseIds.splice(0, failedCourseIds.length, ...remaining)
           // Drop only the error lines for the courses mobile just covered.
           // Anything else stays so a partial scan is never reported as clean.
           const mobileCourseNames = new Set(mobile.assignments.map((item) => item.courseName).filter(Boolean))
+          const incompleteCourseNames = new Set(listedCourses
+            .filter((course) => incompleteCourseIds.has(String(course.id)))
+            .map((course) => course.title)
+            .filter(Boolean))
           const remainingErrors = errors.filter((entry) => {
             const title = String(entry || '').split(':')[0].trim()
-            return !mobileCourseNames.has(title)
+            return incompleteCourseNames.has(title) || !mobileCourseNames.has(title)
           })
           errors.splice(0, errors.length, ...remainingErrors)
         } else {
@@ -772,6 +844,7 @@ export class TheolAdapter {
           status: 'succeeded',
           capturedAt,
           emptyConfirmed: currentAssignments.length === 0,
+          receivedRecordCount: currentAssignments.length,
           completeness: errors.length ? 'partial' : 'complete',
           parserVersion: PARSER_VERSION,
           errorCode: errors.length ? 'partial_assignment_scan' : null,
