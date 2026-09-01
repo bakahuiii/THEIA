@@ -2,7 +2,7 @@
 
 > THEIA v0.7.2：北京化工大学校园工作台使用说明
 
-[下载 Windows x64 v0.7.2](https://github.com/bakahuiii/THEIA/releases/tag/v0.7.2) · [Android 客户端](https://github.com/bakahuiii/THEIA-Android) · [用户指南](docs/guides/USER_GUIDE.md) · [发行说明](docs/releases/v0.7.2.md)
+[下载 Windows x64 v0.7.2](https://theia-1314083262.cos.ap-beijing.myqcloud.com/stable/THEIA-0.7.2-x64-win.exe) · [GitHub 源码](https://github.com/bakahuiii/THEIA) · [Android 客户端](https://github.com/bakahuiii/THEIA-Android) · [用户指南](docs/guides/USER_GUIDE.md) · [发行说明](docs/releases/v0.7.2.md)
 
 THEIA 是面向北京化工大学学生的本地优先 Windows 校园工作台。它把教务系统、北化在线 THEOL、校园邮箱和本地学习工具放到同一个桌面应用中，负责读取、整理、计算、提醒和准备操作；学校系统中的最终提交、选课决定和成绩认定仍由用户确认。
 
