@@ -16,6 +16,7 @@ test('COS update provider uses the public stable directory', () => {
 function createFakeUpdater() {
   const updater = new EventEmitter()
   let checkCalls = 0
+  let downloadCalls = 0
   let quitCalls = 0
   updater.checkForUpdates = async () => {
     checkCalls += 1
@@ -24,7 +25,12 @@ function createFakeUpdater() {
       version: '0.6.1',
       releaseName: 'THEIA v0.6.1',
       releaseDate: '2026-09-01T00:00:00.000Z',
+      files: [{ url: 'THEIA-0.6.1-x64-win.exe', size: 250000000 }],
     })
+    return { updateInfo: { version: '0.6.1' } }
+  }
+  updater.downloadUpdate = async () => {
+    downloadCalls += 1
     updater.emit('download-progress', {
       percent: 42.5,
       transferred: 42,
@@ -35,15 +41,20 @@ function createFakeUpdater() {
       version: '0.6.1',
       releaseName: 'THEIA v0.6.1',
       releaseDate: '2026-09-01T00:00:00.000Z',
+      files: [{ url: 'THEIA-0.6.1-x64-win.exe', size: 250000000 }],
     })
-    return { updateInfo: { version: '0.6.1' } }
   }
   updater.quitAndInstall = () => { quitCalls += 1 }
-  return { updater, getCheckCalls: () => checkCalls, getQuitCalls: () => quitCalls }
+  return {
+    updater,
+    getCheckCalls: () => checkCalls,
+    getDownloadCalls: () => downloadCalls,
+    getQuitCalls: () => quitCalls,
+  }
 }
 
-test('GitHub updater publishes available, downloading, downloaded and install states', async () => {
-  const { updater, getCheckCalls, getQuitCalls } = createFakeUpdater()
+test('GitHub updater waits for an explicit download and reports the installer size', async () => {
+  const { updater, getCheckCalls, getDownloadCalls, getQuitCalls } = createFakeUpdater()
   const statuses = []
   const runtime = createGithubUpdateRuntime({
     autoUpdater: updater,
@@ -55,19 +66,55 @@ test('GitHub updater publishes available, downloading, downloaded and install st
 
   assert.equal(statuses[0].state, 'idle')
   assert.equal(statuses[0].supported, true)
+  assert.equal(updater.autoDownload, false)
 
   await runtime.checkForUpdates()
 
   assert.equal(getCheckCalls(), 1)
   assert.equal(statuses.some((status) => status.state === 'checking'), true)
   assert.equal(statuses.some((status) => status.state === 'available'), true)
+  assert.equal(runtime.getStatus().state, 'available')
+  assert.equal(runtime.getStatus().updateSizeBytes, 250000000)
+  assert.equal(getDownloadCalls(), 0)
+
+  await runtime.downloadUpdate()
+
+  assert.equal(getDownloadCalls(), 1)
   assert.equal(statuses.some((status) => status.state === 'downloading'), true)
   assert.equal(statuses.at(-1).state, 'downloaded')
   assert.equal(statuses.at(-1).availableVersion, '0.6.1')
   assert.equal(statuses.at(-1).progress, null)
+  assert.equal(statuses.at(-1).updateSizeBytes, 250000000)
 
   await runtime.installUpdate()
   assert.equal(getQuitCalls(), 1)
+})
+
+test('GitHub updater persists and filters a skipped version', async () => {
+  const { updater } = createFakeUpdater()
+  let skippedVersion = null
+  const statuses = []
+  const runtime = createGithubUpdateRuntime({
+    autoUpdater: updater,
+    currentVersion: '0.6.0',
+    enabled: true,
+    platform: 'win32',
+    getSkippedVersion: () => skippedVersion,
+    setSkippedVersion: async (version) => { skippedVersion = version },
+    sendStatus: (status) => statuses.push(status),
+  })
+
+  await runtime.checkForUpdates()
+  assert.equal(runtime.getStatus().state, 'available')
+
+  await runtime.skipUpdateVersion()
+  assert.equal(skippedVersion, '0.6.1')
+  assert.equal(runtime.getStatus().state, 'idle')
+  assert.equal(runtime.getStatus().availableVersion, null)
+
+  await runtime.checkForUpdates()
+  assert.equal(runtime.getStatus().state, 'idle')
+  assert.equal(statuses.at(-1).availableVersion, null)
 })
 
 test('GitHub updater treats a missing latest.yml release asset as not available', async () => {

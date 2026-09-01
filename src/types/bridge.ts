@@ -77,6 +77,8 @@ export interface TheiaBridge {
   getIrisStatus(): Promise<IrisCompanionStatus>;
   getUpdateStatus(): Promise<GithubUpdateStatus>;
   checkForUpdates(): Promise<GithubUpdateStatus>;
+  downloadUpdate(): Promise<GithubUpdateStatus>;
+  skipUpdateVersion(): Promise<GithubUpdateStatus>;
   installUpdate(): Promise<GithubUpdateStatus>;
   openIrisControlPanel(): Promise<{ opened: boolean; url?: string }>;
   saveIrisSettings(settings: { enabled?: boolean; visibleProviders?: string[]; providers?: Record<string, boolean> }): Promise<IrisCompanionStatus>;
@@ -269,6 +271,7 @@ export interface GithubUpdateStatus {
   releaseDate: string | null;
   lastCheckedAt: string | null;
   progress: GithubUpdateProgress | null;
+  updateSizeBytes: number | null;
   error: string | null;
 }
 

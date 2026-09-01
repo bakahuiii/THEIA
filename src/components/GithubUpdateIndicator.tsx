@@ -1,4 +1,6 @@
 import { AlertCircle, CheckCircle2, Download, RefreshCw } from "lucide-react";
+import { createPortal } from "react-dom";
+import { bridge } from "../bridge";
 import type { GithubUpdateStatus } from "../types";
 
 function progressPercent(status: GithubUpdateStatus) {
@@ -31,7 +33,7 @@ function statusCopy(status: GithubUpdateStatus) {
     case "available":
       return {
         title: "发现新版本",
-        detail: `v${status.availableVersion || "未知版本"}，准备开始下载`,
+        detail: `v${status.availableVersion || "未知版本"}，点击“更新”开始下载`,
       };
     case "downloading":
       return {
@@ -68,7 +70,8 @@ export function GithubUpdateIndicator({ status }: { status: GithubUpdateStatus }
         ? Download
         : RefreshCw;
 
-  return (
+  const updateSize = status.updateSizeBytes || status.progress?.totalBytes || 0;
+  const content = (
     <aside
       className={`github-update-indicator is-${status.state}`}
       role="status"
@@ -98,12 +101,38 @@ export function GithubUpdateIndicator({ status }: { status: GithubUpdateStatus }
         )}
         {downloading && (
           <div className="github-update-indicator-meta">
-            <span>{formatBytes(status.progress?.transferredBytes || 0)} / {formatBytes(status.progress?.totalBytes || 0)}</span>
+            <span>{formatBytes(status.progress?.transferredBytes || 0)} / {formatBytes(status.progress?.totalBytes || updateSize)}</span>
             <span>{formatSpeed(status.progress?.bytesPerSecond || 0)}</span>
             <strong>{Math.round(progress)}%</strong>
+          </div>
+        )}
+        {updateSize > 0 && status.state !== "downloading" && (
+          <div className="github-update-indicator-size">文件大小：{formatBytes(updateSize)}</div>
+        )}
+        {status.state === "available" && (
+          <div className="github-update-indicator-actions">
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => void bridge.downloadUpdate()}
+            >
+              <Download size={14} aria-hidden="true" />
+              更新
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => void bridge.skipUpdateVersion()}
+            >
+              跳过版本
+            </button>
           </div>
         )}
       </div>
     </aside>
   );
+
+  // A transformed scrolling shell can become the containing block for fixed
+  // descendants. Mount the notification under body so it stays at the viewport edge.
+  return createPortal(content, document.body);
 }

@@ -14,6 +14,20 @@ function formatUpdateTime(value: string | null) {
   return Number.isNaN(time.getTime()) ? value : time.toLocaleString("zh-CN", { hour12: false });
 }
 
+function formatUpdateBytes(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return "0 B";
+  if (value < 1024) return `${Math.round(value)} B`;
+  const units = ["KB", "MB", "GB"];
+  let amount = value;
+  let unit = "B";
+  for (const nextUnit of units) {
+    amount /= 1024;
+    unit = nextUnit;
+    if (amount < 1024 || nextUnit === units.at(-1)) break;
+  }
+  return `${amount.toFixed(amount >= 10 ? 0 : 1)} ${unit}`;
+}
+
 function describeUpdate(status: GithubUpdateStatus) {
   if (!status.supported) return "仅正式 Windows 安装包支持 COS 自动更新。";
   if (status.state === "checking") return "正在检查 COS 更新服务。";
@@ -53,11 +67,14 @@ export function AboutSettings({
   const updateStatus = useGithubUpdateStatus(state.appVersion || "web");
 
   const apiOnline = Boolean(apiStatus.baseUrl && apiStatus.host && apiStatus.port > 0);
-  const updateInProgress = updateStatus.state === "checking" || updateStatus.state === "available" || updateStatus.state === "downloading";
+  const updateAvailable = updateStatus.state === "available";
+  const updateInProgress = updateStatus.state === "checking" || updateStatus.state === "downloading";
+  const updateProgressVisible = updateInProgress || updateAvailable;
   const downloading = updateStatus.state === "downloading";
   const updatePercent = Number.isFinite(updateStatus.progress?.percent)
     ? Math.max(0, Math.min(100, updateStatus.progress?.percent || 0))
     : 0;
+  const updateSize = updateStatus.updateSizeBytes || updateStatus.progress?.totalBytes || 0;
   const canInstall = updateStatus.supported && updateStatus.state === "downloaded";
   const primaryLabel = !updateStatus.supported
     ? "仅安装包可用"
@@ -65,8 +82,8 @@ export function AboutSettings({
       ? "重启并安装更新"
       : updateStatus.state === "checking"
         ? "检查中"
-        : updateStatus.state === "available"
-          ? "准备下载"
+        : updateAvailable
+          ? "更新"
           : downloading
             ? "下载中"
             : "检查更新";
@@ -93,6 +110,10 @@ export function AboutSettings({
     if (!updateStatus.supported || updateInProgress) return;
     if (canInstall) {
       await bridge.installUpdate();
+      return;
+    }
+    if (updateAvailable) {
+      await bridge.downloadUpdate();
       return;
     }
     if (updateStatus.supported) {
@@ -153,10 +174,11 @@ export function AboutSettings({
           <small>{describeUpdate(updateStatus)}</small>
           <span>当前版本：THEIA {updateStatus.currentVersion || state.appVersion || "开发版本"}</span>
           <span>上次检查：{formatUpdateTime(updateStatus.lastCheckedAt)}</span>
-            {updateInProgress && (
+            {updateProgressVisible && (
             <div className={`about-update-progress ${downloading ? "" : "is-indeterminate"}`}>
               <div className="about-update-progress-label">
                 <span>{downloading ? "下载进度" : updateStatus.state === "available" ? "准备下载" : "检查进度"}</span>
+                {updateSize > 0 && <span>文件大小：{formatUpdateBytes(updateSize)}</span>}
                 <strong>{downloading ? `${Math.round(updatePercent)}%` : "进行中"}</strong>
               </div>
               <div

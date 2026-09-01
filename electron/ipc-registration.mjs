@@ -165,6 +165,8 @@ export function registerModelRuntimeIpc({
 export function registerGithubUpdateIpc({ ipcMain, updateRuntime }) {
   ipcMain.handle('theia:get-update-status', () => updateRuntime.getStatus())
   ipcMain.handle('theia:check-for-updates', async () => updateRuntime.checkForUpdates())
+  ipcMain.handle('theia:download-update', async () => updateRuntime.downloadUpdate())
+  ipcMain.handle('theia:skip-update-version', async () => updateRuntime.skipUpdateVersion())
   ipcMain.handle('theia:install-update', async () => updateRuntime.installUpdate())
 }
 

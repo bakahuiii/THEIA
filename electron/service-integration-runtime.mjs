@@ -1,4 +1,6 @@
 import { IrisCompanion } from './iris-companion.mjs'
+import { readFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import { startCourseWorkQueue } from './course-work-queue-runtime.mjs'
 import { createLocalApiHandlers } from './local-api-handlers.mjs'
 import { registerRuntimeIpc } from './runtime-ipc.mjs'
@@ -8,6 +10,17 @@ import { THEOL_ATTACHMENT_MAX_BYTES } from '../core/theol-attachment-store.mjs'
 import { startLocalApi } from '../core/local-api.mjs'
 
 const { autoUpdater } = updater
+
+async function loadSkippedUpdateVersion(root) {
+  try {
+    const raw = JSON.parse(await readFile(resolve(root, 'update-preferences.json'), 'utf8'))
+    return typeof raw?.skippedVersion === 'string' && raw.skippedVersion.trim()
+      ? raw.skippedVersion.trim()
+      : null
+  } catch {
+    return null
+  }
+}
 
 export async function initializeServiceIntegration({
   app,
@@ -191,11 +204,21 @@ export async function initializeServiceIntegration({
 
   const updateEnabled = app.isPackaged && process.env.THEIA_DISABLE_AUTO_UPDATE !== '1'
   if (updateEnabled) configureCosUpdateProvider(autoUpdater)
+  let skippedUpdateVersion = updateEnabled ? await loadSkippedUpdateVersion(dataRoot) : null
   const updateRuntime = createGithubUpdateRuntime({
     autoUpdater,
     currentVersion: getVersion(),
     enabled: updateEnabled,
     platform: process.platform,
+    getSkippedVersion: () => skippedUpdateVersion,
+    setSkippedVersion: async (version) => {
+      skippedUpdateVersion = String(version || '').trim() || null
+      await writeFile(
+        resolve(dataRoot, 'update-preferences.json'),
+        `${JSON.stringify({ skippedVersion: skippedUpdateVersion })}\n`,
+        'utf8',
+      )
+    },
     sendStatus: (status) => {
       const window = getMainWindow()
       if (!window || window.isDestroyed()) return

@@ -32,7 +32,7 @@ test('settings navigation and About expose explicit icon states', () => {
   assert.match(settingsView, /id === "sync" && syncing/)
   assert.match(settingsView, /strokeWidth=\{activeSection === id \? 2\.2 : 1\.8\}/)
   assert.match(settingsView, /aria-hidden="true"/)
-  assert.match(aboutView, /updateInProgress = .*"available".*"downloading"/s)
+  assert.match(aboutView, /updateInProgress = .*"checking".*"downloading"/s)
   assert.match(aboutView, /updateStatus\.state === "available"[\s\S]*?"准备下载"/)
   assert.match(aboutView, /disabled=\{!updateStatus\.supported \|\| updateInProgress\}/)
   assert.match(aboutView, /about-update is-\$\{updateTone\(updateStatus\)\}/)

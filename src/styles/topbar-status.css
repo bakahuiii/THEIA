@@ -147,13 +147,17 @@
 
 .github-update-indicator-meta span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .github-update-indicator-meta strong { color: var(--primary); font-weight: 700; }
+.github-update-indicator-size { color: var(--muted-foreground); font-size: 9px; font-variant-numeric: tabular-nums; }
+.github-update-indicator-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 3px; }
+.github-update-indicator-actions button { min-height: 28px; padding: 0 10px; font-size: 10px; }
 .github-update-indicator.is-downloaded .github-update-indicator-icon { color: var(--success, #55c7a1); background: color-mix(in srgb, var(--success, #55c7a1) 13%, var(--card)); }
 .github-update-indicator.is-downloaded { border-color: color-mix(in srgb, var(--success, #55c7a1) 34%, var(--border)); }
 .github-update-indicator.is-error .github-update-indicator-icon { color: var(--destructive); background: color-mix(in srgb, var(--destructive) 12%, var(--card)); }
 .github-update-indicator.is-error { border-color: color-mix(in srgb, var(--destructive) 34%, var(--border)); }
 
 .about-update-progress { display: grid; gap: 5px; margin-top: 3px; }
-.about-update-progress-label { display: flex; justify-content: space-between; gap: 10px; color: var(--muted-foreground); font-size: 9px; }
+.about-update-progress-label { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: baseline; gap: 8px; color: var(--muted-foreground); font-size: 9px; }
+.about-update-progress-label span:nth-child(2) { min-width: 0; overflow-wrap: anywhere; text-align: right; }
 .about-update-progress-label strong { color: var(--primary); font-variant-numeric: tabular-nums; }
 
 @keyframes github-update-indicator-in {

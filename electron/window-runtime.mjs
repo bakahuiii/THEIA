@@ -204,7 +204,8 @@ export function createWindowRuntime({
             'prepareCourseWork', 'openCourseWork', 'importCourseWorkFile',
             'openSubmission', 'applyTestAnswers', 'getModelStatus', 'saveModelConfig',
             'clearModelApiKey', 'validateModelConnection', 'discoverModels', 'processCourseWorkWithModel',
-            'chooseAppBackground', 'onSnapshot', 'onAuthStatus'
+            'chooseAppBackground', 'getUpdateStatus', 'checkForUpdates', 'downloadUpdate',
+            'skipUpdateVersion', 'installUpdate', 'onSnapshot', 'onAuthStatus', 'onUpdateStatus'
           ]
           return {
             type: typeof api,

@@ -12,6 +12,7 @@ export function defaultGithubUpdateStatus(currentVersion = "web"): GithubUpdateS
     releaseDate: null,
     lastCheckedAt: null,
     progress: null,
+    updateSizeBytes: null,
     error: null,
   };
 }

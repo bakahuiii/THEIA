@@ -110,7 +110,8 @@
 
 - 关于页显示当前版本、schema 和本机数据接口。
 - COS 自动更新只对正式 Windows 安装包生效。
-- 能安装时按钮会切成“重启并安装更新”，检查中则显示进度状态。
+- 发现新版本后右下角通知提供“更新”和“跳过版本”；“更新”按钮才会开始下载，“跳过版本”会保存在本机。
+- 关于页显示下载进度、实际文件大小和速度；下载完成后按钮会切成“重启并安装更新”。
 - 这部分不会替你改学校侧数据，只处理本机安装包。
 - 关于页展示独立的 THEIA-Android 客户端：支持 Android 10+，提供只读校园数据视图，并通过外部链接打开其 GitHub 仓库。
 
@@ -121,5 +122,5 @@
 - DataSettings 里活动日志会先走 activityLogTone 再统一渲染，导出部分则通过 onExport 把格式和 collection 交给上层。
 - AppearanceSettings 里的 applyPreset、applyVisualPreset、setAppBackground、setGradientMap、updateSceneTuning 和 resetSceneTuning 分别对应主题、背景、渐变和 3D 墨景。
 - AdvancedModelSettings 里的状态包括 provider、baseUrl、apiKey、modelRouting、models、advisorConfig 和 discoveryError；模型发现走 bridge.discoverModels，保存时把这些字段一起提交。
-- AboutSettings 通过 bridge.getUpdateStatus、bridge.checkForUpdates 和 bridge.installUpdate 管理 COS 自动更新，只有进入 downloaded 状态时才允许安装。
+- AboutSettings 通过 bridge.getUpdateStatus、bridge.checkForUpdates、bridge.downloadUpdate 和 bridge.installUpdate 管理 COS 自动更新，只有进入 downloaded 状态时才允许安装；右下角通知还可通过 bridge.skipUpdateVersion 忽略当前版本。
 - McpIntegrationSettings 用 bridge.installMcpClients 一键添加本机只读 MCP；IrisCompanionSettings 则通过 bridge.getIrisStatus、bridge.saveIrisCredentials、bridge.startIris、bridge.stopIris、bridge.restartIris 和 bridge.openIrisControlPanel 管理 QQ 伴侣。

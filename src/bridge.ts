@@ -135,6 +135,7 @@ function unsupportedUpdateStatus(): GithubUpdateStatus {
     releaseDate: null,
     lastCheckedAt: null,
     progress: null,
+    updateSizeBytes: null,
     error: null,
   };
 }
@@ -212,6 +213,12 @@ const webBridge: TheiaBridge = {
     return unsupportedUpdateStatus();
   },
   async checkForUpdates(): Promise<GithubUpdateStatus> {
+    return unsupportedUpdateStatus();
+  },
+  async downloadUpdate(): Promise<GithubUpdateStatus> {
+    return unsupportedUpdateStatus();
+  },
+  async skipUpdateVersion(): Promise<GithubUpdateStatus> {
     return unsupportedUpdateStatus();
   },
   async installUpdate(): Promise<GithubUpdateStatus> {

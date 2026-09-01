@@ -72,6 +72,19 @@ function readReleaseDate(info) {
   return typeof value === 'string' && value.trim() ? value : null
 }
 
+function readUpdateSize(info) {
+  const files = Array.isArray(info?.files) ? info.files : []
+  const installer = files.find((file) => /\.exe$/i.test(String(file?.url || file?.path || '')))
+  const candidate = installer || files[0]
+  const size = Number(candidate?.size)
+  return Number.isFinite(size) && size > 0 ? Math.round(size) : null
+}
+
+function normalizedSkippedVersion(value) {
+  const version = comparableVersion(value)
+  return version || null
+}
+
 export function createGithubUpdateRuntime({
   autoUpdater,
   currentVersion,
@@ -79,6 +92,8 @@ export function createGithubUpdateRuntime({
   platform = process.platform,
   sendStatus = () => {},
   now = () => new Date().toISOString(),
+  getSkippedVersion = () => null,
+  setSkippedVersion = async () => {},
 } = {}) {
   const updater = autoUpdater && typeof autoUpdater.on === 'function' ? autoUpdater : null
   const supported = Boolean(enabled && updater && platform === 'win32')
@@ -92,11 +107,13 @@ export function createGithubUpdateRuntime({
     releaseDate: null,
     lastCheckedAt: null,
     progress: null,
+    updateSizeBytes: null,
     error: null,
   }
 
   let status = cloneStatus(baseStatus)
   let checking = false
+  let downloading = false
   let disposed = false
 
   const publish = (next) => {
@@ -111,59 +128,88 @@ export function createGithubUpdateRuntime({
 
   const onCheckingForUpdate = () => {
     checking = true
+    downloading = false
     publish({
       state: UPDATE_STATES.checking,
+      availableVersion: null,
+      releaseName: null,
+      releaseDate: null,
       lastCheckedAt: now(),
       error: null,
       progress: null,
+      updateSizeBytes: null,
     })
   }
 
   const onUpdateAvailable = (info) => {
+    const availableVersion = normalizeVersion(info?.version)
+    if (normalizedSkippedVersion(getSkippedVersion()) === comparableVersion(availableVersion)) {
+      checking = false
+      downloading = false
+      publish({
+        state: UPDATE_STATES.idle,
+        availableVersion: null,
+        releaseName: null,
+        releaseDate: null,
+        progress: null,
+        updateSizeBytes: null,
+        error: null,
+      })
+      return
+    }
+    checking = false
     publish({
       state: UPDATE_STATES.available,
-      availableVersion: normalizeVersion(info?.version),
+      availableVersion,
       releaseName: typeof info?.releaseName === 'string' && info.releaseName.trim() ? info.releaseName : null,
       releaseDate: readReleaseDate(info),
       error: null,
       progress: null,
+      updateSizeBytes: readUpdateSize(info),
     })
   }
 
   const onUpdateNotAvailable = () => {
     checking = false
+    downloading = false
     publish({
       state: UPDATE_STATES.notAvailable,
       availableVersion: null,
       releaseName: null,
       releaseDate: null,
       progress: null,
+      updateSizeBytes: null,
       error: null,
     })
   }
 
   const onDownloadProgress = (progress) => {
+    const normalized = normalizeProgress(progress)
     publish({
       state: UPDATE_STATES.downloading,
-      progress: normalizeProgress(progress),
+      progress: normalized,
+      updateSizeBytes: normalized?.totalBytes > 0 ? normalized.totalBytes : status.updateSizeBytes,
       error: null,
     })
   }
 
   const onUpdateDownloaded = (info) => {
     checking = false
+    downloading = false
     publish({
       state: UPDATE_STATES.downloaded,
       availableVersion: normalizeVersion(info?.version || status.availableVersion),
       releaseName: typeof info?.releaseName === 'string' && info.releaseName.trim() ? info.releaseName : status.releaseName,
       releaseDate: readReleaseDate(info) || status.releaseDate,
       progress: null,
+      updateSizeBytes: readUpdateSize(info) || status.updateSizeBytes,
       error: null,
     })
   }
 
   const onError = (error) => {
     checking = false
+    downloading = false
     if (isMissingLatestMetadataError(error, currentVersion)) {
       onUpdateNotAvailable()
       return
@@ -176,7 +222,7 @@ export function createGithubUpdateRuntime({
   }
 
   if (updater) {
-    updater.autoDownload = true
+    updater.autoDownload = false
     updater.autoInstallOnAppQuit = true
     updater.on('checking-for-update', onCheckingForUpdate)
     updater.on('update-available', onUpdateAvailable)
@@ -192,10 +238,54 @@ export function createGithubUpdateRuntime({
     getStatus: () => cloneStatus(status),
     async checkForUpdates() {
       if (!supported || !updater) return cloneStatus(status)
-      if (checking || status.state === UPDATE_STATES.downloading) return cloneStatus(status)
+      if (checking || downloading) return cloneStatus(status)
       try {
         onCheckingForUpdate()
         await updater.checkForUpdates()
+      } catch (error) {
+        onError(error)
+      }
+      return cloneStatus(status)
+    },
+    async downloadUpdate() {
+      if (!supported || !updater) return cloneStatus(status)
+      if (status.state !== UPDATE_STATES.available || downloading) return cloneStatus(status)
+      downloading = true
+      publish({
+        state: UPDATE_STATES.downloading,
+        progress: {
+          percent: 0,
+          transferredBytes: 0,
+          totalBytes: status.updateSizeBytes || 0,
+          bytesPerSecond: 0,
+        },
+        error: null,
+      })
+      try {
+        await updater.downloadUpdate()
+      } catch (error) {
+        onError(error)
+      }
+      return cloneStatus(status)
+    },
+    async skipUpdateVersion() {
+      if (!supported || !updater || status.state !== UPDATE_STATES.available || !status.availableVersion) {
+        return cloneStatus(status)
+      }
+      const version = status.availableVersion
+      try {
+        await setSkippedVersion(version)
+        checking = false
+        downloading = false
+        publish({
+          state: UPDATE_STATES.idle,
+          availableVersion: null,
+          releaseName: null,
+          releaseDate: null,
+          progress: null,
+          updateSizeBytes: null,
+          error: null,
+        })
       } catch (error) {
         onError(error)
       }
