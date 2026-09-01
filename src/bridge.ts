@@ -13,6 +13,7 @@ import type {
   TheiaBridge,
   CampusState,
   AdvisorOverview,
+  ApiStatus,
   UserDataDomainSummary,
   UserDataOverview,
   UserDataRecordsOptions,
@@ -362,6 +363,9 @@ const webBridge: TheiaBridge = {
   async openAssignmentSource() {
     throw new Error("Assignment source pages are available only in the desktop client");
   },
+  async openCourseMaterial() {
+    throw new Error("课程资料仅在桌面客户端中可用");
+  },
   async openSchedulePdf() {
     throw new Error(
       "Schedule PDF output is available only in the desktop client",
@@ -455,7 +459,7 @@ const webBridge: TheiaBridge = {
     throw new Error("PDF 渲染仅在桌面客户端中可用");
   },
   async getApiStatus() {
-    return { baseUrl: "", host: "", port: 0, academicCalendarAssets: {}, academicPlanAssetBaseUrl: "" };
+    return { baseUrl: "", host: "", port: 0, apiEndpoints: [], mcp: undefined, academicCalendarAssets: {}, academicPlanAssetBaseUrl: "" } satisfies ApiStatus;
   },
   async getFitnessScore(): Promise<FitnessScoreResult> {
     throw new Error("体测成绩导入仅在桌面客户端中可用");

@@ -1,11 +1,12 @@
-import { useMemo } from "react";
 import { Database, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
+import { useMemo } from "react";
 import { navGroups, navItems } from "../ui/navigation";
 import { SyncChip, type ViewId } from "../ui/app-shared";
 import type { CampusState } from "../types";
 
 type AppSidebarProps = {
   state: CampusState;
+  apiBase: string;
   syncing: boolean;
   syncFreshness: {
     kind: "syncing" | "failed" | "idle" | "ready";
@@ -23,8 +24,18 @@ type AppSidebarProps = {
   mark: string;
 };
 
+function apiHostLabel(baseUrl: string) {
+  if (!baseUrl) return "未启动";
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return baseUrl;
+  }
+}
+
 export function AppSidebar({
   state,
+  apiBase,
   syncing,
   syncFreshness,
   view,
@@ -132,7 +143,7 @@ export function AppSidebar({
           >
             <Database size={17} />
             <span className="sidebar-api-label">
-              本地 API <span className="api-port">:{state.settings.apiPort}</span>
+              本地 API <span className="api-port">{apiHostLabel(apiBase)}</span>
             </span>
           </button>
         </div>

@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../compon
 import type {
   AcademicApiCredentialStatus,
   ActivityLogEntry,
+  ApiStatus,
   AuthStatus,
   CampusState,
   CredentialStatus,
@@ -16,6 +17,7 @@ import { AdvancedModelSettings } from "./settings/AdvancedModelSettings";
 import { AppearanceSettings } from "./settings/AppearanceSettings";
 import { DataSettings, type DataExportFormat } from "./settings/DataSettings";
 import { IrisCompanionSettings } from "./settings/IrisCompanionSettings";
+import { InterfaceSettings } from "./settings/InterfaceSettings";
 import { McpIntegrationSettings } from "./settings/McpIntegrationSettings";
 import { SyncSettings } from "./settings/SyncSettings";
 import { SYNC_ERROR_LABELS, syncRecord, type SyncDataDefinition } from "./settings/SyncSettingsModel";
@@ -26,7 +28,7 @@ const SETTINGS_NAV = [
   { id: "appearance", label: "外观", icon: Palette },
   { id: "sync", label: "同步", icon: RefreshCw },
   { id: "data", label: "数据", icon: Database },
-  { id: "interfaces", label: "接口", icon: Server },
+  { id: "interfaces", label: "接口与集成", icon: Server },
   { id: "model", label: "模型服务", icon: BrainCircuit },
 ] as const;
 
@@ -36,6 +38,7 @@ type SettingsViewProps = {
   initialSection?: SettingsSection;
   state: CampusState;
   apiBase: string;
+  apiStatus: ApiStatus;
   auth: AuthStatus;
   credentials: CredentialStatus;
   academicApiCredentials: AcademicApiCredentialStatus;
@@ -61,6 +64,7 @@ export function SettingsView({
   initialSection = "appearance",
   state,
   apiBase,
+  apiStatus,
   credentials,
   academicApiCredentials,
   mailCredentials,
@@ -80,8 +84,6 @@ export function SettingsView({
   const [activeSection, setActiveSection] = useState<SettingsSection>("appearance");
   const [saving, setSaving] = useState(false);
   const [retryingDomain, setRetryingDomain] = useState<SyncDataDefinition["id"] | null>(null);
-  const origin = apiBase || "桌面客户端启动后可用";
-
   useEffect(() => {
     if (open) setActiveSection(initialSection);
   }, [initialSection, open]);
@@ -134,41 +136,46 @@ export function SettingsView({
     }
   };
 
-  const sectionTitle = activeSection === "appearance"
-    ? "外观"
-    : activeSection === "sync"
-      ? "同步"
-      : activeSection === "data"
-        ? "数据"
-        : activeSection === "interfaces"
-          ? "接口"
-          : activeSection === "model"
-            ? "模型服务"
-            : "关于 THEIA";
+  const sectionMeta: Record<SettingsSection, { title: string; description: string }> = {
+    appearance: { title: "外观", description: "调整 THEIA 的主题、背景、动效与阅读密度。" },
+    sync: { title: "同步", description: "控制校园数据的更新频率、来源和失败重试。" },
+    data: { title: "数据", description: "管理校园数据来源、凭据、邮箱、日志与本地导出。" },
+    interfaces: { title: "接口与集成", description: "查看本地 API、MCP 和 Iris 的当前运行能力。" },
+    model: { title: "模型服务", description: "配置模型连接、角色路由和顾问行为边界。" },
+    about: { title: "关于 THEIA", description: "版本、发布渠道、客户端和本地数据边界。" },
+  };
+  const activeMeta = sectionMeta[activeSection];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="settings-dialog" showCloseButton={false}>
         <aside className="settings-modal-nav" aria-label="设置分类">
-          <div className="settings-modal-brand"><span>Θεία</span><strong>THEIA</strong><small>Preferences</small></div>
+          <div className="settings-modal-brand"><span>Θεία</span><strong>THEIA</strong><small>LOCAL-FIRST CAMPUS CLIENT</small></div>
           <nav>
             {SETTINGS_NAV.map(({ id, label, icon: Icon }) => (
-              <button type="button" key={id} className={activeSection === id ? "active" : ""} onClick={() => setActiveSection(id)} aria-current={activeSection === id ? "page" : undefined}>
-                <Icon size={17} /><span>{label}</span>
+              <button type="button" key={id} className={activeSection === id ? "active" : ""} onClick={() => setActiveSection(id)} aria-label={label} title={label} aria-current={activeSection === id ? "page" : undefined} data-section={id}>
+                <Icon
+                  className={["settings-nav-icon", id === "sync" && syncing ? "is-syncing spinning" : ""].filter(Boolean).join(" ")}
+                  size={17}
+                  strokeWidth={activeSection === id ? 2.2 : 1.8}
+                  aria-hidden="true"
+                />
+                <span>{label}</span>
               </button>
             ))}
           </nav>
           <div className="settings-nav-bottom">
-            <button type="button" className={activeSection === "about" ? "active" : ""} onClick={() => setActiveSection("about")} aria-current={activeSection === "about" ? "page" : undefined}>
-              <CircleHelp size={17} /><span>关于</span>
+            <button type="button" className={activeSection === "about" ? "active" : ""} onClick={() => setActiveSection("about")} aria-label="关于" title="关于" aria-current={activeSection === "about" ? "page" : undefined} data-section="about">
+              <CircleHelp className="settings-nav-icon" size={17} strokeWidth={activeSection === "about" ? 2.2 : 1.8} aria-hidden="true" />
+              <span>关于</span>
             </button>
           </div>
         </aside>
 
         <div className="settings-dialog-main">
           <header className="settings-dialog-header">
-            <div><DialogTitle>{sectionTitle}</DialogTitle><DialogDescription>THEIA 的本机偏好与校园数据连接。</DialogDescription></div>
-            <button type="button" className="settings-dialog-close" onClick={() => onOpenChange(false)} aria-label="关闭设置" title="关闭"><X size={18} /></button>
+            <div><DialogTitle>{activeMeta.title}</DialogTitle><DialogDescription>{activeMeta.description}</DialogDescription></div>
+            <button type="button" className="settings-dialog-close" onClick={() => onOpenChange(false)} aria-label="关闭设置" title="关闭"><X size={18} aria-hidden="true" /></button>
           </header>
           <div className="settings-dialog-scroll">
             {activeSection === "appearance" && <AppearanceSettings onMessage={onMessage} />}
@@ -203,30 +210,13 @@ export function SettingsView({
             )}
             {activeSection === "interfaces" && (
               <>
-                <section className="settings-section data-connections-section">
-                  <div className="settings-title"><div className="settings-icon teal"><Server size={20} /></div><div><h2>接口</h2><p>管理 THEIA 本地只读 API、MCP 和 Iris 等本机集成。</p></div></div>
-                </section>
-                <section className="settings-section">
-                  <div className="settings-title"><div className="settings-icon amber"><Server size={20} /></div><div><h2>THEIA 本地接口</h2><p>只读服务仅监听本机回环地址。</p></div></div>
-                  <div className="api-endpoint"><code>{origin}</code><button className="icon-button" data-tooltip="复制接口地址" aria-label="复制接口地址" disabled={!apiBase} onClick={() => void navigator.clipboard.writeText(origin)}><Database size={17} /></button></div>
-                  <div className="endpoint-list">
-                    <code>GET /v1/snapshot</code><span>完整规范化数据</span>
-                    <code>GET /v1/feed</code><span>校园事件与任务 Feed</span>
-                    <code>GET /v1/academic-progress</code><span>培养方案和学分进度</span>
-                    <code>GET /v1/selected-courses</code><span>当前学期已选课程</span>
-                    <code>GET /v1/calendar.ics</code><span>考试与作业日历</span>
-                    <code>GET /v1/venue-statuses</code><span>运动场馆实时状态（每次实时拉取）</span>
-                    <code>GET /v1/motion-table-image</code><span>运动场馆状态表图片（PNG）</span>
-                    <code>GET /v1/free-classroom-image</code><span>空闲教室图片（有缓存则用缓存）</span>
-                    <code>GET /v1/table-image</code><span>教务表格图片（PNG）</span>
-                  </div>
-                </section>
+                <InterfaceSettings status={apiStatus} onMessage={onMessage} />
                 <McpIntegrationSettings onMessage={onMessage} />
                 <IrisCompanionSettings onMessage={onMessage} />
               </>
             )}
             {activeSection === "model" && <AdvancedModelSettings state={state} status={modelStatus} onStatus={onModelStatus} onMessage={onMessage} />}
-            {activeSection === "about" && <AboutSettings state={state} apiBase={apiBase} />}
+            {activeSection === "about" && <AboutSettings state={state} apiBase={apiBase} apiStatus={apiStatus} />}
           </div>
         </div>
       </DialogContent>

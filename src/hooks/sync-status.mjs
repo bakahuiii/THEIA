@@ -32,6 +32,15 @@ function failureSignature(error) {
   return sanitizeSyncFailure(error).toLocaleLowerCase();
 }
 
+const SYNC_RENDERER_START_GRACE_MS = 5_000;
+
+export function syncStartedDuringRenderer(sync, rendererStartedAt, graceMs = SYNC_RENDERER_START_GRACE_MS) {
+  const startedAt = Date.parse(sync?.lastStartedAt || "");
+  const sessionStartedAt = Number(rendererStartedAt);
+  if (!Number.isFinite(startedAt) || !Number.isFinite(sessionStartedAt)) return false;
+  return startedAt >= sessionStartedAt - Math.max(0, Number(graceMs) || 0);
+}
+
 export function createSyncFailureObserver({ report, recover = () => {} }) {
   let initialized = false;
   let pending = [];

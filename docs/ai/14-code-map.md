@@ -31,7 +31,7 @@ core/catalog-provenance.mjs   atomic local-catalog data/provenance updates
 core/advisor/                 deterministic quality, evidence, agenda, academic and course decisions
 core/adapters/                source-specific acquisition
 core/parsers/                 HTML/JSON normalization
-core/local-api.mjs            loopback read-only API
+core/local-api.mjs            loopback data API and Agent chat route
 core/data-catalog.mjs         nonstandard historical data archive
 electron/advisor-overview-service.mjs one-snapshot overview, what-if and course decisions
 electron/advisor-action-service.mjs revision-bound allowlisted local action resolution

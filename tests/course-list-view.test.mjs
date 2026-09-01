@@ -6,6 +6,7 @@ const coursesViewSource = await readFile(
   new URL('../src/views/CoursesView.tsx', import.meta.url),
   'utf8',
 )
+const appSource = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
 const courseMaterialDialogSource = await readFile(
   new URL('../src/views/courses/CourseMaterialDialog.tsx', import.meta.url),
   'utf8',
@@ -51,7 +52,17 @@ test('course details use an in-app material dialog', () => {
   assert.match(coursesViewSource, /<CourseMaterialDialog/)
   assert.match(coursesViewSource, /course-info-button/)
   assert.match(courseMaterialDialogSource, /course-material-preview-text/)
-  assert.match(courseMaterialDialogSource, /打开学校原站/)
+  assert.match(courseMaterialDialogSource, /打开本地文件/)
+  assert.doesNotMatch(coursesViewSource, /打开学校原站/)
+  assert.doesNotMatch(coursesViewSource, /抓取课程资源/)
+})
+
+test('course page exposes an explicit material capture action', () => {
+  assert.match(coursesViewSource, /onRefreshMaterials: \(\) => void/)
+  assert.match(coursesViewSource, /refreshingMaterials: boolean/)
+  assert.match(coursesViewSource, /抓取课程资料/)
+  assert.match(coursesViewSource, /disabled=\{refreshingMaterials \|\| !theolCourses\.length\}/)
+  assert.match(appSource, /app\.refreshAcademicDomain\("theol-course-details", "课程资料已更新。"\)/)
 })
 
 test('THEOL source label uses the user-facing platform name', () => {

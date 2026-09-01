@@ -359,6 +359,28 @@ export function normalizeState(input) {
   }
 }
 
+// A process cannot still be running a sync after the store is loaded again.
+// Clear only the impossible pending marker; preserve the last completed run,
+// source outcomes, and any usable data from that run.
+export function recoverInterruptedSyncState(input) {
+  const state = normalizeState(input)
+  const startedAt = Date.parse(state.sync?.lastStartedAt || '')
+  const completedAt = Date.parse(state.sync?.lastCompletedAt || '')
+  if (!Number.isFinite(startedAt) || (Number.isFinite(completedAt) && completedAt >= startedAt)) {
+    return { state, repaired: false }
+  }
+  return {
+    state: {
+      ...state,
+      sync: {
+        ...state.sync,
+        lastStartedAt: Number.isFinite(completedAt) ? state.sync.lastCompletedAt : null,
+      },
+    },
+    repaired: true,
+  }
+}
+
 export function counts(state) {
   return {
     courses: state.courses.length,

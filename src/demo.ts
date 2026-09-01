@@ -1,5 +1,7 @@
 import type { CampusState } from "./types";
 
+import packageManifest from "../package.json";
+
 function isoAfter(hours: number) {
   return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
 }
@@ -52,7 +54,7 @@ const demoMotionStatus = {
 
 export const demoState: CampusState = {
   schema: "theia-campus-data/v1",
-  appVersion: "0.4.4",
+  appVersion: packageManifest.version,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
   profile: { name: "校园用户", studentId: "2026000000" },

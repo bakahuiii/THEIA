@@ -10,7 +10,7 @@
 - `npm test`、`npm run lint`、`npm run build`：标准质量门槛。
 - `npm run dist:unpacked`、`npm run dist:source`、`npm run dist:installer`、`npm run smoke:packaged`：Windows 打包、源码归档与产物烟雾测试；正式安装器流程会同时生成同版本源码包。
 
-完整操作顺序见 [运行、测试与发布](docs/operations-and-testing.md)，扩展规范见 [开发者指南](docs/developer-guide.md)。
+完整操作顺序见 [运行、测试与发布](docs/development/operations-and-testing.md)，扩展规范见 [开发者指南](docs/development/developer-guide.md)。
 
 ## 运行时结构
 
@@ -21,7 +21,7 @@ React renderer
   -> core adapters and services
   -> CampusStore
   -> immutable fragments + data/manifest.json
-  -> renderer snapshot / loopback API / CLI / exports
+  -> renderer snapshot / loopback API / exports
 ```
 
 - `src/`：界面、renderer 状态和 typed bridge。
@@ -30,7 +30,7 @@ React renderer
 - `integration/`：通用本机只读 Feed 客户端和 schema。
 - `tests/`：Node 测试套件；不要在文档中固定用例数量。
 
-模块所有权与完整目录说明见 [系统架构](docs/architecture.md) 和 [数据所有权矩阵](docs/data-ownership-matrix.md)。
+模块所有权与完整目录说明见 [系统架构](docs/development/architecture.md) 和 [数据所有权矩阵](docs/development/data-ownership-matrix.md)。
 
 ## 认证与数据通道
 
@@ -54,7 +54,7 @@ API 未启用或未配置凭据时使用浏览器通道。API 已启用且配置
 - 统一认证、教务 API、邮箱和模型凭据分别由 Electron `safeStorage` / Windows DPAPI 保护。
 - 密码、Cookie、授权码、API Key、浏览器 session 和可重放选课字段不得进入 `CampusState`、Feed、导出、loopback API 或普通日志。
 
-持久化、迁移和导出细节见 [数据生命周期](docs/data-lifecycle.md) 与 [数据模型](docs/reference/data-model.md)。
+持久化、迁移和导出细节见 [数据生命周期](docs/development/data-lifecycle.md) 与 [数据模型](docs/reference/data-model.md)。
 
 ## 改动要求
 

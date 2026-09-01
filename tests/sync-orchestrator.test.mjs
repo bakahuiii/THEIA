@@ -38,7 +38,7 @@ function createHarness(overrides = {}) {
     sendSnapshot: () => calls.push({ type: 'snapshot' }),
     ...overrides,
   })
-  return { calls, diagnostics, orchestrator, snapshots }
+  return { calls, diagnostics, orchestrator, snapshots, syncService }
 }
 
 test('sync domain targets retain the public aliases and foreground scope', () => {
@@ -67,6 +67,37 @@ test('foreground sync refreshes both sources and schedules are disposable', asyn
   ])
 })
 
+test('foreground sync keeps THEOL details and assignments opt-in', async () => {
+  let retryAssignmentsCalled = false
+  const harness = createHarness({ verifiedSessions: { theol: null } })
+  harness.syncService.retryAssignments = async () => {
+    retryAssignmentsCalled = true
+    return harness.snapshots
+  }
+  harness.snapshots.courses = [{ id: '101', source: 'theol', title: '归档课程' }]
+  harness.snapshots.sync.sources = { theol: { connected: true } }
+
+  await harness.orchestrator.syncForegroundCampusData()
+  harness.orchestrator.shutdown()
+
+  assert.deepEqual(harness.calls.slice(0, 2), [
+    { sources: ['jwglxt'], domains: [...FOREGROUND_JWGLXT_SYNC_DOMAINS], foreground: true },
+    { sources: ['theol'], domains: ['courses', 'notices'], foreground: true },
+  ])
+  assert.equal(retryAssignmentsCalled, false)
+  assert.equal(harness.calls.some((call) => call?.domains?.includes('course-details')), false)
+})
+
+test('advisor foreground scope reports only domains actually refreshed', async () => {
+  const harness = createHarness()
+  const result = await harness.orchestrator.syncAdvisorCampusData()
+  harness.orchestrator.shutdown()
+
+  assert.equal(result.refreshedDomains.includes('assignments'), false)
+  assert.equal(result.refreshedDomains.includes('theol-courses'), true)
+  assert.equal(result.refreshedDomains.includes('theol-notices'), true)
+})
+
 test('advisor sync groups selected aliases by source and rejects unknown domains', async () => {
   const harness = createHarness()
   const result = await harness.orchestrator.syncAdvisorCampusData({
@@ -88,6 +119,26 @@ test('advisor sync groups selected aliases by source and rejects unknown domains
     () => harness.orchestrator.syncAdvisorCampusData({ domains: ['missing-domain'] }),
     /Agent cannot synchronize unsupported domain: missing-domain/,
   )
+})
+
+test('advisor sync captures assignments through the deterministic THEOL retry path', async () => {
+  const harness = createHarness()
+  harness.snapshots.courses = [{ id: 'theol-1', source: 'theol', title: '课程' }]
+  harness.syncService.retryAssignments = async () => {
+    harness.calls.push({ type: 'assignments' })
+    return harness.snapshots
+  }
+
+  const result = await harness.orchestrator.syncAdvisorCampusData({
+    domains: ['theol-course-details', 'assignments'],
+  })
+
+  assert.deepEqual(harness.calls, [
+    { sources: ['theol'], domains: ['course-details'], foreground: true },
+    { type: 'assignments' },
+    { type: 'snapshot' },
+  ])
+  assert.deepEqual(result.refreshedDomains, ['theol-course-details', 'assignments'])
 })
 
 test('academic-plan prefetch requires a verified source and missing local attachment', async () => {

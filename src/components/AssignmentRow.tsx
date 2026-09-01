@@ -206,8 +206,9 @@ export function AssignmentRow({
           <button
             className="task-command"
             onClick={() => onOpenSource(item.id)}
+            title={item.localPath ? "打开本地课程任务详情" : "任务详情尚未成功归档"}
           >
-            <ExternalLink size={15} /> {workspace ? "查看原题" : "打开原站"}
+            <ExternalLink size={15} /> {item.localPath ? "打开本地详情" : "详情未保存"}
           </button>
         )}
       </div>

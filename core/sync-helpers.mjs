@@ -163,9 +163,21 @@ export function mergeCourseResourceRecords(previous, fresh, { complete = false }
   return [...merged.values()]
 }
 
+function mergeLocalArtifactRecord(previous, fresh) {
+  const merged = { ...(previous || {}), ...(fresh || {}) }
+  if (fresh?.localStatus === 'failed' && previous?.localPath) {
+    merged.localPath = previous.localPath
+    merged.localBytes = previous.localBytes
+    merged.localSha256 = previous.localSha256
+    merged.localCapturedAt = previous.localCapturedAt
+    merged.localStatus = 'stale'
+  }
+  return merged
+}
+
 function mergeTheolCourseRecord(previous, fresh) {
   if (!previous) return fresh
-  const merged = { ...previous, ...fresh }
+  const merged = mergeLocalArtifactRecord(previous, fresh)
   // A successful page can still omit optional sections when THEOL changes its
   // markup. Keep the last non-empty section until a richer page replaces it.
   for (const field of ['description', 'courseInfo', 'resourceLinks', 'teachingMaterials', 'assignmentLinks']) {

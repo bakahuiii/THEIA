@@ -2,7 +2,7 @@
 
 ## 1. 系统定位
 
-THEIA 是一个 Windows Electron 桌面程序，服务于北京化工大学学生的日常数据整理和学习任务处理。它不是网页抓取脚本的集合，也不是将校园数据上传到第三方的 SaaS：核心设计是让校园来源的数据经本地规范化后，成为界面、CLI、loopback API、导出文件和 AI 能力共用的事实来源。
+THEIA 是一个 Windows Electron 桌面程序，服务于北京化工大学学生的日常数据整理和学习任务处理。它不是网页抓取脚本的集合，也不是将校园数据上传到第三方的 SaaS：核心设计是让校园来源的数据经本地规范化后，成为界面、loopback API、导出文件和 AI 能力共用的事实来源。
 
 系统由四类边界清晰的部分组成：React 渲染器、Electron 主进程与预加载桥、纯 Node 业务核心，以及外部校园/邮箱/模型服务。只有主进程和核心可以访问网络、受保护的本机数据目录与加密凭据；渲染器只拿到窄化的 `window.theia` API。
 
@@ -27,8 +27,8 @@ THEIA 是一个 Windows Electron 桌面程序，服务于北京化工大学学�
               │                               │
       ┌───────▼────────┐              ┌───────▼──────────────────┐
       │ Campus sources │              │ Local consumers          │
-      │ JWGLXT/THEOL   │              │ desktop UI / CLI / HTTP  │
-      │ TYGL/IMAP      │              │ exports / offline tools  │
+      │ JWGLXT/THEOL   │              │ desktop UI / HTTP        │
+      │ TYGL/IMAP      │              │ exports / MCP / tools    │
       └────────────────┘              └──────────────────────────┘
 ```
 
@@ -88,7 +88,7 @@ IPC 负责把少量明确业务动作传给主进程，例如：读快照、登�
 | `store.mjs`         | 不可变分片、清单、摘要、恢复、订阅         | 解析校方页面或掌管凭据。         |
 | `domain-provenance.mjs` | 来源 outcome、领域水位、派生领域与内容摘要 | 根据展示数组猜测同步成功。       |
 | `advisor/`          | 无模型 DataQuality、Evidence、LocalClaim、Risk 与 Agenda | 网络、磁盘、Electron 或模型调用。 |
-| `local-api.mjs`     | 只读 loopback 路由和响应包装               | 写接口、公共监听或远程转发。     |
+| `local-api.mjs`     | 受限 loopback 路由、响应包装和本地顾问对话 | 学校侧写接口、公共监听或远程转发。 |
 | `course-work.mjs`   | 受控作业工作区、附件、答案导入与结果元数据 | 最终提交学校页面。               |
 | `data-catalog.mjs`  | 非标准/历史资料的规则化归档                | 在 renderer 内缓存同类数据。     |
 
@@ -120,12 +120,12 @@ IPC 负责把少量明确业务动作传给主进程，例如：读快照、登�
   -> immutable fragments + data/manifest.json
   -> CampusStore subscribers
   -> atomic theia-feed.json
-  -> renderer snapshot / local API / CLI / explicit export / AI package
+  -> renderer snapshot / local API / explicit export / AI package
 ```
 
 关键点：
 
-1. `CampusState` 是桌面 UI、CLI、loopback API 和 AI 顾问共用的业务事实来源；AI 包在此快照上额外施加净化、领域拆分和文件级完整性校验。
+1. `CampusState` 是桌面 UI、loopback API 和 AI 顾问共用的业务事实来源；AI 包在此快照上额外施加净化、领域拆分和文件级完整性校验。
 2. 原始 HTML、Cookie、密码、授权码、模型 Key 和浏览器 session 从该管线剔除。
 3. 持久化先落分片与清单；Feed 是派生兼容导出，不能被反向编辑当作数据库。
 4. 普通界面读取可用 `store.snapshot()`；顾问必须一次读取 `store.snapshotWithRevision()`，使 `state`、`revision`、`committedAt` 与 `domainDigests` 来自同一已提交 manifest。消费者不能依靠修改返回引用改变应用状态。
@@ -133,7 +133,7 @@ IPC 负责把少量明确业务动作传给主进程，例如：读快照、登�
 
 领域证据随同业务内容在同一次 `CampusStore.update()` 中提交。`emptyConfirmed` 只描述最近一次成功且完整的尝试是否为空；`contentEmptyConfirmed` 描述当前保留内容是否已有成功来源确认过为空。因此，确认空之后刷新失败可以同时是 `status: failed`、`emptyConfirmed: false`、`contentEmptyConfirmed: true`。`academic`、`coursework` 与 `local-data-catalog` 是派生领域：完整性取所有必要依赖的最弱值，水位仅在每个必要依赖都有合法时间时取其中最早值，否则为 `null`。
 
-关于存储和导出细节见 [数据生命周期](data-lifecycle.md)，关于每个字段见 [数据模型参考](reference/data-model.md)。
+关于存储和导出细节见 [数据生命周期](data-lifecycle.md)，关于每个字段见 [数据模型参考](../reference/data-model.md)。
 
 ## 5. 同步生命周期
 
@@ -156,7 +156,7 @@ IPC 负责把少量明确业务动作传给主进程，例如：读快照、登�
 
 `core/advisor/` 是不调用模型的确定性底座；`electron/advisor-overview-service.mjs` 从一次冻结快照和一次显式时钟采样生成 `theia-advisor-overview/v1`。一个 overview 实例由 `{snapshotRevision, evaluatedAt, timeZone, rulesVersion}` 共同界定，消费者必须整体替换实例，不能按稳定 claim ID 把不同评估时刻的倒计时值拼在一起。
 
-`electron/model-service.mjs` 仍是作业/摘要生成路径，不与顾问混用。当前顾问由 `electron/advisor-runtime.mjs` 装配：它绑定一次版本化快照，创建有界惰性工作区，强制模型走流式 Agent 工具，并在每轮按需读取或执行已声明的能力。工具结果、邮箱正文和本机文档均经过独立的来源/不可信文本投影；默认权限是 `read-only`，用户可显式切换到 `full-access`。即使在 full-access 下也不等于原始文件系统、保存凭据、Cookie、Shell 或通用 IPC。同步、公开 HTTPS、校园页面、THEIA 设置和已保存目标选课操作只有对应 typed tool 存在时才可用。历史 P4/P5 文档保留作设计记录，当前入口以 `docs/ai/20-a-b-c-advisor-agent-sidecar.md`、`core/advisor/lazy-workspace.mjs` 和 `core/advisor/read-only-agent.mjs` 为准。
+`electron/model-service.mjs` 仍是作业/摘要生成路径，不与顾问混用。当前顾问由 `electron/advisor-runtime.mjs` 装配：它绑定一次版本化快照，创建有界惰性工作区，强制模型走流式 Agent 工具，并在每轮按需读取或执行已声明的能力。工具结果、邮箱正文和本机文档均经过独立的来源/不可信文本投影；默认配置名是 `read-only`，但它是“受限 Agent”而不是无副作用模式，仍可使用已声明的同步、公开读取、设置更新和目标选课控制工具。用户可显式切换到 `full-access`，获得额外的本机文件和命令工具；即使在 full-access 下也不等于原始文件系统、保存凭据、Cookie、Shell 或通用 IPC。当前入口以 `docs/ai/20-a-b-c-advisor-agent-sidecar.md`、`core/advisor/lazy-workspace.mjs` 和 `core/advisor/read-only-agent.mjs` 为准。
 
 JWGLXT 的扩展页面通过 `academicExtras` 进入同一 `CampusState`，但只在用户明确刷新某个扩展域（或显式请求完整扩展刷新）时读取；流程页只解析已显示的申请/审核状态，永远不提交、确认、上传、删除或调用其它学校侧写入动作。顾问使用 `snapshotWithRevision({ clone: false })` 绑定一次已提交的版本化快照，并在惰性工具调用时按域、按记录生成有界投影，不再为整份 `CampusState` 创建额外深冻结副本；这样保持 revision 一致性的同时减少大数据集的复制和首轮延迟。
 
@@ -176,16 +176,16 @@ JWGLXT 的扩展页面通过 `academicExtras` 进入同一 `CampusState`，但�
 
 ## 7. 本机接口与外部消费者
 
-当桌面应用运行时，`core/local-api.mjs` 在 `127.0.0.1` 默认端口 `8765`（端口占用时在小范围内回退）监听。实际地址写入数据根的 `api-runtime.json`。它只接受读取方法，且 CORS 仅回显受限的本机/`theia:` origin。
+当桌面应用运行时，`core/local-api.mjs` 在 `127.0.0.1` 默认端口 `8765`（端口占用时在小范围内回退）监听。实际地址写入数据根的 `api-runtime.json`。数据端点接受 `GET`/`HEAD`；`/v1/sync` 直接调用明确数据域的本地同步编排器，`/v1/agent/chat` 才是顾问对话 POST；CORS 仅回显受限的本机/`theia:` origin，请求还必须使用运行时令牌和精确的 loopback `Host`。
 
 可选输出层从同一 `CampusStore` 快照生成：
 
-- 界面“完整 JSON”和 CLI `export --format json`：完整 `CampusState`；
-- 界面 “THEIA Data Feed”、CLI `--format theia`、`/v1/feed`：`theia-campus-feed/v1`；
-- 界面“导出给 AI”和 CLI `--format ai`：`theia-ai-context/v1` 多文件快照，额外提供字段词典、SHA-256 manifest 与路径/凭据净化；
-- `--format ics` 与 `/v1/calendar.ics`：考试与作业日历；
-- `--format csv` 和集合 CSV endpoint：扁平集合表；
-- `GET /v1/academic-analysis`：从同一冻结快照生成的 `theia-academic-analysis/v1` 学业分析 DTO，区分成绩尝试、代表课程、官方/计算 GPA、一次性学分结算和 `and/or` 要求；
+- 界面“完整 JSON”：完整 `CampusState`；
+- 界面 “THEIA Data Feed”和 `/v1/feed`：`theia-campus-feed/v1`；
+- 界面“导出给 AI”：`theia-ai-context/v1` 多文件快照，额外提供字段词典、SHA-256 manifest 与路径/凭据净化；
+- 界面 ICS 导出与 `/v1/calendar.ics`：考试与作业日历；
+- 界面 CSV 导出和集合 CSV endpoint：扁平集合表；
+- `GET /v1/academic-analysis`：从同一冻结快照生成的 `theia-academic-analysis-response/v1` 响应，内部 `item` 是 `theia-academic-analysis/v1` 学业分析 DTO，区分成绩尝试、代表课程、官方/计算 GPA、一次性学分结算和 `and/or` 要求；
 - `GET /v1/snapshot`：运行时完整快照。
 
 这些输出的安全性来自于状态模型不含凭据，而不是因为数据本身不敏感。个人资料、成绩、邮件正文、任务题目、来源 URL 和本机工作区路径仍可能是高度私密的数据。
@@ -214,7 +214,7 @@ THEIA 能辅助进入学校页面、附加文件、填充经过验证的答案�
 
 ## 9. 关键扩展原则
 
-新增一个数据来源或功能，不是只加一个界面：它必须定义来源所有权、输入规范化、持久化位置、导出可见性、来源/时间/错误的可追溯字段、安全边界、IPC/CLI/API 暴露与对应测试。推荐的完整路径是：
+新增一个数据来源或功能，不是只加一个界面：它必须定义来源所有权、输入规范化、持久化位置、导出可见性、来源/时间/错误的可追溯字段、安全边界、IPC/API 暴露与对应测试。推荐的完整路径是：
 
 1. 在 `core/` 定义解析/服务与失败语义；
 2. 在 `core/schema.mjs` 定义默认值和规范化；

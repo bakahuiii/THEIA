@@ -77,42 +77,7 @@ GET /v1/motion-table-image?activity=<项目>&date=YYYY-MM-DD&title=...
 
 ## 查询耗时
 
-耗时是客户端墙钟时间，包含网络等待、响应体读取和 HTML/表格归一化，不是学校服务器纯处理时间，也不是 SLA。
-
-### 生产适配器单次验证
-
-2026-08-18/19 的匿名真实读取结果：
-
-| 项目 | 结果 |
-| --- | ---: |
-| 目录发现页面 | 22 |
-| 成功页面 | 22，全部 HTTP 200 |
-| 校区 | 2 |
-| 公开场馆 | 18 |
-| 抓取错误 | 0 |
-| 羽毛球状态查询 | 245.539 ms |
-| 请求方式 | 全部 `GET` |
-| 提交表单/预约动作 | 0/0 |
-
-### 三轮逐场馆基准
-
-实验仓库的固定报告对 18 个详情页进行 3 轮串行查询，共 54 次默认查询：
-
-| 指标 | 结果 |
-| --- | ---: |
-| 目录发现 | 5815.246 ms |
-| 默认查询中位数 | 254.645 ms |
-| 默认查询 P95 | 433.402 ms |
-| 默认查询最小/最大 | 159.168 / 440.583 ms |
-| 3 轮详情查询总墙钟时间 | 14251.559 ms |
-| 非默认日期/场馆组样本 | 519.233 ms，2 个 GET |
-
-东校区网球、羽毛球和乒乓球等页面在该快照中接近 430--441 ms；昌平校区羽毛球默认选择约 159--166 ms。网络出口、DNS/TLS 复用、学校负载和页面状态变化会影响下一次结果。
-
-完整逐次明细和机器可读样本位于实验仓库：
-
-- `H:\work\THEIA-data-layer-lab-20260816\artifacts\venue-reservations\venue-status-performance.md`
-- `H:\work\THEIA-data-layer-lab-20260816\artifacts\venue-reservations\venue-status-performance.json`
+耗时是客户端墙钟时间，包含网络等待、响应体读取和 HTML/表格归一化，不是学校服务器纯处理时间，也不是 SLA。MOTION 页面、网络出口和学校负载会变化，因此本指南不固定发布某次现场抓取的毫秒数；需要诊断时以当前界面显示的请求耗时和活动记录为准。
 
 ## 验证方式
 
@@ -137,4 +102,3 @@ npm run build
 | `electron/preload.cjs`、`src/bridge.ts`、`src/types.ts` | 桌面桥接和 renderer 类型契约 |
 | `src/views/ToolsView.tsx`、`src/views/tools/VenueStatusView.tsx` | “学习工具”标签页和查询界面 |
 | `src/styles.css` | 与现有学习工具一致的卡片、表格和响应式布局 |
-

@@ -5,7 +5,7 @@
 
 ## 1. 数据事实来源与边界
 
-THEIA 是本地优先应用。`CampusStore` 持有的 `CampusState` 是 renderer、CLI、loopback API、`theia-feed` 和 AI 安全导出的共同业务事实来源。UI 临时状态、Electron Cookie、登录窗 DOM、原始 HTML、模型 API key 和下载中的附件不属于它。
+THEIA 是本地优先应用。`CampusStore` 持有的 `CampusState` 是 renderer、loopback API、`theia-feed` 和 AI 安全导出的共同业务事实来源。UI 临时状态、Electron Cookie、登录窗 DOM、原始 HTML、模型 API key 和下载中的附件不属于它。
 
 ```text
 学校页面 / 教务 API / THEOL / IMAP / TYGL / 官方校历
@@ -13,7 +13,7 @@ THEIA 是本地优先应用。`CampusStore` 持有的 `CampusState` 是 renderer
   -> 规范化、限长、校验和合并
   -> CampusState
   -> CampusStore 分片持久化
-  -> snapshot / feed / CLI / loopback API / AI export package
+  -> snapshot / feed / loopback API / AI export package
 ```
 
 这张边界图有两个结论：
@@ -591,7 +591,7 @@ fitness、schoolSchedule 与 academicCalendar 不只保留 catalog 元数据，�
 按优先级：
 
 1. THEIA 运行时：读 loopback `/v1/snapshot` 或更小的集合端点。
-2. 离线集成：用 CLI 输出；供 AI 解释时使用 `theia export --format ai --output DIRECTORY` 写出的版本化数据包。
+2. 离线集成：使用桌面设置中的导出功能；供 AI 解释时使用 `theia-ai-context/v1` 版本化数据包。
 3. 仅用于恢复 / 管理工具：读取 manifest，拒绝包含 `..` 的 fragment 路径，验证每个 fragment 的 JSON、kind 和 SHA-256，再合并。
 
 不要直接编辑 `data/`、`theia-feed.json` 或旧 `buct-data.json`。`theia-feed.json` 是从最新快照原子替换的派生兼容文件，不是数据库；AI 包也是一次性只读快照，不能把它当作唯一来源或回写格式。

@@ -87,6 +87,7 @@ export default function App() {
       <div className="app-body">
       <AppSidebar
         state={state}
+        apiBase={app.apiBase}
         syncing={app.syncing}
         syncFreshness={app.syncFreshness}
         view={app.view}
@@ -206,21 +207,9 @@ export default function App() {
             state={state}
             query={app.query}
             terms={app.visibleTerms}
-            onRefreshResources={async (courseId) => {
-              try {
-                return await bridge.refreshCourseResources(courseId);
-              } catch {
-                return undefined;
-              }
-            }}
-            onDownloadResource={async (courseId, resourceId) => {
-              try {
-                return await bridge.downloadCourseResource(courseId, resourceId);
-              } catch {
-                return undefined;
-              }
-            }}
-            onOpenSource={(url) => bridge.openSource(url)}
+            onOpenMaterial={(courseId, materialId) => app.openCourseMaterial(courseId, materialId)}
+            onRefreshMaterials={() => void app.refreshAcademicDomain("theol-course-details", "课程资料已更新。")}
+            refreshingMaterials={app.academicDomainRefreshing === "theol-course-details"}
           />
         )}
         {app.view === "selection" && (
@@ -304,6 +293,7 @@ export default function App() {
         initialSection={settingsSection}
         state={state}
         apiBase={app.apiBase}
+        apiStatus={app.apiStatus}
         auth={app.auth}
         credentials={app.credentials}
         academicApiCredentials={

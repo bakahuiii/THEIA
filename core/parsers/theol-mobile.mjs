@@ -53,6 +53,9 @@ export function parseTheolMobileTaskList(payload, { courses = [], capturedAt = n
     const courseId = String(courseItem?.courseId ?? '').trim()
     if (!/^\d+$/.test(courseId)) continue
     const course = knownCourse(courses, courseId)
+    // The mobile endpoint is a global pending-task feed. Never import a task
+    // for a course that is not present in the current authenticated roster.
+    if (!course) continue
     const courseName = normalizeText(courseItem?.courseName) || course?.title || null
     for (const task of mobileTaskGroups(courseItem)) {
       if (!task || typeof task !== 'object' || unavailableTask(task)) continue
@@ -65,7 +68,7 @@ export function parseTheolMobileTaskList(payload, { courses = [], capturedAt = n
         kind,
         courseId,
         courseName,
-        courseSourceUrl: course?.sourceUrl || courseUrl(courseId),
+        courseSourceUrl: course.sourceUrl || courseUrl(courseId),
         title,
         dueAt: parseDateLike(kind === 'online-test' ? task.expiredTime : task.deadline),
         status: 'pending',

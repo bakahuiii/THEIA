@@ -22,6 +22,9 @@ import {
   renderFreeClassroomImageHtml,
   renderFreeClassroomTableHtml,
 } from './local-api-renderers.mjs'
+import { THEIA_LOCAL_API_ENDPOINTS } from './local-api-contract.mjs'
+
+export { THEIA_LOCAL_API_ENDPOINTS }
 
 const COLLECTIONS = new Set(['terms', 'courses', 'schedule', 'exams', 'grades', 'selectedCourses', 'assignments', 'workspaces', 'notices', 'emails', 'academicExtras'])
 const COLLECTION_ALIASES = new Map([['selected-courses', 'selectedCourses'], ['academic-extras', 'academicExtras']])
@@ -165,7 +168,7 @@ function unchangedSince(value, url) {
 }
 
 
-export async function startLocalApi({ store, root, preferredPort = 8765, academicCalendarAssetsService = null, getAdvisorRuntime = () => null, publishRuntime = true, renderTableImage = null, fetchMotionVenueStatuses = null, queryFreeClassrooms = null }) {
+export async function startLocalApi({ store, root, preferredPort = 8765, academicCalendarAssetsService = null, getAdvisorRuntime = () => null, syncCampusData = null, publishRuntime = true, renderTableImage = null, fetchMotionVenueStatuses = null, queryFreeClassrooms = null }) {
   const token = randomBytes(32).toString('base64url')
   const server = createServer(async (request, response) => {
     try {
@@ -199,6 +202,38 @@ export async function startLocalApi({ store, root, preferredPort = 8765, academi
     // Every read requires the per-instance token (Authorization: Bearer or ?token=).
     if (!tokensEqual(token, requestToken(request, url))) return send(response, 401, { error: 'unauthorized' }, undefined, origin, method)
     const state = store.snapshot()
+    if (method === 'POST' && url.pathname === '/v1/sync') {
+      let body
+      try {
+        body = await readJsonBody(request)
+      } catch (error) {
+        return send(response, 400, { error: error?.code || 'invalid_json' }, undefined, origin, method)
+      }
+      if (!Array.isArray(body.domains) || !body.domains.length) {
+        return send(response, 400, { error: 'domains_required' }, undefined, origin, method)
+      }
+      const domains = [...new Set(body.domains.map((domain) => (
+        typeof domain === 'string' ? domain.normalize('NFC').trim().slice(0, 128) : ''
+      )))]
+      if (!domains.length || domains.some((domain) => !domain) || domains.length > 16) {
+        return send(response, 400, { error: 'domains_invalid' }, undefined, origin, method)
+      }
+      if (typeof syncCampusData !== 'function') {
+        return send(response, 503, { error: 'sync_unavailable' }, undefined, origin, method)
+      }
+      try {
+        const result = await syncCampusData({ domains })
+        return send(response, 200, {
+          schema: 'theia-sync-response/v1',
+          ...(result && typeof result === 'object' ? result : {}),
+        }, undefined, origin, method)
+      } catch (error) {
+        const code = /^[A-Za-z0-9_.-]{1,80}$/u.test(String(error?.code || ''))
+          ? String(error.code)
+          : 'sync_failed'
+        return send(response, 503, { error: code }, undefined, origin, method)
+      }
+    }
     if (method === 'POST' && url.pathname === '/v1/agent/chat') {
       let body
       try {

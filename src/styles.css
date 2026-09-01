@@ -29,6 +29,7 @@
 @import "./styles/topbar-status.css";
 @import "./styles/surface-contract.css";
 @import "./styles/final-surfaces.css";
+@import "./styles/settings-current.css";
 
 
 @custom-variant dark (&:is(.dark *));

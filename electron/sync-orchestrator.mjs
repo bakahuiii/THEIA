@@ -24,7 +24,7 @@ export const FOREGROUND_JWGLXT_SYNC_DOMAINS = Object.freeze([
 
 const STATIC_ACADEMIC_PREFETCH_DOMAINS = Object.freeze(['academic-plan'])
 const ACADEMIC_STATIC_PREFETCH_DELAY_MS = 3_000
-const THEOL_COURSE_DETAILS_PREFETCH_DELAY_MS = 2_500
+const ASSIGNMENT_SYNC_DOMAINS = new Set(['assignments', 'theol-assignments'])
 
 export function createSyncOrchestrator({
   store,
@@ -39,8 +39,6 @@ export function createSyncOrchestrator({
 } = {}) {
   let academicStaticPrefetchTimer = null
   let academicStaticPrefetchInFlight = null
-  let theolCourseDetailsPrefetchTimer = null
-  let theolCourseDetailsPrefetchInFlight = null
 
   const loggedOut = () => Boolean(isExplicitlyLoggedOut())
 
@@ -59,7 +57,6 @@ export function createSyncOrchestrator({
       // The terminal snapshot is also returned to the IPC caller. Sending it
       // once more covers a renderer that missed the final progress event.
       sendSnapshot()
-      scheduleTheolCourseDetailsPrefetch({ reason: 'foreground_sync' })
       await writeDiagnostic('sync.foreground_finished', {
         elapsedMs: Date.now() - startedAt,
         runId: snapshot.sync?.runId || null,
@@ -89,7 +86,9 @@ export function createSyncOrchestrator({
       }
     }
     const grouped = new Map()
+    const assignmentRequested = requested.some((domain) => ASSIGNMENT_SYNC_DOMAINS.has(domain))
     for (const domain of requested) {
+      if (ASSIGNMENT_SYNC_DOMAINS.has(domain)) continue
       const target = SYNC_DOMAIN_TARGETS[domain]
       if (!target) throw new Error(`Agent cannot synchronize unsupported domain: ${domain}`)
       const entry = grouped.get(target.source) || []
@@ -99,6 +98,12 @@ export function createSyncOrchestrator({
     await Promise.all([...grouped.entries()].map(([source, sourceDomains]) => (
       syncService.syncNow({ sources: [source], domains: [...new Set(sourceDomains)], foreground: true })
     )))
+    if (assignmentRequested) {
+      if (typeof syncService.retryAssignments !== 'function') throw new Error('THEOL assignment sync unavailable')
+      // Assignment capture has its own serialized THEOL queue and must run
+      // after course/detail capture so it sees the newest local roster.
+      await syncService.retryAssignments()
+    }
     const snapshot = store.snapshot()
     sendSnapshot()
     return {
@@ -174,36 +179,9 @@ export function createSyncOrchestrator({
     }, ACADEMIC_STATIC_PREFETCH_DELAY_MS)
   }
 
-  async function prefetchTheolCourseDetails({ reason = 'authenticated' } = {}) {
-    if (!syncService || loggedOut() || !verifiedSessions.theol) return
-    if (!(await waitForSyncIdle())) {
-      void writeDiagnostic('sync.course_details_prefetch_deferred', { reason, cause: 'foreground_sync_active' })
-      return
-    }
-    if (!store.snapshot().courses.some((item) => item?.source === 'theol')) return
-    try {
-      void writeDiagnostic('sync.course_details_prefetch_started', { reason })
-      await syncService.syncNow({ sources: ['theol'], domains: ['course-details'] })
-      void writeDiagnostic('sync.course_details_prefetch_finished', { reason })
-    } catch (error) {
-      void writeDiagnostic('sync.course_details_prefetch_failed', { reason, error: diagnosticError(error) })
-    }
-  }
-
-  function scheduleTheolCourseDetailsPrefetch({ reason = 'authenticated' } = {}) {
-    if (theolCourseDetailsPrefetchTimer || theolCourseDetailsPrefetchInFlight || loggedOut()) return
-    theolCourseDetailsPrefetchTimer = setTimeout(() => {
-      theolCourseDetailsPrefetchTimer = null
-      theolCourseDetailsPrefetchInFlight = prefetchTheolCourseDetails({ reason })
-        .finally(() => { theolCourseDetailsPrefetchInFlight = null })
-    }, THEOL_COURSE_DETAILS_PREFETCH_DELAY_MS)
-  }
-
   function shutdown() {
     if (academicStaticPrefetchTimer) clearTimeout(academicStaticPrefetchTimer)
     academicStaticPrefetchTimer = null
-    if (theolCourseDetailsPrefetchTimer) clearTimeout(theolCourseDetailsPrefetchTimer)
-    theolCourseDetailsPrefetchTimer = null
   }
 
   return {
@@ -212,8 +190,6 @@ export function createSyncOrchestrator({
     waitForSyncIdle,
     prefetchAcademicStaticData,
     scheduleAcademicStaticPrefetch,
-    prefetchTheolCourseDetails,
-    scheduleTheolCourseDetailsPrefetch,
     shutdown,
   }
 }

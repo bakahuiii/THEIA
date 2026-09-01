@@ -32,7 +32,11 @@ test('JWGLXT uses the rendered school page queue while sharing its browser cooki
     /(?:const )?academicSessionClient = new SessionClient\(schoolSession, \{\s*pageLoader: smokeFile \? null : loadSchoolPage,\s*formLoader: smokeFile \? null : submitSchoolForm,\s*(?:binaryLoader: smokeFile \? null : loadBinaryWithSchoolBrowser,\s*)?onDiagnostic:/s,
   )
   assert.match(domainSource, /browserAdapter: new JwglxtAdapter\(academicSessionClient, \{\s*attachmentStore: academicAttachmentStore/s)
-  assert.match(domainSource, /theol: new TheolAdapter\(sessionClient\)/)
+  assert.match(domainSource, /theol: new TheolAdapter\(sessionClient, \{ archiveStore: theolCourseArchiveStore \}\)/)
+  assert.match(
+    mainSource,
+    /initializeDomainServices\(\{[\s\S]*?academicAttachmentStore,\s*theolCourseArchiveStore,\s*mailVault,/s,
+  )
   assert.match(
     foundationSource,
     /(?:const )?sessionClient = new SessionClient\(schoolSession, \{\s*pageLoader: smokeFile \? null : loadSchoolPage,\s*formLoader: smokeFile \? null : submitSchoolForm,/s,
@@ -73,6 +77,12 @@ test('authentication runtime imports the parsers used by its polling loop', () =
   assert.match(authRuntimeSource, /parseTheolHome\(html, frame\.url\)/)
 })
 
+test('startup repairs stale THEOL archive encodings before services are exposed', () => {
+  assert.match(foundationSource, /const theolCourseArchiveStore = new TheolCourseArchiveStore\(dataRoot\)/)
+  assert.match(foundationSource, /await theolCourseArchiveStore\.repairLegacyArchives\(\)/)
+  assert.match(foundationSource, /theol\.archive_encoding_repaired/)
+})
+
 test('THEOL login owns its exclusive lease for the complete actor lifecycle', () => {
   const actorLifecycle = sourceBetween('async function runAuthActor(', '\n\n  async function finishAuthActor(', authRuntimeSource)
   const createActor = authManagerSource
@@ -80,6 +90,7 @@ test('THEOL login owns its exclusive lease for the complete actor lifecycle', ()
   assert.match(actorLifecycle, /if \(actor\.source === 'theol'\) await syncService\.runTheolExclusive\(runLifecycle\)\s*else await runLifecycle\(\)/s)
   assert.match(actorLifecycle, /await actor\.closed/)
   assert.doesNotMatch(actorLifecycle, /syncNow/)
+  assert.doesNotMatch(authRuntimeSource, /scheduleTheolCourseDetailsPrefetch/)
   assert.match(authRuntimeSource, /createSourceWindow\(request\.url, request\.title, \{ pauseAssignments: source === 'theol' \}\)/)
   assert.match(actorLifecycle, /guardSourceWindow\(window, \{\s*source: actor\.source,\s*theolActor: actor\.source === 'theol' \? actor : null,\s*theolLease: actor\.source === 'theol',\s*upgradeTyglRedirects: actor\.source === 'tygl',\s*\}\)/s)
   assert.match(actorLifecycle, /if \(actor\.source !== 'theol'\) actor\.resolveClosed\(\)/)
@@ -172,6 +183,8 @@ test('authentication continuations are bound to their actor window and epoch', (
   assert.match(credentialFill, /isTrustedBuctAuthHostname\(new URL\(frame\.url\)\.hostname\)/)
   assert.match(authRuntimeSource, /hostname === 'buct\.edu\.cn' \|\| hostname\.endsWith\('\.buct\.edu\.cn'\)/)
   assert.match(credentialFill, /input\.autocomplete/)
+  assert.match(credentialFill, /readCookieFlowKey/)
+  assert.match(credentialFill, /JSON\.parse\(raw\)\?\.data\?\.flowKey/)
   assert.match(credentialFill, /passwordInput\.form\.requestSubmit\(\)/)
   assert.match(authManagerSource, /actor\.epoch === getEpoch\(\)[\s\S]*?actors\.get\(actor\.source\) === actor[\s\S]*?actor\.window === window/s)
   assert.match(authRuntimeSource, /await getCredentialVault\(\)\.readCredentials\(\)\s*if \(!isCurrentAuthActor\(actor, window\) \|\| actor\.epoch !== epoch\) return/s)

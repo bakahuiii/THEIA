@@ -34,6 +34,7 @@ export async function initializeServiceIntegration({
   mailVault,
   sessionClient,
   theolAttachmentStore,
+  theolCourseArchiveStore,
   syncOrchestrator,
   mailService,
   fitnessRuntime,
@@ -157,6 +158,7 @@ export async function initializeServiceIntegration({
     preferredPort: store.state.settings.apiPort,
     academicCalendarAssetsService,
     getAdvisorRuntime,
+    syncCampusData: (request) => syncOrchestrator?.syncAdvisorCampusData(request),
     renderTableImage,
     ...localApiHandlers,
   })
@@ -238,6 +240,7 @@ export async function initializeServiceIntegration({
     sessionClient,
     syncService,
     theolAttachmentStore,
+    theolCourseArchiveStore,
     theolAttachmentMaxBytes: THEOL_ATTACHMENT_MAX_BYTES,
     renderMarkdownToPdf,
     locateTheolCourseResource,

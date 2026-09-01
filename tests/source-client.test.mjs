@@ -1,6 +1,26 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { SessionClient } from '../core/source-client.mjs'
+import { decodeSourceBuffer, detectSourceEncoding, SessionClient } from '../core/source-client.mjs'
+
+test('source client detects and decodes GBK from the HTML charset declaration', () => {
+  const bytes = Buffer.concat([
+    Buffer.from('<html><head><meta http-equiv="Content-Type" content="text/html; charset=gb2312"></head><body>'),
+    Buffer.from([0xbf, 0xce, 0xb3, 0xcc]),
+    Buffer.from('</body></html>'),
+  ])
+  assert.equal(detectSourceEncoding(bytes, 'text/html'), 'gbk')
+  assert.match(decodeSourceBuffer(bytes, 'text/html'), /课程/u)
+})
+
+test('source client lets a legacy HTML charset override an incorrect UTF-8 header', () => {
+  const bytes = Buffer.concat([
+    Buffer.from('<meta charset="gbk"><body>'),
+    Buffer.from([0xd6, 0xd0, 0xce, 0xc4]),
+    Buffer.from('</body>'),
+  ])
+  assert.equal(detectSourceEncoding(bytes, 'text/html; charset=utf-8'), 'gbk')
+  assert.match(decodeSourceBuffer(bytes, 'text/html; charset=utf-8'), /中文/u)
+})
 
 test('session client falls back to the request URL when Electron returns an empty response URL', async () => {
   const client = new SessionClient(

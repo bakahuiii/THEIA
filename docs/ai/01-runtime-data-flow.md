@@ -11,7 +11,7 @@ school service / IMAP / local tool
   -> immutable fragments + manifest
   -> CampusStore snapshot subscribers
   +-> snapshotWithRevision() -> in-process deterministic Advisor overview -> trusted IPC
-  +-> atomic theia-feed.json -> renderer snapshot, loopback API, CLI, external local consumers
+  +-> atomic theia-feed.json -> renderer snapshot, loopback API, external local consumers
 ```
 
 - The renderer never reads disk files or parses school pages.
@@ -28,7 +28,7 @@ school service / IMAP / local tool
 | Core adapters | source-specific fetch and normalization | UI-specific state or persistence bypasses |
 | Core services | merge, retry, source ownership | direct renderer mutation |
 | CampusStore | normalized snapshots and durable writes | network access |
-| Local API/CLI | read-only external data contract | write endpoints or public binding |
+| Local API/MCP | bounded external data contract | public binding or unbounded capability |
 | Core Advisor | one versioned snapshot, data quality, evidence, local claims, risks and agenda | network/model calls, loopback reads, store writes |
 | AdvisorRuntime | revision-bound Agent context, typed tool execution, Provider orchestration and narrative verification | raw filesystem, saved credentials/Cookies, Shell, unlisted IPC or untyped school-side operations |
 
@@ -65,7 +65,7 @@ The overview instance is identified by `{snapshotRevision, evaluatedAt, timeZone
 - `academic` contains academic collections.
 - `localData` contains `dataCatalog` and mail metadata.
 
-External AI should prefer the loopback API when THEIA is running. It can read the Feed when THEIA is not running. Both are read-only.
+External tools should use the loopback `POST /v1/sync` route for an explicit deterministic refresh when THEIA is running, then read the resulting local data. They can read the Feed when THEIA is not running. Data reads and this refresh route remain bounded and do not grant school-side write access; the separate `/v1/agent/chat` route is only for a user-configured Advisor conversation and must not be used for course capture.
 
 This external-consumer guidance does not apply to the in-process Advisor. `AdvisorRuntime` freezes one versioned snapshot, creates a main-process lazy workspace, and sends the Provider only the question and revision. The model obtains any claim, evidence or low-trust notice/mail reference through a fixed read-only tool; it never rebuilds model context from the loopback API, Feed or AI export. See [20-a-b-c-advisor-agent-sidecar.md](20-a-b-c-advisor-agent-sidecar.md) for the current Agent boundary.
 

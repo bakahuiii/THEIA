@@ -122,7 +122,24 @@ export function createAuthRuntime({
     const payload = JSON.stringify(JSON.stringify({ username: credentials.username, password: credentials.password }))
     const script = `(({ username, password }) => {
       const owner = window.parent || window
-      const flowKey = String(owner.flowKey || window.flowKey || '').trim()
+      const readCookie = (doc, name) => {
+        const prefix = name + '='
+        const raw = String(doc?.cookie || '').split(';').map((item) => item.trim()).find((item) => item.startsWith(prefix))?.slice(prefix.length)
+        if (!raw) return ''
+        try { return decodeURIComponent(raw) } catch { return raw }
+      }
+      const readCookieFlowKey = () => {
+        for (const doc of [owner.document, window.document]) {
+          const raw = readCookie(doc, 'COOKIE_INFO')
+          if (!raw) continue
+          try {
+            const flowKey = String(JSON.parse(raw)?.data?.flowKey || '').trim()
+            if (flowKey) return flowKey
+          } catch {}
+        }
+        return ''
+      }
+      const flowKey = String(owner.flowKey || window.flowKey || readCookieFlowKey()).trim()
       const publicKey = String(owner.publicKey || window.publicKey || '').trim()
       const captcha = String(owner.captcha || window.captcha || '').trim()
       const mfa = String(owner.mfa || window.mfa || '').trim()
@@ -487,7 +504,6 @@ export function createAuthRuntime({
     recovery.lastAt = Date.now()
     recovery.failures = 0
     if (actor.source === 'theol') syncService.enableAssignmentScan({ schedule: false })
-    if (actor.source === 'theol') syncOrchestrator.scheduleTheolCourseDetailsPrefetch({ reason: actor.skipSync ? 'source_open' : 'authenticated' })
     if (isCampusSource && !unifiedVerification) {
       // A saved cookie/session is still a valid source of fresh data. The old
       // sessionReused shortcut made startup silently skip every existing record,

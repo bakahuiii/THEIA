@@ -33,11 +33,11 @@ function makeStore() {
   }
 }
 
-async function withApi(run) {
+async function withApi(run, options = {}) {
   const root = await mkdtemp(resolve(tmpdir(), 'theia-local-api-security-'))
   let api
   try {
-    api = await startLocalApi({ store: makeStore(), root, preferredPort: 0, publishRuntime: true })
+    api = await startLocalApi({ store: makeStore(), root, preferredPort: 0, publishRuntime: true, ...options })
     await run(api)
   } finally {
     await api?.close()
@@ -184,6 +184,52 @@ test('local API keeps the agent chat endpoint token-gated and method-restricted'
 
     const put = await fetch(`${api.baseUrl}/v1/snapshot`, { method: 'PUT', headers: { Authorization: `Bearer ${api.token}` } })
     assert.equal(put.status, 405)
+  })
+})
+
+test('local API triggers explicit sync domains without touching the agent runtime', async () => {
+  const syncCalls = []
+  let agentCalls = 0
+  await withApi(async (api) => {
+    const response = await fetch(`${api.baseUrl}/v1/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${api.token}` },
+      body: JSON.stringify({ domains: ['theol-course-details', 'assignments'] }),
+    })
+    assert.equal(response.status, 200)
+    assert.deepEqual(await response.json(), {
+      schema: 'theia-sync-response/v1',
+      scope: 'selected',
+      refreshedDomains: ['theol-course-details', 'assignments'],
+    })
+    assert.deepEqual(syncCalls, [{ domains: ['theol-course-details', 'assignments'] }])
+    assert.equal(agentCalls, 0)
+  }, {
+    syncCampusData: async (request) => {
+      syncCalls.push(request)
+      return { scope: 'selected', refreshedDomains: request.domains }
+    },
+    getAdvisorRuntime: () => ({ send: async () => { agentCalls += 1 } }),
+  })
+})
+
+test('local API requires explicit sync domains and never defaults to a model route', async () => {
+  await withApi(async (api) => {
+    const missing = await fetch(`${api.baseUrl}/v1/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${api.token}` },
+      body: JSON.stringify({}),
+    })
+    assert.equal(missing.status, 400)
+    assert.deepEqual(await missing.json(), { error: 'domains_required' })
+
+    const unavailable = await fetch(`${api.baseUrl}/v1/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${api.token}` },
+      body: JSON.stringify({ domains: ['theol-course-details'] }),
+    })
+    assert.equal(unavailable.status, 503)
+    assert.deepEqual(await unavailable.json(), { error: 'sync_unavailable' })
   })
 })
 

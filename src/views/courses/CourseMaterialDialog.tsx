@@ -1,5 +1,4 @@
-import { ExternalLink } from "lucide-react";
-
+import { FolderOpen } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../../components/ui/dialog";
 
 export interface CourseMaterialDetail {
@@ -11,6 +10,8 @@ export interface CourseMaterialSelection {
   kind: "course-info" | "teaching-material" | "resource" | "link";
   title: string;
   url: string | null;
+  courseId?: string | null;
+  materialId?: string | null;
   sourceLabel: string;
   preview?: string | null;
   details?: CourseMaterialDetail[];
@@ -19,13 +20,13 @@ export interface CourseMaterialSelection {
 export function CourseMaterialDialog({
   selection,
   onOpenChange,
-  onOpenSource,
+  onOpenLocal,
 }: {
   selection: CourseMaterialSelection | null;
   onOpenChange: (open: boolean) => void;
-  onOpenSource: (url: string) => Promise<unknown>;
+  onOpenLocal: (courseId: string, materialId: string) => Promise<unknown>;
 }) {
-  const canOpenSource = Boolean(selection?.url && /^https?:\/\//iu.test(selection.url));
+  const canOpenLocal = Boolean(selection?.courseId && selection?.materialId);
 
   return (
     <Dialog
@@ -38,9 +39,6 @@ export function CourseMaterialDialog({
             <div className="course-material-dialog-title">
               <DialogTitle>{selection.title}</DialogTitle>
               <DialogDescription>{selection.sourceLabel}</DialogDescription>
-              {selection.url && (
-                <p className="course-material-url">{selection.url}</p>
-              )}
             </div>
             <span className="source-tag">
               {selection.kind === "course-info"
@@ -66,37 +64,37 @@ export function CourseMaterialDialog({
 
           <section className="course-material-preview-pane">
             <div className="course-material-preview-head">
-              <h4>{selection.preview ? "内置预览" : "来源说明"}</h4>
+              <h4>{selection.preview ? "本地预览" : "归档说明"}</h4>
               <button
                 type="button"
                 className="icon-button"
-                title={canOpenSource ? "打开学校原站" : "当前条目没有可打开的来源"}
-                aria-label={canOpenSource ? "打开学校原站" : "当前条目没有可打开的来源"}
-                disabled={!canOpenSource}
+                title={canOpenLocal ? "打开本地文件" : "当前条目没有可打开的本地文件"}
+                aria-label={canOpenLocal ? "打开本地文件" : "当前条目没有可打开的本地文件"}
+                disabled={!canOpenLocal}
                 onClick={() => {
-                  if (selection.url) void onOpenSource(selection.url)
+                  if (selection.courseId && selection.materialId) void onOpenLocal(selection.courseId, selection.materialId)
                 }}
               >
-                <ExternalLink size={15} />
+                <FolderOpen size={15} />
               </button>
             </div>
             {selection.preview ? (
               <pre className="course-material-preview-text">{selection.preview}</pre>
             ) : (
               <p className="course-material-empty">
-                当前条目没有可直接预览的正文。你可以打开学校原站查看完整内容。
+                当前条目没有可直接预览的正文，或本地归档失败。
               </p>
             )}
             <div className="course-material-dialog-footer">
               <button
                 type="button"
                 className="link-button course-info-button"
-                disabled={!canOpenSource}
+                disabled={!canOpenLocal}
                 onClick={() => {
-                  if (selection.url) void onOpenSource(selection.url)
+                  if (selection.courseId && selection.materialId) void onOpenLocal(selection.courseId, selection.materialId)
                 }}
               >
-                <ExternalLink size={14} /> 打开学校原站
+                <FolderOpen size={14} /> 打开本地文件
               </button>
             </div>
           </section>

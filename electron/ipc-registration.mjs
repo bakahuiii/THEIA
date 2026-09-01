@@ -12,6 +12,14 @@ import {
   projectUserDataRecords,
   projectRendererSnapshot,
 } from '../core/user-data-view.mjs'
+import {
+  THEIA_MCP_PROTOCOL_VERSION,
+  THEIA_MCP_SCHEMA,
+  THEIA_MCP_SERVER_NAME,
+  THEIA_MCP_SERVER_VERSION,
+  THEIA_MCP_TOOLS,
+} from '../integration/theia-mcp.mjs'
+import { THEIA_LOCAL_API_ENDPOINTS } from '../core/local-api-contract.mjs'
 import { installTheiaMcpClients } from './mcp-client-setup.mjs'
 
 export function registerMcpIntegrationIpc({ ipcMain, root, homeDirectory, writeDiagnostic = () => {} }) {
@@ -125,6 +133,19 @@ export function registerModelRuntimeIpc({
       baseUrl: localApi.baseUrl,
       port: localApi.port,
       host: '127.0.0.1',
+      apiEndpoints: THEIA_LOCAL_API_ENDPOINTS,
+      mcp: {
+        name: THEIA_MCP_SERVER_NAME,
+        version: THEIA_MCP_SERVER_VERSION,
+        protocolVersion: THEIA_MCP_PROTOCOL_VERSION,
+        schema: THEIA_MCP_SCHEMA,
+        tools: THEIA_MCP_TOOLS.map(({ name, title, description, annotations }) => ({
+          name,
+          title,
+          description,
+          readOnly: annotations?.readOnlyHint === true,
+        })),
+      },
       academicCalendarAssets: {
         calendar: calendarAssetUrl('calendar'),
         teachingSchedule: calendarAssetUrl('teachingSchedule'),

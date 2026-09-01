@@ -174,6 +174,11 @@ for (const channel of [
   'theia:process-course-work-with-model', 'theia:render-answer-pdf',
   'theia:open-answer-pdf',
 ]) THEIA_IPC_SCHEMAS.set(channel, idArg)
+THEIA_IPC_SCHEMAS.set('theia:open-course-material', (channel, args) => {
+  argCount(channel, args, 2)
+  stringValue(channel, args[0], 'course id', 160)
+  stringValue(channel, args[1], 'material id', 300)
+})
 THEIA_IPC_SCHEMAS.set('theia:refresh-course-resources', idArg)
 THEIA_IPC_SCHEMAS.set('theia:download-course-resource', (channel, args) => {
   argCount(channel, args, 2)

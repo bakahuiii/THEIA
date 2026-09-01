@@ -5,12 +5,14 @@ import {
   createSyncFailureObserver,
   describeSyncFreshness,
   sanitizeSyncFailure,
+  syncStartedDuringRenderer,
 } from "./sync-status.mjs";
 import { navItems } from "../ui/navigation";
 import { relativeTime, type ViewId } from "../ui/app-shared";
 import type {
   AcademicApiCredentialStatus,
   ActivityLogEntry,
+  ApiStatus,
   AuthStatus,
   CampusState,
   CourseSelectionCatalogPage,
@@ -118,6 +120,12 @@ export function useTheiaApp() {
     },
   }), [showDataError]);
   const [apiBase, setApiBase] = useState("");
+  const [apiStatus, setApiStatus] = useState<ApiStatus>({
+    baseUrl: "",
+    host: "",
+    port: 0,
+    apiEndpoints: [],
+  });
   const [calendarAssetUrls, setCalendarAssetUrls] = useState<
     Partial<Record<"calendar" | "teachingSchedule" | "weeklyCalendar", string>>
   >({});
@@ -159,6 +167,7 @@ export function useTheiaApp() {
   const [advisorActionPendingId, setAdvisorActionPendingId] = useState<string | null>(null);
   const courseSelectionCandidatesRequestSequence = useRef(0);
   const advisorOverviewRequestSequence = useRef(0);
+  const rendererStartedAt = useRef(Date.now());
 
   const applyRendererSnapshot = useCallback((snapshot: CampusState) => {
     setState(projectBrowserRendererSnapshot(snapshot));
@@ -173,7 +182,7 @@ export function useTheiaApp() {
     // the terminal event while it is being created or while Electron is
     // recovering a saved session. The persisted timestamps are authoritative
     // and let the UI reconcile the live indicator from the next snapshot.
-    if (syncSnapshotIsPending(snapshot.sync)) {
+    if (syncSnapshotIsPending(snapshot.sync) && syncStartedDuringRenderer(snapshot.sync, rendererStartedAt.current)) {
       setSyncing(true);
       setSyncStage("all");
       setSyncProgress("正在更新校园数据…");
@@ -251,6 +260,7 @@ export function useTheiaApp() {
       load: () => bridge.getApiStatus(),
       apply: (api: Awaited<ReturnType<typeof bridge.getApiStatus>>) => {
         if (active) {
+          setApiStatus(api);
           setApiBase(api.baseUrl);
           setCalendarAssetUrls(api.academicCalendarAssets || {});
           setAcademicPlanAssetBaseUrl(api.academicPlanAssetBaseUrl || "");
@@ -461,13 +471,13 @@ export function useTheiaApp() {
       setSyncing(false);
     }
   };
-  const refreshAcademicDomain = async (domain: SyncRetryDomain) => {
+  const refreshAcademicDomain = async (domain: SyncRetryDomain, successMessage = "数据已更新。") => {
     if (academicDomainRefreshing) return;
     setAcademicDomainRefreshing(domain);
     try {
       const snapshot = await bridge.retrySyncDomain(domain);
       applyRendererSnapshot(snapshot);
-      setMsg("数据已更新。", "success");
+      setMsg(successMessage, "success");
     } catch (error) {
       setError(error);
     } finally {
@@ -621,6 +631,13 @@ export function useTheiaApp() {
   const openAssignmentSource = async (assignmentId: string) => {
     try {
       await bridge.openAssignmentSource(assignmentId);
+    } catch (error) {
+      setError(error);
+    }
+  };
+  const openCourseMaterial = async (courseId: string, materialId: string) => {
+    try {
+      await bridge.openCourseMaterial(courseId, materialId);
     } catch (error) {
       setError(error);
     }
@@ -880,6 +897,7 @@ export function useTheiaApp() {
     syncFailure,
     syncFreshness,
     apiBase,
+    apiStatus,
     calendarAssetUrls,
     academicPlanAssetBaseUrl,
     credentialStatus,
@@ -939,6 +957,7 @@ export function useTheiaApp() {
     openAnswerPdf,
     openCourseWork,
     openAssignmentSource,
+    openCourseMaterial,
     importCourseWorkFile,
     openSubmission,
     applyTestAnswers,

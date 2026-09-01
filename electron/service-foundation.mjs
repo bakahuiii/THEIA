@@ -12,6 +12,8 @@ import { MailVault } from './mail-vault.mjs'
 import { CourseSelectionJournal } from '../core/course-selection-journal.mjs'
 import { JwglxtAttachmentStore } from '../core/jwglxt-attachment-store.mjs'
 import { TheolAttachmentStore } from '../core/theol-attachment-store.mjs'
+import { TheolCourseArchiveStore } from '../core/theol-course-archive-store.mjs'
+import { recoverInterruptedSyncState } from '../core/schema.mjs'
 import { loadTrustedUpgradeRule } from './advisor-upgrade-rule.mjs'
 import { createAcademicCalendarRuntime } from './academic-calendar-runtime.mjs'
 import { createFitnessRuntime } from './fitness-runtime.mjs'
@@ -79,6 +81,11 @@ export async function initializeServiceFoundation({
   const store = new CampusStore(dataRoot)
   const storeStartedAt = Date.now()
   await store.load()
+  const syncRecovery = recoverInterruptedSyncState(store.snapshot())
+  if (syncRecovery.repaired) {
+    await store.replace(syncRecovery.state)
+    void writeDiagnostic('sync.interrupted_marker_recovered', { repaired: true })
+  }
   startupClock = logStartupStep('store_loaded', startupClock)
   const motionVenueAdapter = new MotionVenueAdapter()
   try {
@@ -105,6 +112,16 @@ export async function initializeServiceFoundation({
   const academicApiVault = new AcademicApiVault(dataRoot, safeStorage)
   const academicAttachmentStore = new JwglxtAttachmentStore(dataRoot)
   const theolAttachmentStore = new TheolAttachmentStore(dataRoot)
+  const theolCourseArchiveStore = new TheolCourseArchiveStore(dataRoot)
+  try {
+    const archiveRepair = await theolCourseArchiveStore.repairLegacyArchives()
+    if (archiveRepair.repaired || archiveRepair.materialized || archiveRepair.failed) {
+      console.log(`[THEIA] Repaired ${archiveRepair.repaired} THEOL HTML archives and materialized ${archiveRepair.materialized || 0} offline frames (${archiveRepair.failed} failed)`)
+      void writeDiagnostic('theol.archive_encoding_repaired', archiveRepair)
+    }
+  } catch (error) {
+    void writeDiagnostic('theol.archive_encoding_repair_failed', { error: diagnosticError(error) })
+  }
   const mailVault = new MailVault(dataRoot, safeStorage)
   const courseSelectionJournal = new CourseSelectionJournal(dataRoot)
   await courseSelectionJournal.load()
@@ -214,6 +231,7 @@ export async function initializeServiceFoundation({
     academicApiVault,
     academicAttachmentStore,
     theolAttachmentStore,
+    theolCourseArchiveStore,
     mailVault,
     courseSelectionJournal,
     academicCalendarAssetsService,

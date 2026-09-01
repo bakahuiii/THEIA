@@ -24,7 +24,7 @@ function recorder() {
   }
 }
 
-test('capability IPC registration keeps the expected channel groups', () => {
+test('capability IPC registration keeps the expected channel groups', async () => {
   const advisor = recorder()
   registerAdvisorReadIpc({
     ipcMain: advisor.ipcMain,
@@ -77,6 +77,13 @@ test('capability IPC registration keeps the expected channel groups', () => {
     'theia:validate-model-connection',
     'theia:process-course-work-with-model',
   ])
+  const apiStatus = await model.calls.find((call) => call.channel === 'theia:get-api-status').handler()
+  assert.ok(apiStatus.apiEndpoints.some((endpoint) => endpoint.path === '/v1/data-output/:domain'))
+  assert.ok(apiStatus.apiEndpoints.some((endpoint) => endpoint.method === 'POST' && endpoint.path === '/v1/sync'))
+  assert.ok(apiStatus.apiEndpoints.some((endpoint) => endpoint.method === 'POST' && endpoint.path === '/v1/agent/chat'))
+  assert.equal(apiStatus.mcp.name, 'theia')
+  assert.equal(apiStatus.mcp.tools.length, 10)
+  assert.equal(apiStatus.mcp.tools.every((tool) => tool.readOnly), true)
 
   const motion = recorder()
   registerMotionVenueIpc({

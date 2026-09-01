@@ -142,6 +142,7 @@ export interface TheiaBridge {
   downloadCourseResource(courseId: string, resourceId: string): Promise<{ cached: boolean; bytes?: number; filename?: string; opened?: boolean; snapshot?: CampusState }>;
   openAcademicAttachment(domain: string, attachmentId: string): Promise<{ cached: boolean }>;
   openAssignmentSource(assignmentId: string): Promise<boolean>;
+  openCourseMaterial(courseId: string, materialId: string): Promise<boolean>;
   openSchedulePdf(): Promise<{ canceled: boolean; filePath?: string; bytes?: number }>;
   openScheduleDirectory(): Promise<{ opened: boolean; path: string }>;
   getCourseWorkQueue(): Promise<CourseWorkQueueSnapshot>;
@@ -198,7 +199,7 @@ export interface TheiaBridge {
       backupCreated: boolean;
     }>;
   }>;
-  getApiStatus(): Promise<{ baseUrl: string; host: string; port: number; academicCalendarAssets?: Partial<Record<"calendar" | "teachingSchedule" | "weeklyCalendar", string>>; academicPlanAssetBaseUrl?: string }>;
+  getApiStatus(): Promise<ApiStatus>;
   getFitnessScore(year?: string, options?: { refresh?: boolean }): Promise<FitnessScoreResult>;
   updateSettings(settings: Partial<CampusState["settings"]>): Promise<CampusState>;
   onSyncProgress(cb: (p: { stage: string; status: string; label?: string; error?: string; scope?: "domain" }) => void): () => void;
@@ -219,6 +220,37 @@ export interface TheiaBridge {
   getAppearancePresets?: () => Promise<{ exists: boolean; updatedAt: string | null; presets: unknown[] }>;
   saveAppearancePresets?: (presets: unknown[]) => Promise<{ updatedAt: string; presets: unknown[] }>;
   onAppearanceMode?: (callback: (mode: "light" | "dark" | "system") => void) => () => void;
+}
+
+export interface ApiEndpointDescriptor {
+  method: "GET" | "POST";
+  path: string;
+  category: "runtime" | "data" | "academic" | "public" | "asset" | "agent";
+  label: string;
+  description: string;
+}
+
+export interface ApiMcpToolDescriptor {
+  name: string;
+  title: string;
+  description: string;
+  readOnly: boolean;
+}
+
+export interface ApiStatus {
+  baseUrl: string;
+  host: string;
+  port: number;
+  apiEndpoints?: ApiEndpointDescriptor[];
+  mcp?: {
+    name: string;
+    version: string;
+    protocolVersion: string;
+    schema: string;
+    tools: ApiMcpToolDescriptor[];
+  };
+  academicCalendarAssets?: Partial<Record<"calendar" | "teachingSchedule" | "weeklyCalendar", string>>;
+  academicPlanAssetBaseUrl?: string;
 }
 
 export interface GithubUpdateProgress {

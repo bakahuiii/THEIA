@@ -2,11 +2,11 @@
 
 ## 1. 本文适用范围
 
-本文面向维护 THEIA 源码、修复缺陷、添加数据来源、扩展桌面功能、增加本地接口或改进测试的开发者。它不是用户操作说明；普通使用者请阅读 [用户指南](guides/USER_GUIDE.md)。在做跨进程、数据模型、存储或认证变更前，同时阅读：
+本文面向维护 THEIA 源码、修复缺陷、添加数据来源、扩展桌面功能、增加本地接口或改进测试的开发者。它不是用户操作说明；普通使用者请阅读 [用户指南](../guides/USER_GUIDE.md)。在做跨进程、数据模型、存储或认证变更前，同时阅读：
 
 - [系统架构](architecture.md)
 - [数据生命周期](data-lifecycle.md)
-- [接口与 IPC 参考](reference/api-and-ipc.md)
+- [接口与 IPC 参考](../reference/api-and-ipc.md)
 - `docs/ai/00-project-rules.md`
 - 与当前模块最接近的 `docs/ai/` 专题页
 
@@ -47,10 +47,6 @@ npm run dev:web             # 仅浏览器预览；受限的非桌面 fallback
 npm test                    # Node:test 全部测试
 npm run lint                # ESLint
 npm run build               # TypeScript 构建 + Vite 打包
-npm run cli -- status --json
-npm run cli -- doctor
-npm run cli -- export --format theia --output .\theia-feed.json
-npm run cli -- export --format ai --output .\test-output
 ```
 
 `npm run dev` 会处理本项目已知的旧开发进程，避免端口连续增长。不要为了解决局部启动问题而杀掉宽泛的所有 `node` 或 `electron` 进程。构建 Windows 安装包属于更高成本、会产生大量输出的操作，仅在明确需要时执行，见 [运行、测试与发布](operations-and-testing.md)。
@@ -85,7 +81,6 @@ THEIA/
     course-work.mjs            作业工作区
     course-selection*.mjs      选课服务与审计 journal
     data-catalog.mjs           本地资料库
-  cli/theia-cli.mjs            同一 Store 的本地命令行入口
   integration/                 供本地外部程序使用的 client 与 Feed schema
   tests/                       Node:test 测试套件
   scripts/                     开发、打包和烟雾测试辅助脚本
@@ -101,7 +96,7 @@ THEIA/
 1. **数据从哪里来？** 是 JWGLXT、THEOL、TYGL、IMAP、官方校历、用户本地输入还是派生计算？
 2. **谁拥有它？** 哪个 adapter/service 是唯一归并权威？不同来源冲突时谁优先？
 3. **它会持久化吗？** 若会，`CampusState`、`schema`、`store` 分片和迁移如何变化？
-4. **谁能读取它？** 只给 UI、也给 CLI/API/Feed，还是给明确的 AI 包？是否需要去敏或另建视图？
+4. **谁能读取它？** 只给 UI、也给 API/Feed，还是给明确的 AI 包？是否需要去敏或另建视图？
 5. **失败时意味着什么？** 无记录、未同步、权限不足、认证失效、网络失败和解析失败如何区分？
 
 如果这些答案还不清楚，不要先改 UI。THEIA 的前端只是共同状态的一个消费者；在 renderer 私自缓存业务数据会让同步、导出与 AI 包彼此失真。
@@ -114,11 +109,11 @@ THEIA/
 2. 在对应 `core/adapters/` 或 service 中处理网络、来源 URL、认证错误与保守的回退策略。
 3. 在 `core/schema.mjs` 增加默认值和 `normalizeState()` 中的迁移/约束逻辑。
 4. 在 `core/store.mjs` 为持久集合声明明确片段；避免让小更新重写无关的大集合。
-5. 选择是否进入 Feed、loopback API、CLI/CSV/ICS 或资料库；不要默认全暴露。
+5. 选择是否进入 Feed、loopback API、CSV/ICS 或资料库；不要默认全暴露。
 6. 若 renderer 需要操作，通过 `TheiaBridge`、preload、主进程 handler 和 `src/bridge.ts` fallback 一起暴露。
 7. 更新视图/Hook，确保从 snapshot 消费，而非二次抓取或直接写文件。
 8. 添加 parser、adapter、store/reload、API/导出和隐私边界测试。
-9. 更新 [数据模型](reference/data-model.md)、[数据生命周期](data-lifecycle.md) 与相应 `docs/ai/` 页面。
+9. 更新 [数据模型](../reference/data-model.md)、[数据生命周期](data-lifecycle.md) 与相应 `docs/ai/` 页面。
 
 ### 5.2 新增 IPC
 
@@ -150,7 +145,7 @@ view or hook
 
 先明确数据是否应该离开应用边界。若答案是肯定的：
 
-- API 只能在 `core/local-api.mjs` 提供 `GET/HEAD`，保持 `127.0.0.1` 绑定和受限 CORS；
+- API 在 `core/local-api.mjs` 中只提供 `127.0.0.1` 上的受限路由：数据端点使用 `GET/HEAD`，顾问对话端点使用 `POST`，并统一受令牌和 CORS 约束；
 - 定义响应 schema、版本、时间、空结果和错误语义；
 - 不能暴露原始 HTML、cookies、vault 内容、会话状态、任意文件或可重放操作字段；
 - 最好增加集合 endpoint，而不是让调用者解析主存储文件；
@@ -203,7 +198,7 @@ THEIA 是高频使用的校园工作台。界面优先稳定、紧凑、可扫�
 | HTML/JSON parser | fixture 输入、正常/异常结构、字段规范化。 |
 | adapter/认证 | fake client、认证失效、来源错误、旧数据保留。 |
 | schema/store | 默认值、迁移、分片 reload、digest/备份回退。 |
-| API/CLI/export | schema、状态码、`since`、CSV/ICS、敏感字段缺失。 |
+| API/export | schema、状态码、`since`、CSV/ICS、敏感字段缺失。 |
 | vault/秘密 | 加密可用与不可用、绝不落入 state/日志。 |
 | 邮箱/附件 | 元数据限制、按需加载、HTML 消毒。 |
 | 选课/提交 | 用户目标约束、停止、限速、不可自动重放、审计剔除敏感字段。 |
@@ -218,7 +213,6 @@ THEIA 是高频使用的校园工作台。界面优先稳定、紧凑、可扫�
 npm test
 npm run lint
 npm run build
-npm run cli -- status --json
 ```
 
 如果改动了 Electron UI、login、文件导出、打包行为或校方交互，在上述基础上执行相应的人工 smoke 检查；不要只因 web preview 能显示就判定桌面能力正常。
@@ -230,7 +224,7 @@ npm run cli -- status --json
 | 变化 | 至少更新 |
 | --- | --- |
 | 公开状态字段、协议或导出 | `reference/data-model.md`、`reference/ai-export-contract.md`、schema/测试。 |
-| HTTP/CLI/IPC | `reference/api-and-ipc.md`、`integration/README.md`、测试。 |
+| HTTP/API/IPC | `reference/api-and-ipc.md`、`integration/README.md`、测试。 |
 | 存储、迁移、恢复 | `data-lifecycle.md`、`docs/ai/06-storage-schema.md`。 |
 | 认证或数据来源 | `architecture.md`、`docs/ai/07-auth-and-sync.md`、`08-academic-sources.md`。 |
 | 作业/模型/提交边界 | `guides/USER_GUIDE.md`、`docs/ai/09-coursework-model-selection.md`。 |

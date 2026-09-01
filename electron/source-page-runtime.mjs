@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { JWGLXT_URLS } from '../core/adapters/jwglxt.mjs'
+import { decodeSourceBuffer } from '../core/source-client.mjs'
 
 /**
  * Owns rendered campus page I/O. The main process supplies the guarded window
@@ -46,21 +47,48 @@ export function createSourcePageRuntime({
     })
   }
 
+  function decodeRendererResponse(result, { text = true } = {}) {
+    const contentType = String(result?.contentType || '')
+    const buffer = Buffer.from(String(result?.base64 || ''), 'base64')
+    const probe = buffer.subarray(0, 4_096).toString('latin1')
+    const isText = /^(?:text\/|application\/(?:json|javascript|xml|xhtml))|image\/svg/iu.test(contentType)
+      || /<html[\s>]|<body[\s>]|<!doctype\s+html/iu.test(probe)
+    return {
+      ...result,
+      contentType,
+      text: text && isText ? decodeSourceBuffer(buffer, contentType) : '',
+      buffer,
+      headers: new Headers({ 'content-type': contentType }),
+    }
+  }
+
   async function fetchRenderedPageInWindow(window, target) {
     const payload = JSON.stringify({ url: target })
+    let timeout
     const result = await Promise.race([
       window.webContents.executeJavaScript(`(async ({ url }) => {
         const response = await fetch(url, { credentials: 'include' })
-        return { url: response.url, status: response.status, text: await response.text() }
+        const bytes = new Uint8Array(await response.arrayBuffer())
+        let binary = ''
+        for (let offset = 0; offset < bytes.length; offset += 32768) {
+          binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 32768, bytes.length)))
+        }
+        return {
+          url: response.url,
+          status: response.status,
+          contentType: response.headers.get('content-type') || '',
+          base64: btoa(binary),
+        }
       })(${payload})`),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Rendered page fetch timed out')), 30_000)),
-    ])
+      new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('Rendered page fetch timed out')), 30_000) }),
+    ]).finally(() => clearTimeout(timeout))
     if (Number(result?.status || 0) < 200 || Number(result?.status || 0) >= 300) {
       throw new Error(`Rendered page fetch failed (${result?.status || 0})`)
     }
-    const text = String(result?.text || '')
+    const decoded = decodeRendererResponse(result)
+    const text = String(decoded.text || '')
     if (!text) throw new Error('Rendered page fetch returned an empty document')
-    return { url: result?.url || target, text }
+    return { url: decoded.url || target, text, headers: decoded.headers }
   }
 
   function raceRenderedOperation(operation, timeoutMs, message) {
@@ -125,8 +153,29 @@ export function createSourcePageRuntime({
       if (signal?.aborted) throw new Error('Background page navigation aborted')
       await new Promise((resolveDelay) => setTimeout(resolveDelay, 600))
       if (signal?.aborted) throw new Error('Background page navigation aborted')
-      const text = await window.webContents.executeJavaScript('document.documentElement?.outerHTML || ""')
       const finalUrl = permittedSourceUrl(window.webContents.getURL() || target)
+      // Chromium may already have decoded a legacy THEOL document using its
+      // incorrect response header before exposing outerHTML. Re-read the
+      // response bytes from the authenticated renderer so the page charset
+      // declaration remains authoritative, matching the THEOL-lab crawler.
+      if (sourceFromUrl(target) === 'theol') {
+        try {
+          const raw = await fetchRenderedPageInWindow(window, finalUrl)
+          await captureRenderedPage(raw.url || finalUrl, raw.text)
+          void writeDiagnostic('source.rendered_fetch_after_navigation', {
+            source: 'theol',
+            url: diagnosticUrl(finalUrl),
+          })
+          return raw
+        } catch (error) {
+          void writeDiagnostic('source.rendered_fetch_after_navigation_failed', {
+            source: 'theol',
+            url: diagnosticUrl(finalUrl),
+            error: diagnosticError(error),
+          })
+        }
+      }
+      const text = await window.webContents.executeJavaScript('document.documentElement?.outerHTML || ""')
       await captureRenderedPage(finalUrl, text)
       return { url: finalUrl, text }
     } catch (error) {
@@ -307,7 +356,12 @@ export function createSourcePageRuntime({
           },
           body: new URLSearchParams(values).toString(),
         })
-        return { url: response.url, status: response.status, text: await response.text() }
+        const bytes = new Uint8Array(await response.arrayBuffer())
+        let binary = ''
+        for (let offset = 0; offset < bytes.length; offset += 32768) {
+          binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 32768, bytes.length)))
+        }
+        return { url: response.url, status: response.status, contentType: response.headers.get('content-type') || '', base64: btoa(binary) }
       })(${payload})`), 45_000, 'Rendered form request timed out')
     } catch (error) {
       if (getSyncPageWindow() === window) setSyncPageWindow(null)
@@ -319,8 +373,9 @@ export function createSourcePageRuntime({
       })
       throw error
     }
-    await captureRenderedPage(result.url || url, result.text || '')
-    return result
+    const decoded = decodeRendererResponse(result)
+    await captureRenderedPage(decoded.url || url, decoded.text || '')
+    return decoded
   }
 
   async function submitWithFitnessBrowser(rawUrl, values, { referer } = {}) {
@@ -330,7 +385,7 @@ export function createSourcePageRuntime({
     const window = getFitnessPageWindow()
     if (!window || window.isDestroyed()) throw new Error('Fitness browser is unavailable')
     const payload = JSON.stringify({ url, values: values || {} })
-    const result = await window.webContents.executeJavaScript(`(async ({ url, values }) => {
+      const result = await window.webContents.executeJavaScript(`(async ({ url, values }) => {
       const response = await fetch(url, {
         method: 'POST',
         credentials: 'include',
@@ -338,12 +393,18 @@ export function createSourcePageRuntime({
           'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
           'X-Requested-With': 'XMLHttpRequest',
         },
-        body: new URLSearchParams(values).toString(),
-      })
-      return { url: response.url, status: response.status, text: await response.text() }
-    })(${payload})`)
-    await captureRenderedPage(result.url || url, result.text || '')
-    return result
+          body: new URLSearchParams(values).toString(),
+        })
+        const bytes = new Uint8Array(await response.arrayBuffer())
+        let binary = ''
+        for (let offset = 0; offset < bytes.length; offset += 32768) {
+          binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 32768, bytes.length)))
+        }
+        return { url: response.url, status: response.status, contentType: response.headers.get('content-type') || '', base64: btoa(binary) }
+      })(${payload})`)
+    const decoded = decodeRendererResponse(result)
+    await captureRenderedPage(decoded.url || url, decoded.text || '')
+    return decoded
   }
 
   function submitSchoolForm(url, values, options) {
@@ -401,10 +462,7 @@ export function createSourcePageRuntime({
             binary += String.fromCharCode(...buffer.subarray(index, Math.min(index + chunkSize, buffer.length)))
           }
           const contentType = response.headers.get('content-type') || ''
-          const text = /html|text\\//i.test(contentType) && buffer.length <= 1024 * 1024
-            ? new TextDecoder().decode(buffer)
-            : ''
-          return { url: response.url, status: response.status, contentType, base64: btoa(binary), text }
+          return { url: response.url, status: response.status, contentType, base64: btoa(binary) }
         } finally {
           clearTimeout(timeout)
         }
@@ -413,12 +471,11 @@ export function createSourcePageRuntime({
           timeout = setTimeout(() => reject(new Error('Background binary request timed out')), Math.max(1_000, Number(timeoutMs) || 25_000) + 1_000)
         }),
       ]).finally(() => clearTimeout(timeout))
+      const decoded = decodeRendererResponse(result, { text: true })
       return {
-        url: result?.url || url,
-        status: Number(result?.status || 0),
-        headers: new Headers({ 'content-type': String(result?.contentType || '') }),
-        text: String(result?.text || ''),
-        buffer: Buffer.from(String(result?.base64 || ''), 'base64'),
+        ...decoded,
+        url: decoded.url || url,
+        status: Number(decoded.status || 0),
       }
     }, { priority: 0 })
   }

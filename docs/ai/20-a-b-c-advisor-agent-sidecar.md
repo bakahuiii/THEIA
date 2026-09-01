@@ -17,7 +17,7 @@ THEIA 的内嵌顾问只有一条模型路径：有界的本地 Agent。用户�
   -> 原样保存模型回答到加密线程
 ```
 
-初始 `theia-advisor-agent-session/v1` 不包含成绩、课程、课表、作业、通知、邮件、正文、体测数值或学业树。它发送问题、运行时上下文、数据目录和快照 revision；当前不会从问题文字生成 `intent` 或 `focusDomains`（`focusDomains` 固定为空），具体事实仍必须通过工具读取。新配置默认是 `read-only`（受控 Agent），保留既有的校园 typed tools；用户可显式切换到 `full-access`，该会话额外携带建议输出目录并投影通用本地工具。模型在当前工具范围内自行决定是否查询、查询哪个领域或执行用户要求的实际产物；涉及“我的/个人信息/个人博客/个人主页/简历”时运行时会先读取 `profile`。Ultra 也复用同一套当前会话工具，不会因 full-access 被降级为只读。
+初始 `theia-advisor-agent-session/v1` 不包含成绩、课程、课表、作业、通知、邮件、正文、体测数值或学业树。它发送问题、运行时上下文、数据目录和快照 revision；当前不会从问题文字生成 `intent` 或 `focusDomains`（`focusDomains` 固定为空），具体事实仍必须通过工具读取。新配置默认值为 `read-only`，这里表示受限 Agent，不表示完全无副作用：它保留已声明的校园 typed tools。用户可显式切换到 `full-access`，该会话额外携带建议输出目录并投影通用本地工具。模型在当前工具范围内自行决定是否查询、查询哪个领域或执行用户要求的实际产物；涉及“我的/个人信息/个人博客/个人主页/简历”时运行时会先读取 `profile`。Ultra 也复用同一套当前会话工具，不会因 full-access 被降级为无工具。
 
 ## 数据工作区
 
@@ -49,7 +49,7 @@ Ultra 仅在 `ultra` 档位和复杂问题下启用。它使用仓库内的 `ele
 
 ## 能力边界
 
-`read-only` 保留已声明的 `sync_campus_data`、公开 HTTPS `network_request`、校园页面打开、THEIA 设置更新和已保存目标选课控制工具，但没有通用 `filesystem`、Shell 或任意网页能力。`full-access` 额外投影 `read_file`、`write_file`、`list_directory`、`create_directory`、`delete_path`、`run_command`、`web_request` 和 `open_webpage`；本机用户承担这些操作的后果。两种模式都不暴露保存的 `credentials`/Cookie、浏览器会话、API Key、原始 IPC 或未声明的学校侧提交能力。
+`read-only` 保留已声明的 `sync_campus_data`、公开 HTTPS `network_request`、校园页面打开、THEIA 设置更新和已保存目标选课控制工具，但没有通用 `filesystem`、Shell 或任意网页能力。因此它是“受限模式”，不是无副作用模式；同步、设置更新和目标控制仍须遵守各自的用户确认边界。`full-access` 额外投影 `read_file`、`write_file`、`list_directory`、`create_directory`、`delete_path`、`run_command`、`web_request` 和 `open_webpage`；本机用户承担这些操作的后果。两种模式都不暴露保存的 `credentials`/Cookie、浏览器会话、API Key、原始 IPC 或未声明的学校侧提交能力。
 
 用户的“发送”操作只启动本地 Agent 运行，不是数据访问确认，也不会把全量校园数据库打包到初始 prompt。外部模型仅能收到它在当前问题中实际请求到的受限切片。线程历史默认只压缩为最多两条、1.2 KB 的导航提示，不把完整历史 transcript 自动并入下一次模型请求；工具续轮使用精简系统上下文，当前事实仍必须重新从本地工具读取。
 

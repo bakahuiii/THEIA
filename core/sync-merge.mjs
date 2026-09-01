@@ -1,8 +1,21 @@
+function mergeLocalArtifactFields(previous, fresh, merged) {
+  if (fresh?.localStatus !== 'failed' || !previous?.localPath) return merged
+  return {
+    ...merged,
+    localPath: previous.localPath,
+    localBytes: previous.localBytes,
+    localSha256: previous.localSha256,
+    localCapturedAt: previous.localCapturedAt,
+    localStatus: 'stale',
+  }
+}
+
 function mergeById(...collections) {
   const map = new Map()
   for (const item of collections.flat()) {
     if (!item?.id) continue
-    map.set(item.id, { ...(map.get(item.id) || {}), ...item })
+    const previous = map.get(item.id)
+    map.set(item.id, mergeLocalArtifactFields(previous, item, { ...(previous || {}), ...item }))
   }
   return [...map.values()]
 }

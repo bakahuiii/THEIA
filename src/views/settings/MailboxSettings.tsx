@@ -42,7 +42,7 @@ export function MailboxSettings({ state, status, onStatus, onMessage }: {
     finally { setSaving(false); }
   };
   const openMailbox = async () => {
-    try { await bridge.openMailbox(); onMessage("已打开网页邮箱。可在旧版设置中启用客户端收信或生成客户端授权密码。"); }
+    try { await bridge.openMailbox(); onMessage("已打开网页邮箱。可在网页邮箱设置中启用客户端收信或生成客户端授权密码。"); }
     catch (error) { onMessage(error instanceof Error ? error.message : String(error)); }
   };
 
@@ -56,7 +56,7 @@ export function MailboxSettings({ state, status, onStatus, onMessage }: {
       <form className="credential-form mailbox-credential-form" onSubmit={(event) => void save(event)}>
         <label><span>邮箱账号</span><input autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="name@buct.edu.cn" disabled={saving} /></label>
         <SecretInput label={<span>邮箱密码</span>} visibilityLabel="邮箱密码" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder={status.passwordSaved ? "••••••••" : "邮箱登录密码"} saved={status.passwordSaved} onRevealSaved={() => bridge.readSavedSecret("mail-password")} onRevealError={onMessage} disabled={saving} />
-        <SecretInput label={<span><strong>客户端授权密码</strong><small>可选。若学校邮箱拒绝登录密码，请在邮箱旧版设置中生成后填写；填入后优先使用。</small></span>} visibilityLabel="客户端授权密码" autoComplete="off" value={protocolPassword} onChange={(event) => setProtocolPassword(event.target.value)} placeholder={status.protocolPasswordSaved ? "••••••••" : "客户端授权密码"} saved={status.protocolPasswordSaved} onRevealSaved={() => bridge.readSavedSecret("mail-protocol-password")} onRevealError={onMessage} disabled={saving} />
+        <SecretInput label={<span><strong>客户端授权密码</strong><small>可选。若学校邮箱拒绝登录密码，请在网页邮箱设置中生成后填写；填入后优先使用。</small></span>} visibilityLabel="客户端授权密码" autoComplete="off" value={protocolPassword} onChange={(event) => setProtocolPassword(event.target.value)} placeholder={status.protocolPasswordSaved ? "••••••••" : "客户端授权密码"} saved={status.protocolPasswordSaved} onRevealSaved={() => bridge.readSavedSecret("mail-protocol-password")} onRevealError={onMessage} disabled={saving} />
         <label className="numeric-setting"><span><strong>检查间隔</strong><small>后台检查频率，最短 1 分钟。</small></span><input type="number" min="1" max="60" value={pollInterval} onChange={(event) => setPollInterval(event.target.value)} disabled={saving} /><em>分钟</em></label>
         {status.error && <p className="credential-error"><AlertCircle size={15} /> {status.error}</p>}
         <div className="credential-security"><ShieldCheck size={16} /><span>邮箱密码和客户端授权密码均由当前 Windows 账户加密保存，不会写入导出、本地 API 或诊断日志。</span></div>

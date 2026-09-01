@@ -73,6 +73,7 @@ const api = {
   downloadCourseResource: (courseId, resourceId) => ipcRenderer.invoke('theia:download-course-resource', courseId, resourceId),
   openAcademicAttachment: (domain, attachmentId) => ipcRenderer.invoke('theia:open-academic-attachment', domain, attachmentId),
   openAssignmentSource: (assignmentId) => ipcRenderer.invoke('theia:open-assignment-source', assignmentId),
+  openCourseMaterial: (courseId, materialId) => ipcRenderer.invoke('theia:open-course-material', courseId, materialId),
   getFitnessScore: (year, options) => ipcRenderer.invoke('theia:get-fitness-score', year, options),
   openSchedulePdf: () => ipcRenderer.invoke('theia:open-schedule-pdf'),
   openScheduleDirectory: () => ipcRenderer.invoke('theia:open-schedule-directory'),

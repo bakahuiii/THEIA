@@ -118,6 +118,8 @@ test('trusted IPC rejects unregistered channels, invalid schemas, and oversized 
   assert.throws(() => validateIpcArguments('theia:open-source', ['x'.repeat(MAX_IPC_ARGUMENT_BYTES + 1)]), /too long|byte limit/)
   assert.doesNotThrow(() => validateIpcArguments('theia:open-assignment-source', ['assignment-123']))
   assert.throws(() => validateIpcArguments('theia:open-assignment-source', ['']), /non-empty string/)
+  assert.doesNotThrow(() => validateIpcArguments('theia:open-course-material', ['course-123', 'material-123']))
+  assert.throws(() => validateIpcArguments('theia:open-course-material', ['course-123']), /expected 2 arguments/)
   assert.doesNotThrow(() => validateIpcArguments('theia:get-course-work-queue', []))
   assert.doesNotThrow(() => validateIpcArguments('theia:get-user-data-overview', []))
   assert.doesNotThrow(() => validateIpcArguments('theia:get-user-data-domain-summary', ['academic-plan']))

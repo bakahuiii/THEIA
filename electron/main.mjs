@@ -171,6 +171,7 @@ let academicCalendarAssetsService
 let academicCalendarRuntime
 let academicAttachmentStore
 let theolAttachmentStore
+let theolCourseArchiveStore
 let irisCompanion
 let irisControlWindow
 let academicCalendarProbeTimer
@@ -940,6 +941,7 @@ async function restartLocalApi(preferredPort) {
       preferredPort,
       academicCalendarAssetsService,
       getAdvisorRuntime: () => advisorRuntime,
+      syncCampusData: (request) => syncOrchestrator?.syncAdvisorCampusData(request),
       publishRuntime: false,
       renderTableImage: renderHtmlToPng,
     })
@@ -1001,6 +1003,7 @@ async function startServices() {
     academicApiVault,
     academicAttachmentStore,
     theolAttachmentStore,
+    theolCourseArchiveStore,
     mailVault,
     courseSelectionJournal,
     academicCalendarAssetsService,
@@ -1020,6 +1023,7 @@ async function startServices() {
     credentialVault,
     academicApiVault,
     academicAttachmentStore,
+    theolCourseArchiveStore,
     mailVault,
     courseSelectionJournal,
     academicCalendarRuntime,
@@ -1088,6 +1092,7 @@ async function startServices() {
     mailVault,
     sessionClient,
     theolAttachmentStore,
+    theolCourseArchiveStore,
     syncOrchestrator,
     mailService,
     fitnessRuntime,

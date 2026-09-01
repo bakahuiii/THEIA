@@ -2,9 +2,9 @@
 
 ## 1. 运行目标
 
-THEIA 的运行质量不仅是“窗口打开了”。一个可交付的本地桌面版本至少应能：加载或恢复本地快照、在无需联网时显示已有数据、正确隔离凭据、在用户授权后建立校园会话、以受控频率同步、保持 loopback API 只读且本机可见、导出结构正确的数据，并在失败时不毁坏既有数据。
+THEIA 的运行质量不仅是“窗口打开了”。一个可交付的本地桌面版本至少应能：加载或恢复本地快照、在无需联网时显示已有数据、正确隔离凭据、在用户授权后建立校园会话、以受控频率同步、保持 loopback API 的数据端点只读且本机可见、导出结构正确的数据，并在失败时不毁坏既有数据。
 
-本章为开发、测试、诊断和发行提供操作顺序。用户日常故障先看 [用户指南](guides/USER_GUIDE.md)；模块结构看 [系统架构](architecture.md)。
+本章为开发、测试、诊断和发行提供操作顺序。用户日常故障先看 [用户指南](../guides/USER_GUIDE.md)；模块结构看 [系统架构](architecture.md)。
 
 ## 2. 本地运行模式
 
@@ -26,17 +26,16 @@ npm run dev:web
 
 浏览器预览适合检查 React 布局、状态 fallback 和纯前端行为。它不是 Electron 的等价物：没有真实安全存储、SSO 浏览器会话、用户数据根、文件对话框、主进程模型调用或有意义的本机 API 生命周期。不要把浏览器预览的成功作为登录、导出、IPC 或凭据功能已通过的证据。
 
-### 2.3 CLI 与本机数据根
+### 2.3 本机数据根与 API runtime
 
-CLI 和桌面应用读取同一 `CampusStore`。在进行任何可能读取私有状态的调试前，先确认使用的是隔离数据根：
+在进行任何可能读取私有状态的调试前，先让桌面应用使用隔离数据根：
 
 ```powershell
 $env:THEIA_DATA_ROOT = 'H:\temp\theia-dev-data'
-npm run cli -- status --json
-npm run cli -- doctor
+npm run dev
 ```
 
-`status` 输出数据根、存储摘要、最后同步、计数和来源状态；`doctor` 用于提示尚未首次同步、协议异常或未连接来源。它们不应输出密码、Cookie 或模型 Key。
+运行中的桌面应用会在该数据根写出 `api-runtime.json`。它包含本次 API 的地址、端口和每实例令牌；不要把文件内容提交、复制到日志或发给他人。
 
 `THEIA_DATA_ROOT` 是隔离边界：指定后，应用不得读取或迁移真实 `%APPDATA%\BUCT`。只有使用默认 `%APPDATA%\THEIA` 时，才会在目标文件缺失的前提下复制选定的 legacy 文件，并保留原目录。
 
@@ -56,7 +55,7 @@ npm run build
 
 | 改动范围 | 额外验证 |
 | --- | --- |
-| 数据模型、存储、导出、API | `npm run cli -- status --json`，并用隔离数据根检查 JSON/Feed/CSV/ICS 的 schema、字段和敏感字段缺失；涉及 AI 包时运行 `node --test --test-concurrency=4 tests/ai-export.test.mjs` 和 CLI AI 导出。 |
+| 数据模型、存储、导出、API | 使用隔离数据根检查 JSON/Feed/CSV/ICS 的 schema、字段和敏感字段缺失；涉及 AI 包时运行 `node --test --test-concurrency=4 tests/ai-export.test.mjs`，并在桌面设置中实际执行一次导出。 |
 | Electron IPC 或桌面菜单 | 桌面模式中实际调用一次，检查 renderer 没有 preload error、错误反馈清晰。 |
 | 登录、同步、来源 adapter | 用受控测试账号或 fake client 验证认证失效、部分来源失败与旧数据保留；不在日志中复制秘密。 |
 | 作业/模型 | 准备测试工作区，验证上下文限制、输出文件、答案 JSON 校验与人工最终提交边界。 |
@@ -101,10 +100,10 @@ npm run build
 
 | 现象 | 可能含义 | 首选检查 |
 | --- | --- | --- |
-| 应用无数据但没有错误 | 首次启动、错误数据根、尚未同步、已有快照为空 | `theia status --json`、设置中的上次同步。 |
+| 应用无数据但没有错误 | 首次启动、错误数据根、尚未同步、已有快照为空 | 设置中的上次同步、`/v1/health` 和 `/v1/sync`。 |
 | 一个来源没更新，其他来源正常 | 局部来源失败，旧数据应还在 | `sync.sources`、活动日志、认证状态。 |
 | 登录窗口反复出现 | 会话无效、统一认证未完成、校方页识别异常 | 脱敏 `auth-diagnostics.ndjson`、主进程安全日志。 |
-| API/CLI 读取失败 | 应用未运行、端口变化、数据根不一致 | `theia api`、`api-runtime.json`、`THEIA_DATA_ROOT`。 |
+| 本机 API 读取失败 | 应用未运行、端口变化、数据根不一致、令牌失效 | `api-runtime.json`、`/v1/health`、`THEIA_DATA_ROOT`。 |
 | 导出内容旧 | 最近同步失败、未完成同步或读取了不同数据根 | `updatedAt`、`sync.lastSuccessAt`、`sync.lastRunAt`、导出路径。 |
 | 数据被错误清空 | 不应发生；可能存在合并/迁移缺陷 | 立即保留目录、检查 manifest / `.bak`，不要反复启动覆盖证据。 |
 
@@ -113,8 +112,7 @@ npm run build
 - 设置中的活动记录：本地操作、同步请求和安全错误摘要；
 - `%APPDATA%\THEIA\auth-diagnostics.ndjson`：认证阶段、脱敏 host/path、错误摘要；
 - `data/manifest.json` 和 `manifest.json.bak`：存储结构/恢复状态；
-- `api-runtime.json`：应用运行时的本机 API 地址；
-- `npm run cli -- status --json` 和 `doctor`：状态摘要；
+- `api-runtime.json`：应用运行时的本机 API 地址、端口和令牌；`/v1/health` 与 `/v1/sync` 提供运行状态摘要；
 - 开发模式 stdout/stderr：启动、构建和主进程安全错误。
 
 这些文件不应成为收集个人数据的借口。任何要分享给他人或附到 issue 的日志必须检查并移除姓名、学号、邮件内容、课程任务、路径、URL query、Cookie、密码与 API Key。
@@ -135,27 +133,29 @@ npm run build
 
 ## 6. 本机 API 与导出验证
 
-运行中的桌面客户端会写出 `api-runtime.json`。可通过 CLI 或该文件发现地址；不要假定总是 `8765`，端口占用时会在受限范围内回退。
+运行中的桌面客户端会写出 `api-runtime.json`。通过该文件发现地址和令牌；不要假定总是 `8765`，端口占用时会在受限范围内回退。
 
 基本检查示例：
 
 ```powershell
-npm run cli -- api
-Invoke-WebRequest http://127.0.0.1:8765/v1/health | Select-Object -Expand Content
-Invoke-WebRequest http://127.0.0.1:8765/v1/feed | Select-Object -Expand Content
+$runtime = Get-Content "$env:THEIA_DATA_ROOT\api-runtime.json" | ConvertFrom-Json
+$headers = @{ Authorization = "Bearer $($runtime.token)" }
+Invoke-WebRequest "$($runtime.baseUrl)/v1/health" -Headers $headers | Select-Object -Expand Content
+Invoke-WebRequest "$($runtime.baseUrl)/v1/feed" -Headers $headers | Select-Object -Expand Content
 ```
 
 实际端口必须来自运行时元数据。验证 HTTP 接口时检查：
 
 - 只在 `127.0.0.1` 监听；
-- 非 `GET`/`HEAD` 方法返回只读拒绝；
+- 数据端点只接受 `GET`/`HEAD`；`/v1/sync` 接受明确数据域并直接调用本地同步器，`/v1/agent/chat` 仅调用本地顾问；课程抓取不得使用顾问接口；
+- 请求必须使用 `api-runtime.json` 中的令牌，并发送精确的 `Host: 127.0.0.1:<port>`；
 - 未知路由返回明确 `not_found`；
 - collection 包装包含 schema、collection、updatedAt、total、items；
 - `?since=` 对集合与学业进度按既有规则工作；
 - 任何响应中没有秘密字段；
 - 运行时关闭后 `api-runtime.json` 被移除。
 
-显式导出应在临时目录测试，并检查：完整 JSON 为 `theia-campus-data/v1`，Feed 为 `theia-campus-feed/v1`，ICS 可被日历解析，CSV 没有未转义的逗号/换行破坏行结构。AI 导出必须通过 `npm run cli -- export --format ai --output .\\test-output` 实测：它应创建新的时间戳子目录，`manifest.json` 应为 `theia-ai-export-manifest/v1`，并且每个 `manifest.files[]` 所列文件的 UTF-8 SHA-256 与字节数均匹配；导出内容不得出现 fixture 中注入的 secret、查询参数、绝对路径或附件二进制。精确验收规则见 [AI 数据导出契约](reference/ai-export-contract.md)。
+显式导出应在临时目录测试，并检查：完整 JSON 为 `theia-campus-data/v1`，Feed 为 `theia-campus-feed/v1`，ICS 可被日历解析，CSV 没有未转义的逗号/换行破坏行结构。AI 导出应在桌面设置中选择临时父目录后实测：它应创建新的时间戳子目录，`manifest.json` 应为 `theia-ai-export-manifest/v1`，并且每个 `manifest.files[]` 所列文件的 UTF-8 SHA-256 与字节数均匹配；导出内容不得出现 fixture 中注入的 secret、查询参数、绝对路径或附件二进制。精确验收规则见 [AI 数据导出契约](../reference/ai-export-contract.md)。
 
 ## 7. 开发数据卫生
 

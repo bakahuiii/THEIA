@@ -2,9 +2,9 @@
 
 ## 为什么需要这张矩阵
 
-THEIA 的功能跨越校园来源、Electron 特权能力、纯业务核心、持久化状态、界面、CLI、HTTP API、工作区和 AI 消费。只看文件目录很容易把“谁读取到数据”误当成“谁拥有数据”。本矩阵把每类数据的来源、归并权、持久化位置、公开读取面、敏感边界和失败语义放在一起，供开发者、AI 集成方和审查者快速判断。
+THEIA 的功能跨越校园来源、Electron 特权能力、纯业务核心、持久化状态、界面、HTTP API、工作区和 AI 消费。只看文件目录很容易把“谁读取到数据”误当成“谁拥有数据”。本矩阵把每类数据的来源、归并权、持久化位置、公开读取面、敏感边界和失败语义放在一起，供开发者、AI 集成方和审查者快速判断。
 
-本文件描述当前架构，不替代源码。字段细节在 [数据模型参考](reference/data-model.md)，调用方式在 [接口与 IPC 参考](reference/api-and-ipc.md)，完整生命周期在 [数据生命周期](data-lifecycle.md)。
+本文件描述当前架构，不替代源码。字段细节在 [数据模型参考](../reference/data-model.md)，调用方式在 [接口与 IPC 参考](../reference/api-and-ipc.md)，完整生命周期在 [数据生命周期](data-lifecycle.md)。
 
 ## 顶层状态矩阵
 
@@ -19,7 +19,7 @@ THEIA 的功能跨越校园来源、Electron 特权能力、纯业务核心、�
 | `selectedCourses` | JWGLXT | `parsers/jwglxt.mjs` | `academic/selected-courses` | snapshot、Feed、`/v1/selected-courses`、CSV | 反映当前同步快照，不表示选课事务正在执行。 |
 | `academicProgress` | 官方培养方案优先；教务 API 可补充 | `academic-progress.mjs` | `academic/progress` | snapshot、Feed、`/v1/academic-progress` | 根树有 `and/or` 关系；不能把一条替代分支当作所有要求都必须满足。 |
 | `assignments` | 北化在线THEOL | `adapters/theol.mjs`、`parsers/theol.mjs` | `coursework/assignments` | snapshot、Feed、`/v1/assignments`、CSV、ICS | `pending` 是处理候选，不等于已经提交或允许自动提交。 |
-| `workspaces` | `CourseWorkService` | `course-work.mjs` | `coursework/workspaces` | snapshot、Feed、`/v1/workspaces`、CSV、CLI work | 路径指向本机资料，存在不等于模型输出或学校提交已验证。 |
+| `workspaces` | `CourseWorkService` | `course-work.mjs` | `coursework/workspaces` | snapshot、Feed、`/v1/workspaces`、CSV | 路径指向本机资料，存在不等于模型输出或学校提交已验证。 |
 | `notices` | JWGLXT/THEOL | adapters/parsers | `communication/notices` | snapshot、Feed、`/v1/notices`、CSV | `publishedAt` 是时间证据；标题/摘要可能不完整。 |
 | `emails` | IMAP | `imap-mail-service.mjs` | `communication/emails` | snapshot、Feed、`/v1/emails`、CSV | 正文可能按需缓存；邮件高度敏感，不应默认发送给第三方 AI。 |
 | `dataCatalog` | 专项本地归档服务 | `data-catalog.mjs`、calendar/fitness/selection services | `catalog/index` + school schedule fragments | snapshot、Feed、`/v1/data-catalog`、专用 endpoint | 必须读取 `source`、`parserVersion`、`capturedAt`、`complete`、`refreshState`。 |
@@ -44,7 +44,7 @@ THEIA 的功能跨越校园来源、Electron 特权能力、纯业务核心、�
 | preload | 暴露枚举过的 IPC 包装 | 暴露 `ipcRenderer`、Electron session、shell、通用文件访问 | `contextIsolation` 下只存在 `window.theia`。 |
 | Electron main | vault、登录窗口、文件 picker、受控 IPC、服务编排 | 将秘密推给 renderer/日志、信任原始 renderer 输入 | IPC 参数验证、vault/导出安全测试。 |
 | `core/` | 解析、规范化、同步、持久化、读 API、受控工作区 | 直接渲染 UI、绕过 store、自动最终提交 | Node:test 的 service/parser/store/API 测试。 |
-| CLI / local API | 从当前 store 只读输出；CLI 可执行受控 work import | 公开监听、直接编辑分片、越过 vault 读取 secret | schema、状态码、`doctor`、导出检查。 |
+| 本机 API / MCP | 从当前 store 读取受控投影，API 可调用本地顾问对话 | 公开监听、直接编辑分片、越过 vault 读取 secret、学校侧写入 | schema、状态码、令牌、CORS 和导出检查。 |
 
 ## 公开读取面矩阵
 
@@ -52,10 +52,10 @@ THEIA 的功能跨越校园来源、Electron 特权能力、纯业务核心、�
 | --- | --- | --- | --- | --- |
 | `window.theia` | 仅 Electron renderer | 受限业务操作与完整 UI 快照 | 内建 UI | 外部脚本、远程程序、绕过用户动作。 |
 | loopback `/v1/*` | 应用运行时 | snapshot、Feed、集合、校历资产 | 同机工具、按需 AI 分析 | 离线长期保存、写操作、远程代理。 |
-| CLI `export json` | 手动/脚本调用 | 完整 `CampusState` | 个人备份、严格离线处理 | 无说明直接交给第三方。 |
-| CLI/UI `export theia` | 手动/脚本调用 | `theia-campus-feed/v1` | 日历/任务/本机集成 | 无损备份或所有二进制资产。 |
-| CLI/UI `export ai` | 用户明确操作 | `theia-ai-context/v1` 多文件目录 | 经用户授权的 AI 学业解释、可校验离线阅读 | 实时学校状态、回写、附件归档或自动化操作。 |
-| CLI `export ics/csv/ndjson` | 手动/脚本调用 | 特定互操作视图 | 日历、表格、流处理 | 完整层级语义、培养方案树。 |
+| 桌面 JSON 导出 | 用户明确操作 | 完整 `CampusState` | 个人备份、严格离线处理 | 无说明直接交给第三方。 |
+| 桌面 Feed 导出 | 用户明确操作 | `theia-campus-feed/v1` | 日历/任务/本机集成 | 无损备份或所有二进制资产。 |
+| 桌面 AI 导出 | 用户明确操作 | `theia-ai-context/v1` 多文件目录 | 经用户授权的 AI 学业解释、可校验离线阅读 | 实时学校状态、回写、附件归档或自动化操作。 |
+| 桌面 ICS/CSV 导出 | 用户明确操作 | 特定互操作视图 | 日历、表格处理 | 完整层级语义、培养方案树。 |
 | 分片磁盘存储 | 持久化状态 | 全部状态分片 | 恢复、低层维护 | 常规应用集成、手工编辑。 |
 | 课程工作区 | 用户显式准备后 | 单任务题目、附件、模型结果 | 作业审核、受控模型输入 | 全局用户画像、自动最终提交。 |
 

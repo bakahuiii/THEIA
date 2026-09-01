@@ -45,6 +45,38 @@ test('THEOL fast sync returns home courses and notices without claiming assignme
   assert.deepEqual(requested, [THEOL_URLS.personal])
 })
 
+test('THEOL course sync falls back to the dedicated course list', async () => {
+  const requested = []
+  const adapter = new TheolAdapter({
+    async page(url) {
+      requested.push(url)
+      if (url === THEOL_URLS.personal) return { url, text: '<span>退出</span><main>课程首页壳</main>' }
+      return { url, text: '<table><tr><td><a href="###" onclick="window.open(\'../homepage/course/course_index.jsp?course_id=501\')">课程列表课程</a></td></tr></table>' }
+    },
+  })
+
+  const result = await adapter.sync({ domains: ['courses'] })
+  assert.deepEqual(result.courses.map((item) => item.id), ['501'])
+  assert.deepEqual(requested, [THEOL_URLS.personal, THEOL_URLS.courseList])
+  assert.equal(result.domainOutcomes.courses.emptyConfirmed, false)
+})
+
+test('THEOL empty authenticated shells fail the course scan instead of clearing local data', async () => {
+  const requested = []
+  const adapter = new TheolAdapter({
+    async page(url) {
+      requested.push(url)
+      return { url, text: '<span>退出</span><main>暂无课程</main>' }
+    },
+  })
+
+  await assert.rejects(
+    adapter.sync({ domains: ['courses'] }),
+    (error) => error?.code === 'theol_course_scan_empty' && /未解析到课程/.test(error.message),
+  )
+  assert.deepEqual(requested, [THEOL_URLS.personal, THEOL_URLS.courseList, THEOL_URLS.welcome])
+})
+
 test('THEOL course details are opt-in and resource capture is course-scoped', async () => {
   const courseUrl = 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=101'
   const resourceUrl = 'https://course.buct.edu.cn/meol/homepage/course/courseResource_stu.jsp?folderid=0&lid=101'
@@ -248,6 +280,13 @@ test('THEOL falls back to the mobile pending-task feed after a course-page failu
           reminderListExpired: [{
             id: 9003, title: 'Expired homework', publishStatus: true,
             deadline: '2021-07-16 23:59:00',
+          }],
+        }, {
+          courseId: 999,
+          courseName: '课程列表之外的课程',
+          reminderListHomework: [{
+            id: 9901, title: '不应导入的作业', publishStatus: true,
+            deadline: '2099-08-20 23:59:00',
           }],
         }],
       }

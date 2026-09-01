@@ -29,7 +29,6 @@
 npm test
 npm run build
 npm run lint
-npm run cli -- status --json
 ```
 
 Do not package unless the user explicitly requests it. Preserve user data and legacy snapshots during migrations.

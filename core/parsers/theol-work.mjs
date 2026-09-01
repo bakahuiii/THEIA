@@ -1,5 +1,6 @@
 import * as cheerio from 'cheerio'
 import { absoluteUrl, normalizeText } from '../util.mjs'
+import { isAllowedTheolAttachmentLink } from './theol-archive.mjs'
 
 function uniqueBy(values, key) {
   const seen = new Set()
@@ -58,10 +59,7 @@ function attachmentLinks($, baseUrl) {
     const href = absoluteUrl($(node).attr('href'), baseUrl)
     const title = normalizeText($(node).attr('title') || $(node).text())
     if (!href || !title) return
-    const url = new URL(href)
-    const looksLikeFile = /\.(?:pdf|docx?|pptx?|xlsx?|zip|rar|txt|md|png|jpe?g|gif|mp4|mp3)$/i.test(url.pathname)
-    const looksLikeDownload = /附件|下载|文件|课件|资料|download|attachment|resource|file/i.test(`${title} ${href}`)
-    if (looksLikeFile || looksLikeDownload) links.push({ title: title.slice(0, 180), url: href })
+    if (isAllowedTheolAttachmentLink({ title, url: href })) links.push({ title: title.slice(0, 180), url: href })
   })
   return uniqueBy(links, (link) => link.url).slice(0, 80)
 }

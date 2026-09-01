@@ -12,7 +12,7 @@ svg { flex: 0 0 auto; }
 .loading-screen strong { color: var(--ink); font-size: 25px; letter-spacing: .04em; }
 .loading-wordmark, .brand-wordmark strong { font-family: 'Cinzel', Georgia, serif; }
 .brand-wordmark span { font-family: 'Noto Serif SC', 'Cinzel', Georgia, serif; }
-.brand-mark { width: 42px; height: 42px; display: grid; place-items: center; overflow: hidden; background: #151210; border: 1px solid #b86b2a; border-radius: 8px; box-shadow: 0 8px 18px rgba(151, 79, 27, .22); }
+.brand-mark { width: 42px; height: 42px; display: grid; place-items: center; overflow: hidden; background: var(--sidebar); border: 1px solid color-mix(in srgb, var(--sidebar-primary) 28%, var(--sidebar-border)); border-radius: 8px; box-shadow: 0 8px 18px -13px color-mix(in srgb, var(--foreground) 48%, transparent); }
 .brand-mark img { display: block; width: 100%; height: 100%; object-fit: cover; }
 
 .app-shell { min-height: 100vh; display: flex; }

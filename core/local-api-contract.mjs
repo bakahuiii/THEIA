@@ -1,0 +1,43 @@
+/**
+ * Renderer-facing metadata for the local API. Keep this next to the route
+ * implementation so the settings UI can advertise the same surface that the
+ * server actually exposes.
+ */
+export const THEIA_LOCAL_API_ENDPOINTS = Object.freeze([
+  { method: 'GET', path: '/v1/health', category: 'runtime', label: '运行状态', description: '服务状态、数据更新时间和集合计数。' },
+  { method: 'GET', path: '/v1/collections', category: 'runtime', label: '数据集合', description: '集合名称、对应路径和当前记录数。' },
+  { method: 'GET', path: '/v1/profile', category: 'data', label: '个人资料', description: '当前账号的脱敏个人资料投影。' },
+  { method: 'GET', path: '/v1/sync', category: 'runtime', label: '同步状态', description: '同步运行、来源和数据域状态。' },
+  { method: 'GET', path: '/v1/overview', category: 'data', label: '数据概览', description: '面向本地工具的摘要统计和可用性信息。' },
+  { method: 'GET', path: '/v1/domain-summary/:domain', category: 'data', label: '数据域摘要', description: '单个数据域的状态、更新时间和记录数。' },
+  { method: 'GET', path: '/v1/records/:domain', category: 'data', label: '数据域记录', description: '按关键词、学期、状态和游标读取记录。' },
+  { method: 'GET', path: '/v1/snapshot', category: 'data', label: '规范化快照', description: '当前本地规范化校园数据快照。' },
+  { method: 'GET', path: '/v1/data-manifest', category: 'runtime', label: '数据清单', description: '本地分片存储清单和完整性元数据。' },
+  { method: 'GET', path: '/v1/data-output', category: 'data', label: '公开数据 Feed', description: '按公开数据边界生成脱敏数据输出。' },
+  { method: 'GET', path: '/v1/data-output/:domain', category: 'data', label: '公开数据域', description: '读取单个公开数据域的脱敏输出。' },
+  { method: 'GET', path: '/v1/data-catalog', category: 'data', label: '本地数据目录', description: '校历、体测、全校开课和场馆缓存目录。' },
+  { method: 'GET', path: '/v1/academic-plan-document', category: 'academic', label: '培养方案文档', description: '当前专业匹配的培养方案解析结果。' },
+  { method: 'GET', path: '/v1/academic-extras', category: 'academic', label: '教务扩展数据', description: '教务扩展域及其附件摘要。' },
+  { method: 'GET', path: '/v1/academic-extras/:domain', category: 'academic', label: '教务扩展域', description: '读取单个教务扩展域的分页记录。' },
+  { method: 'GET', path: '/v1/academic-progress', category: 'academic', label: '学业进度', description: '培养方案学分和完成情况。' },
+  { method: 'GET', path: '/v1/academic-analysis', category: 'academic', label: '学业分析', description: '官方/计算 GPA、学分和要求分配分析。' },
+  { method: 'GET', path: '/v1/academic-calendar', category: 'academic', label: '校历资源清单', description: '校历及教学周历资源状态。' },
+  { method: 'GET', path: '/v1/academic-calendar/calendar', category: 'asset', label: '校历图片', description: '读取本地缓存的校历图片资源。' },
+  { method: 'GET', path: '/v1/academic-calendar/teaching-schedule', category: 'asset', label: '教学日历 PDF', description: '读取本地缓存的教学日历 PDF。' },
+  { method: 'GET', path: '/v1/academic-calendar/weekly-calendar', category: 'asset', label: '周历 PDF', description: '读取本地缓存的周历 PDF。' },
+  { method: 'GET', path: '/v1/fitness', category: 'academic', label: '体测成绩', description: '读取本地缓存的体测成绩和可用年份。' },
+  { method: 'GET', path: '/v1/school-schedule', category: 'academic', label: '全校开课', description: '读取本地缓存的全校开课查询结果。' },
+  { method: 'GET', path: '/v1/venue-catalog', category: 'public', label: '场馆目录', description: '公开运动场馆目录和查询入口。' },
+  { method: 'GET', path: '/v1/venue-status', category: 'public', label: '单场馆状态', description: '读取单个场馆的缓存状态。' },
+  { method: 'GET', path: '/v1/venue-statuses', category: 'public', label: '场馆实时状态', description: '优先实时读取公开场馆状态，失败时标记为缓存。' },
+  { method: 'GET', path: '/v1/feed', category: 'public', label: '校园 Feed', description: '通知、作业、考试等本地事件 Feed。' },
+  { method: 'GET', path: '/v1/calendar.ics', category: 'asset', label: '日历订阅', description: '考试和作业截止时间的 ICS 输出。' },
+  { method: 'GET', path: '/v1/theia', category: 'public', label: 'Feed 兼容别名', description: '兼容旧客户端的 Feed 路径别名。' },
+  { method: 'GET', path: '/v1/:collection', category: 'data', label: '集合读取', description: '读取课程、课表、成绩、考试、通知、邮件等集合。' },
+  { method: 'GET', path: '/v1/:collection.csv', category: 'asset', label: '集合 CSV', description: '将支持的集合导出为 CSV。' },
+  { method: 'GET', path: '/v1/table-image', category: 'asset', label: '通用表格图片', description: '将本地数据表格渲染为 PNG。' },
+  { method: 'GET', path: '/v1/motion-table-image', category: 'asset', label: '场馆状态图片', description: '将场馆状态表渲染为 PNG。' },
+  { method: 'GET', path: '/v1/free-classroom-image', category: 'asset', label: '空闲教室图片', description: '将空闲教室结果渲染为 PNG。' },
+  { method: 'POST', path: '/v1/sync', category: 'runtime', label: '直接同步数据', description: '按明确的数据域调用 THEIA 本地同步器，不经过模型或 Advisor。' },
+  { method: 'POST', path: '/v1/agent/chat', category: 'agent', label: '本地顾问对话', description: '向已运行的 THEIA Advisor 发送问题，不执行学校侧写入。' },
+]);

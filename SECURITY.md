@@ -14,14 +14,15 @@ Report a suspected vulnerability privately to the repository owner. Include a
 minimal reproducible description, affected version, impact, and only sanitized
 diagnostic event names or error codes. The project's
 `auth-diagnostics.ndjson` guidance is documented in
-`docs/ai/22-distribution-compatibility-and-recovery.md`.
+[operations, testing, and release](docs/development/operations-and-testing.md)
+and [architecture](docs/development/architecture.md).
 
 ## Project boundaries
 
 THEIA must preserve these boundaries:
 
 - campus requests may target only official `*.buct.edu.cn` services;
-- local integration APIs bind only to `127.0.0.1` and remain read-only;
+- local integration APIs bind only to `127.0.0.1`; data routes remain read-only and the agent chat route only invokes the local advisor;
 - passwords, cookies, authorization values, API keys, mail bodies, and raw
   authenticated URLs must not enter source control, diagnostics, exports, or
   loopback responses;

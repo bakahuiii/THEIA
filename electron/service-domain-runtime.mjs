@@ -29,6 +29,7 @@ export async function initializeDomainServices({
   credentialVault,
   academicApiVault,
   academicAttachmentStore,
+  theolCourseArchiveStore,
   mailVault,
   courseSelectionJournal,
   academicCalendarRuntime,
@@ -191,7 +192,7 @@ export async function initializeDomainServices({
         scheduleEndpoints: ['kbcx/xskbcx_cxXsKb.html?gnmkdm=N2151', 'kbcx/xskbcx_cxXsgrkb.html'],
       }),
     }),
-    theol: new TheolAdapter(sessionClient),
+    theol: new TheolAdapter(sessionClient, { archiveStore: theolCourseArchiveStore }),
     onProgress: (progress) => {
       const window = getMainWindow()
       if (window && !window.isDestroyed()) window.webContents.send('theia:sync-progress', progress)

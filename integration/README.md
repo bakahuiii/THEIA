@@ -1,6 +1,6 @@
 # THEIA 本地数据接口
 
-THEIA 为本机集成提供只读回环 API。它绝不会暴露学校密码、Cookie、认证页面、学校原始 HTML 或模型 API 密钥。
+THEIA 为本机集成提供 loopback HTTP API。数据端点只读；`POST /v1/sync` 直接调用明确数据域的本地同步器，`POST /v1/agent/chat` 只调用本地顾问。课程资料、作业和测试不得走顾问接口。它绝不会暴露学校密码、Cookie、认证页面、学校原始 HTML 或模型 API 密钥。
 
 桌面客户端运行时，可以从 THEIA 数据目录读取 `api-runtime.json`，也可以调用 `theia-client.mjs` 中的 `discoverTheiaRuntime()`（返回 `baseUrl` + 每实例 `token`）或 `discoverTheiaApi()`（仅地址）。服务只绑定 `127.0.0.1`。
 
@@ -51,14 +51,15 @@ THEIA 桌面端也可以在“设置 -> 接口 -> Codex 与 Claude Code”点击
 
 规范化校园 Feed 位于 `GET /v1/feed`，使用 `theia-campus-feed/v1` Schema。`GET /v1/snapshot` 提供完整本地状态，但排除凭据与浏览器会话。
 
-只读 API 表面有意保持精简和稳定：
+数据 API 的主要入口如下，完整参数和响应契约见 [API 与 IPC 参考](../docs/reference/api-and-ipc.md)：
 
-- `GET /v1/health`、`/v1/profile`、`/v1/sync` 和 `/v1/collections`
-- `GET /v1/terms`、`/v1/courses`、`/v1/schedule`、`/v1/exams`、`/v1/grades`、`/v1/selected-courses`、`/v1/assignments`、`/v1/workspaces`、`/v1/notices` 和 `/v1/emails`
-- `GET /v1/academic-progress`、`/v1/academic-analysis`、`/v1/fitness?year=...`、`/v1/school-schedule?termId=...&keyword=...`、`/v1/venue-catalog`、`/v1/venue-status?...` 和 `/v1/data-catalog`
-- `GET /v1/academic-extras/{domain}` 返回单个 JWGLXT 扩展域的表格响应（列定义、完整性、查询统计和记录）；可追加 `?q=关键词&limit=...&since=...`。`/v1/academic-extras` 仍保留为兼容的全域元数据入口。
-- 用于互操作导出的 `GET /v1/{collection}.csv` 和 `/v1/calendar.ics`
+- 运行状态和数据投影：`GET /v1/health`、`/v1/collections`、`/v1/profile`、`/v1/sync`、`/v1/overview`、`/v1/domain-summary/:domain`、`/v1/records/:domain`、`/v1/snapshot`、`/v1/data-output`、`/v1/data-output/:domain`。
+- 直接同步：`POST /v1/sync`，body 为明确的 `{"domains":["theol-course-details","assignments"]}`；该入口不创建 Agent 线程、不调用模型。
+- 业务集合：`GET /v1/terms`、`/v1/courses`、`/v1/schedule`、`/v1/exams`、`/v1/grades`、`/v1/selected-courses`、`/v1/assignments`、`/v1/workspaces`、`/v1/notices` 和 `/v1/emails`，以及对应的 CSV 地址。
+- 学业和本地资料：`GET /v1/academic-plan-document`、`/v1/academic-extras`、`/v1/academic-extras/:domain`、`/v1/academic-progress`、`/v1/academic-analysis`、`/v1/fitness`、`/v1/school-schedule`、`/v1/data-catalog`、`/v1/academic-calendar` 及其资源地址。
+- 场馆和互操作：`GET /v1/venue-catalog`、`/v1/venue-status`、`/v1/venue-statuses`、`/v1/motion-table-image`、`/v1/free-classroom-image`、`/v1/table-image`、`/v1/feed`、`/v1/theia` 和 `/v1/calendar.ics`。
+- 顾问对话：`POST /v1/agent/chat`。它只向已运行的本地顾问转发问题；请求仍需令牌，数据端点的读取边界不因此改变。
 
 集合响应包含 `schema`、`collection`、`updatedAt`、`total` 和 `items`。在集合端点或对应 CSV 地址后添加 `?since=<ISO-8601>`，可只接收在该时间点及之后发生变化的记录。如果学业进度快照早于请求时间，`academic-progress?since=...` 会返回 `notModified: true`，且不返回项目。
 
-完整的接口、安全边界和数据结构分别见[《API 与 IPC 参考》](../docs/reference/api-and-ipc.md)、[《数据模型参考》](../docs/reference/data-model.md)和[《本地 API、CLI 与导出》](../docs/ai/12-local-api-cli.md)。
+完整的接口、安全边界和数据结构分别见[《API 与 IPC 参考》](../docs/reference/api-and-ipc.md)、[《数据模型参考》](../docs/reference/data-model.md)和[《AI 导出契约》](../docs/reference/ai-export-contract.md)。

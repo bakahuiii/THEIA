@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
-import { mergeSyncResult, normalizeState, normalizeSyncPayload } from '../core/schema.mjs'
+import { mergeSyncResult, normalizeState, normalizeSyncPayload, recoverInterruptedSyncState } from '../core/schema.mjs'
 import { CampusStore } from '../core/store.mjs'
 import { SyncService } from '../core/sync-service.mjs'
 import { aggregateDomainProvenance, sourceDomainOutcome } from '../core/domain-provenance.mjs'
@@ -19,6 +19,32 @@ test('legacy sync timestamps migrate only a completed successful run to lastSucc
   assert.equal(failed.sync.lastSuccessAt, null)
   assert.deepEqual(successful.sync.domains, {})
   assert.deepEqual(failed.sync.domains, {})
+})
+
+test('a restarted process clears an interrupted sync marker without discarding its result', () => {
+  const completedAt = '2026-08-12T01:00:00.000Z'
+  const recovered = recoverInterruptedSyncState(normalizeState({
+    courses: [{ id: 'course-1', title: '课程' }],
+    sync: {
+      lastStartedAt: '2026-08-12T02:00:00.000Z',
+      lastCompletedAt: completedAt,
+      lastRunAt: completedAt,
+      lastSuccessAt: completedAt,
+    },
+  }))
+
+  assert.equal(recovered.repaired, true)
+  assert.equal(recovered.state.sync.lastStartedAt, completedAt)
+  assert.equal(recovered.state.courses[0].id, 'course-1')
+})
+
+test('a restarted process removes a start-only marker when no completed run exists', () => {
+  const recovered = recoverInterruptedSyncState(normalizeState({
+    sync: { lastStartedAt: '2026-08-12T02:00:00.000Z' },
+  }))
+
+  assert.equal(recovered.repaired, true)
+  assert.equal(recovered.state.sync.lastStartedAt, null)
 })
 
 test('adapter payloads use the same canonical state boundary before fallback merges', () => {

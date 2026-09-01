@@ -1,12 +1,24 @@
 import * as cheerio from 'cheerio'
+import { dirname, relative } from 'node:path'
 import { compactError, normalizeText } from '../util.mjs'
 import { AuthRequiredError } from '../source-client.mjs'
 import { parseTheolAssignments, parseTheolCourse, parseTheolCourseResources, parseTheolHome } from '../parsers/theol.mjs'
+import {
+  documentExtension,
+  isAllowedTheolAttachmentContent,
+  parseTheolAttachmentLinks,
+  rewriteTheolAttachmentLinks,
+  isTheolDocumentLink,
+} from '../parsers/theol-archive.mjs'
 import { parseTheolMobileTaskList } from '../parsers/theol-mobile.mjs'
+import { parseTheolWorkPage } from '../parsers/theol-work.mjs'
 import { sourceDomainOutcome } from '../domain-provenance.mjs'
+import { extractTheolVisibleText, materializeTheolUeditorFrame } from '../theol-course-archive-store.mjs'
 
 const BASE = 'https://course.buct.edu.cn/meol/'
 const PERSONAL = new URL('personal.do', BASE).toString()
+const COURSE_LIST = new URL('lesson/blen.student.lesson.list.jsp', BASE).toString()
+const WELCOME = new URL('welcomepage/student/index.jsp', BASE).toString()
 const MOBILE_UNDONE_TASKS = 'http://course.buct.edu.cn/mobile/stuUnDoTaskList.do'
 const PARSER_VERSION = 'theol-adapter/4'
 const COURSE_IDENTITY_PARAMETERS = new Set(['courseid', 'lid', 'cateid'])
@@ -106,10 +118,16 @@ function isCurrentTask(item, now = Date.now()) {
   return !Number.isFinite(dueAt) || dueAt > now
 }
 
-function taskListLinks(links) {
-  const direct = links.filter((item) => /(?:hwtask|question_test_student_list)/i.test(item.url))
+function taskListLinks(links, courseId) {
+  const direct = links.filter((item) => /(?:hwtask|question[\/_]test[\/_]student[\/_]list|question_test_student_list)/i.test(item.url))
   if (direct.length) return direct
-  return links.filter((item) => /(?:课程作业|在线测试|作业|测试|hwtask|test|quiz|exam)/i.test(`${item.title} ${item.url}`)).slice(0, 2)
+  const named = links.filter((item) => /(?:课程作业|在线测试|作业|测试|hwtask|test|quiz|exam)/i.test(`${item.title} ${item.url}`)).slice(0, 2)
+  if (named.length) return named
+  const id = encodeURIComponent(String(courseId || ''))
+  return [
+    { title: '课程作业', url: new URL(`common/hw/student/hwtask.jsp?lid=${id}`, BASE).toString() },
+    { title: '在线测试', url: new URL(`common/question/test/student/list.jsp?cateId=${id}`, BASE).toString() },
+  ]
 }
 
 function materialIdentitySafe(result, course) {
@@ -124,35 +142,228 @@ function materialIdentitySafe(result, course) {
   }
 }
 
-async function prefetchTeachingMaterials(client, course, materials, signal) {
-  const candidates = (Array.isArray(materials) ? materials : [])
-    .filter((item) => item?.url && !/(?:download|preview|\.pdf(?:$|\?))/i.test(item.url))
-    .slice(0, 4)
-  const prefetched = []
+function responseHeader(result, name) {
+  return result?.headers?.get?.(name)
+    || result?.headers?.[name]
+    || ''
+}
+
+function ueditorFrameLinks(html, sourceUrl) {
+  const $ = cheerio.load(String(html || ''))
+  const frames = []
+  $('iframe[src], frame[src]').each((_index, node) => {
+    const raw = $(node).attr('src')
+    if (!raw) return
+    try {
+      const url = new URL(raw, sourceUrl)
+      if (url.hostname !== new URL(sourceUrl).hostname || !/\/common\/ueditor\/content\.html$/iu.test(url.pathname)) return
+      frames.push({ node, url: url.toString(), name: url.searchParams.get('name') || $(node).attr('name') || 'content' })
+    } catch {
+      // Ignore malformed or off-campus embedded content.
+    }
+  })
+  return frames
+}
+
+async function archiveTheolPage({ client, archiveStore, kind, parentId, record, pageResult = null, course, signal }) {
+  if (!archiveStore) return null
+  const isDocument = isTheolDocumentLink(record)
+  if (isDocument) {
+    const downloaded = await client.binary(record.url, {
+      source: `${kind === 'assignment' ? '任务' : '课程资料'} ${record.title}`,
+      signal,
+    })
+    if (!isAllowedTheolAttachmentContent({
+      title: record.title,
+      url: downloaded?.url || record.url,
+      contentType: responseHeader(downloaded, 'content-type'),
+    })) throw new Error('THEOL 媒体文件已过滤')
+    return {
+      kind: 'file',
+      ...(await archiveStore.saveAttachment({
+        kind,
+        parentId,
+        attachment: record,
+        buffer: downloaded.buffer,
+        extension: documentExtension({
+          ...record,
+          url: downloaded?.url || record?.url,
+          contentType: responseHeader(downloaded, 'content-type'),
+          contentDisposition: responseHeader(downloaded, 'content-disposition'),
+        }),
+      })),
+      localAttachments: [],
+    }
+  }
+
+  const result = pageResult || await client.page(record.url, {
+    source: `${kind === 'assignment' ? 'Task detail' : 'Course material'} ${record.title || course?.title || ''}`,
+    signal,
+  })
+  if (course && !materialIdentitySafe(result, course)) throw new Error('THEOL returned a different course material context')
+
+  async function archiveHtmlPage(page, pageRecord, frameDepth, visited) {
+    const pageUrl = page.url || pageRecord.url
+    const pagePath = archiveStore.pagePath({ kind, parentId, id: pageRecord.id, title: pageRecord.title })
+    const attachments = parseTheolAttachmentLinks(page.text, { baseUrl: pageUrl })
+    const localAttachments = []
+    const replacements = {}
+    for (const attachment of attachments) {
+      try {
+        const downloaded = await client.binary(attachment.url, {
+          source: `下载附件 ${attachment.title}`,
+          signal,
+        })
+        const contentType = responseHeader(downloaded, 'content-type')
+        if (!isAllowedTheolAttachmentContent({ title: attachment.title, url: downloaded?.url || attachment.url, contentType })) {
+          localAttachments.push({ ...attachment, localStatus: 'skipped-media', localError: '媒体文件已过滤' })
+          continue
+        }
+        const saved = await archiveStore.saveAttachment({
+          kind,
+          parentId,
+          attachment,
+          buffer: downloaded.buffer,
+          extension: documentExtension({
+            ...attachment,
+            url: downloaded?.url || attachment.url,
+            contentType,
+            contentDisposition: responseHeader(downloaded, 'content-disposition'),
+          }),
+        })
+        localAttachments.push({ ...attachment, ...saved })
+        replacements[attachment.url] = relative(dirname(pagePath), saved.localPath).replaceAll('\\', '/')
+      } catch (error) {
+        if (error instanceof AuthRequiredError || signal?.aborted) throw error
+        localAttachments.push({ ...attachment, localStatus: 'failed', localError: compactError(error).slice(0, 240) })
+      }
+    }
+
+    const localFrames = []
+    const frameReplacements = {}
+    if (frameDepth < 3) {
+      for (const [index, frame] of ueditorFrameLinks(page.text, pageUrl).entries()) {
+        if (visited.has(frame.url)) continue
+        const frameRecord = {
+          ...pageRecord,
+          id: `${pageRecord.id}-ueditor-${index + 1}`,
+          title: `${pageRecord.title || '课程资料'}-${frame.name}`,
+        }
+        try {
+          const framePage = await client.page(frame.url, {
+            source: `THEOL 嵌入正文 ${pageRecord.title || ''}`,
+            signal,
+          })
+          const materializedFrame = materializeTheolUeditorFrame(framePage.text, page.text, frame.url)
+          if (!materializedFrame.content && /内容读取中\.\.\./u.test(String(framePage.text || ''))) {
+            throw new Error('THEOL UEditor 正文未包含在父页面，无法保存为离线内容')
+          }
+          const archivedFrame = await archiveHtmlPage(
+            { ...framePage, text: materializedFrame.html },
+            frameRecord,
+            frameDepth + 1,
+            new Set([...visited, frame.url]),
+          )
+          frameReplacements[frame.url] = relative(dirname(pagePath), archivedFrame.localPath).replaceAll('\\', '/')
+          localFrames.push({
+            url: frame.url,
+            title: frameRecord.title,
+            localPath: archivedFrame.localPath,
+            localStatus: archivedFrame.localStatus,
+            localBytes: archivedFrame.localBytes,
+            localSha256: archivedFrame.localSha256,
+            localAttachments: archivedFrame.localAttachments,
+            contentPreview: archivedFrame.contentPreview,
+          })
+          localAttachments.push(...(archivedFrame.localAttachments || []))
+        } catch (error) {
+          if (error instanceof AuthRequiredError || signal?.aborted) throw error
+          localFrames.push({ url: frame.url, title: frameRecord.title, localStatus: 'failed', localError: compactError(error).slice(0, 240) })
+        }
+      }
+    }
+
+    const text = extractTheolVisibleText(page.text)
+    const frameText = localFrames.map((item) => item.contentPreview).filter(Boolean).join(' ')
+    const savedPage = await archiveStore.savePage({
+      kind,
+      parentId,
+      id: pageRecord.id,
+      title: pageRecord.title,
+      html: rewriteTheolAttachmentLinks(page.text, { ...replacements, ...frameReplacements }, { baseUrl: pageUrl }),
+    })
+    const hasFailures = localAttachments.some((item) => item.localStatus === 'failed')
+      || localFrames.some((item) => item.localStatus === 'failed' || item.localStatus === 'partial')
+    return {
+      kind: 'page',
+      url: pageUrl,
+      contentPreview: normalizeText([frameText, text].filter(Boolean).join(' ')).slice(0, 1_200) || null,
+      localAttachments,
+      localFrames,
+      ...savedPage,
+      localStatus: hasFailures ? 'partial' : savedPage.localStatus,
+      ...(hasFailures ? { localError: '部分嵌入正文或附件归档失败' } : {}),
+    }
+  }
+
+  return archiveHtmlPage(result, record, 0, new Set([result.url || record.url]))
+}
+
+async function prefetchTeachingMaterials(client, archiveStore, course, materials, basePage, signal) {
+  const candidates = (Array.isArray(materials) ? materials : []).slice(0, 3)
+  const captured = []
   for (const material of candidates) {
     try {
-      const result = await client.page(material.url, { source: `Course material ${course.title}`, signal })
-      if (!materialIdentitySafe(result, course)) throw new Error('THEOL returned a different course material context')
-      const text = normalizeText(cheerio.load(String(result.text || '')).text())
-      prefetched.push({
-        ...material,
-        url: result.url || material.url,
-        kind: 'page',
-        contentPreview: text.slice(0, 1_200) || null,
-        fetchedAt: new Date().toISOString(),
-        fetchStatus: 'succeeded',
+      const result = material.url === basePage?.url ? basePage : null
+      const archived = await archiveTheolPage({
+        client,
+        archiveStore,
+        kind: 'course',
+        parentId: course.id,
+        record: material,
+        pageResult: result,
+        course,
+        signal,
       })
+      if (!archiveStore) {
+        const page = result || await client.page(material.url, { source: `Course material ${course.title}`, signal })
+        if (!materialIdentitySafe(page, course)) throw new Error('THEOL returned a different course material context')
+        const text = extractTheolVisibleText(page.text)
+        captured.push({ ...material, url: page.url || material.url, contentPreview: text.slice(0, 1_200) || null, fetchedAt: new Date().toISOString(), fetchStatus: 'succeeded' })
+      } else {
+        captured.push({
+          ...material,
+          ...archived,
+          fetchedAt: archived.localCapturedAt,
+          fetchStatus: archived.localStatus === 'saved' ? 'succeeded' : 'partial',
+        })
+      }
     } catch (error) {
       if (error instanceof AuthRequiredError || signal?.aborted) throw error
-      prefetched.push({
+      captured.push({
         ...material,
         fetchStatus: 'failed',
         fetchError: compactError(error).slice(0, 240),
+        localStatus: 'failed',
+        localError: compactError(error).slice(0, 240),
       })
     }
   }
-  const fetchedById = new Map(prefetched.map((item) => [item.id, item]))
-  return (Array.isArray(materials) ? materials : []).map((item) => fetchedById.get(item.id) || item)
+  return captured
+}
+
+function assignmentIdentityMatches(result, assignment) {
+  try {
+    const expected = new URL(assignment.sourceUrl)
+    const actual = new URL(result?.url || '')
+    const expectedParameter = assignment.kind === 'online-test' ? 'testId' : 'hwtid'
+    const expectedId = expected.searchParams.get(expectedParameter)
+    const actualId = actual.searchParams.get(expectedParameter)
+    if (!expectedId || actualId !== expectedId) return false
+    return materialIdentitySafe(result, { id: assignment.courseId })
+  } catch {
+    return false
+  }
 }
 
 function notAttemptedAssignments() {
@@ -167,8 +378,9 @@ function notAttemptedAssignments() {
 }
 
 export class TheolAdapter {
-  constructor(client) {
+  constructor(client, { archiveStore = null } = {}) {
     this.client = client
+    this.archiveStore = archiveStore
   }
 
   async status() {
@@ -195,17 +407,32 @@ export class TheolAdapter {
     let homeResult = await this.client.page(PERSONAL, { source: '北化在线THEOL' })
     let home = parseTheolHome(homeResult.text, homeResult.url)
     if (!home.loggedIn) throw new AuthRequiredError('北化在线THEOL', homeResult.url)
-    if (!home.courses.length) {
-      try {
-        homeResult = await this.client.page(new URL('welcomepage/student/index.jsp', BASE), { source: '北化在线THEOL' })
-        home = parseTheolHome(homeResult.text, homeResult.url)
-      } catch (error) {
-        errors.push(compactError(error))
+    const needsCourses = wants('courses') || wantsCourseDetails
+    if (!home.courses.length && needsCourses) {
+      for (const [index, discoveryUrl] of [COURSE_LIST, WELCOME].entries()) {
+        if (home.courses.length) break
+        try {
+          const discoveryResult = await this.client.page(discoveryUrl, { source: index === 0 ? '北化在线THEOL 课程列表' : '北化在线THEOL 课程页兜底' })
+          const discovered = parseTheolHome(discoveryResult.text, discoveryResult.url)
+          home = {
+            ...home,
+            courses: [...home.courses, ...discovered.courses],
+            notices: [...home.notices, ...discovered.notices],
+          }
+          homeResult = discoveryResult
+        } catch (error) {
+          errors.push(compactError(error))
+        }
       }
     }
 
     const courses = [...new Map(home.courses.map((item) => [item.id, item])).values()]
     const notices = [...new Map(home.notices.map((item) => [item.id, item])).values()]
+    if (needsCourses && courses.length === 0) {
+      const error = new Error(`THEOL 课程列表未解析到课程，未确认课程为空${errors.length ? `: ${errors.join('; ')}` : ''}`)
+      error.code = 'theol_course_scan_empty'
+      throw error
+    }
     let detailedCourses = courses
     let detailErrors = []
     if (wantsCourseDetails) {
@@ -265,9 +492,29 @@ export class TheolAdapter {
         // Syllabus/calendar/basic-info pages are small, stable, and useful in
         // the course dialog. Prefetch only a few page-like links so the normal
         // background detail pass remains bounded and silent.
+        const teachingMaterials = await prefetchTeachingMaterials(
+          this.client,
+          this.archiveStore,
+          parsed,
+          parsed.teachingMaterials,
+          result,
+          signal,
+        )
         parsed = {
           ...parsed,
-          teachingMaterials: await prefetchTeachingMaterials(this.client, parsed, parsed.teachingMaterials, signal),
+          teachingMaterials,
+          resourceLinks: teachingMaterials.map(({ title, url }) => ({ title, url })),
+          description: parsed.description
+            || teachingMaterials.find((item) => item.materialType === 'introduction')?.contentPreview
+            || null,
+        }
+        for (const material of teachingMaterials) {
+          if (material.fetchStatus === 'failed') {
+            errors.push(`${listedCourse.title} · ${material.title}: ${material.fetchError || '课程资料归档失败'}`)
+          }
+          if (material.localStatus === 'partial') {
+            errors.push(`${listedCourse.title} · ${material.title}: ${material.localError || '部分课程资料附件归档失败'}`)
+          }
         }
         detailed.push(parsed)
       } catch (error) {
@@ -362,7 +609,9 @@ export class TheolAdapter {
     const assignments = []
     const successfulCourseIds = []
     const failedCourseIds = []
-    const listedCourses = Array.isArray(courses) ? courses.filter((item) => item?.source === 'theol').slice(0, 60) : []
+    const listedCourses = Array.isArray(courses)
+      ? courses.filter((item) => item?.source === 'theol' && item.sourceUrl)
+      : []
     let mobileFallback = { attempted: false, status: 'not-needed', added: 0 }
     let mobileFallbackIds = new Set()
     let primaryAssignmentIds = new Set()
@@ -378,7 +627,7 @@ export class TheolAdapter {
         }
         const course = parseTheolCourse(courseResult.text, { course: listedCourse, sourceUrl: courseResult.url, capturedAt })
         const courseAssignments = []
-        for (const taskLink of taskListLinks(course.assignmentLinks || [])) {
+        for (const taskLink of taskListLinks(course.assignmentLinks || [], listedCourse.id)) {
           if (!shouldContinue()) return { aborted: true, capturedAt, errors }
           try {
             const taskResult = await this.client.page(taskLink.url, { source: `Task list ${listedCourse.title}`, signal })
@@ -450,8 +699,61 @@ export class TheolAdapter {
     }
 
     const now = Date.now()
-    const currentAssignments = [...new Map(assignments.map((item) => [item.id, item])).values()]
+    let currentAssignments = [...new Map(assignments.map((item) => [item.id, item])).values()]
       .filter((item) => isCurrentTask(item, now))
+    if (this.archiveStore) {
+      const archived = []
+      for (const assignment of currentAssignments) {
+        try {
+          const page = await this.client.page(assignment.sourceUrl, {
+            source: `Task detail ${assignment.title}`,
+            signal,
+          })
+          if (!assignmentIdentityMatches(page, assignment)) {
+            throw new CourseContextMismatchError('THEOL returned a different task detail context')
+          }
+          const parsed = parseTheolWorkPage(page.text, {
+            baseUrl: page.url,
+            kind: assignment.kind,
+            fallbackTitle: assignment.title,
+          })
+          const saved = await archiveTheolPage({
+            client: this.client,
+            archiveStore: this.archiveStore,
+            kind: 'assignment',
+            parentId: assignment.id,
+            record: { ...assignment, title: parsed.title || assignment.title },
+            pageResult: page,
+            signal,
+          })
+          archived.push({
+            ...assignment,
+            localPath: saved.localPath,
+            localStatus: saved.localStatus,
+            localBytes: saved.localBytes,
+            localSha256: saved.localSha256,
+            localCapturedAt: saved.localCapturedAt,
+            localError: saved.localError || null,
+            localAttachments: saved.localAttachments || [],
+            localQuestionCount: parsed.questions.length,
+            localInstructions: saved.contentPreview || parsed.instructions,
+          })
+          if (saved.localStatus !== 'saved') {
+            errors.push(`${assignment.courseName || assignment.courseId} · ${assignment.title}: ${saved.localError || '部分任务附件归档失败'}`)
+          }
+        } catch (error) {
+          if (error instanceof AuthRequiredError || signal?.aborted) throw error
+          archived.push({
+            ...assignment,
+            localStatus: 'failed',
+            localError: compactError(error).slice(0, 240),
+            localCapturedAt: new Date().toISOString(),
+          })
+          errors.push(`${assignment.courseName || assignment.courseId} · ${assignment.title}: ${compactError(error)}`)
+        }
+      }
+      currentAssignments = archived
+    }
     if (mobileFallback.status === 'used') {
       mobileFallback.added = currentAssignments.filter((item) =>
         mobileFallbackIds.has(item.id) && !primaryAssignmentIds.has(item.id)).length
@@ -486,5 +788,7 @@ export const THEOL_URLS = {
   login: new URL('homepage/common/sso_login.jsp', BASE).toString(),
   home: PERSONAL,
   personal: PERSONAL,
+  courseList: COURSE_LIST,
+  welcome: WELCOME,
   mobileUndoneTasks: MOBILE_UNDONE_TASKS,
 }

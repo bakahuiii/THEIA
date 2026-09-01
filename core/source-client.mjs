@@ -25,12 +25,47 @@ export class SourceRequestError extends Error {
   }
 }
 
-function decodeResponse(buffer, contentType = '') {
-  const charset = String(contentType).match(/charset\s*=\s*['"]?([^;"']+)/i)?.[1]?.toLowerCase()
-  if (charset && !['utf-8', 'utf8'].includes(charset)) {
-    try { return iconv.decode(buffer, charset) } catch { /* fallback below */ }
+function normalizeEncoding(value) {
+  const encoding = String(value || '').trim().toLowerCase().replaceAll('_', '-')
+  if (!encoding) return null
+  if (['utf8', 'utf-8', 'unicode-1-1-utf-8'].includes(encoding)) return 'utf-8'
+  if (['gb2312', 'gb-2312', 'x-gbk', 'chinese'].includes(encoding)) return 'gbk'
+  if (['utf16', 'utf-16', 'utf-16le'].includes(encoding)) return 'utf-16le'
+  if (['utf-16be'].includes(encoding)) return 'utf-16be'
+  return encoding
+}
+
+function declaredEncoding(contentType = '', probe = '') {
+  const header = String(contentType).match(/charset\s*=\s*['"]?([^;"'\s]+)/i)?.[1]
+  const meta = String(probe).match(/<meta\b[^>]*\bcharset\s*=\s*["']?([^\s"'>;]+)/i)?.[1]
+    || String(probe).match(/<meta\b[^>]*\bcontent\s*=\s*["'][^"']*\bcharset\s*=\s*([^\s"';>]+)/i)?.[1]
+  const headerEncoding = normalizeEncoding(header)
+  const metaEncoding = normalizeEncoding(meta)
+  // THEOL occasionally advertises UTF-8 while its legacy page declares GBK.
+  // A non-UTF-8 HTML declaration is stronger evidence for the page body.
+  if (metaEncoding && metaEncoding !== 'utf-8') return metaEncoding
+  return headerEncoding || metaEncoding
+}
+
+export function detectSourceEncoding(buffer, contentType = '') {
+  const bytes = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || '')
+  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) return 'utf-16le'
+  if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) return 'utf-16be'
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) return 'utf-8'
+  return declaredEncoding(contentType, bytes.subarray(0, 16 * 1024).toString('latin1')) || 'utf-8'
+}
+
+export function decodeSourceBuffer(buffer, contentType = '') {
+  const bytes = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || '')
+  const encoding = detectSourceEncoding(bytes, contentType)
+  if (encoding === 'utf-8' || encoding === 'utf-16le' || encoding === 'utf-16be') {
+    try { return new TextDecoder(encoding, { fatal: false }).decode(bytes) } catch { /* use iconv below */ }
   }
-  return new TextDecoder('utf-8', { fatal: false }).decode(buffer)
+  try { return iconv.decode(bytes, encoding) } catch { return new TextDecoder('utf-8', { fatal: false }).decode(bytes) }
+}
+
+function decodeResponse(buffer, contentType = '') {
+  return decodeSourceBuffer(buffer, contentType)
 }
 
 function cookieUrl(cookie) {
@@ -326,6 +361,7 @@ export class SessionClient {
     headers = {},
     body,
     referer = null,
+    signal = null,
   } = {}) {
     const requestMethod = String(method || 'GET').toUpperCase()
     const requestReferer = referer ? permittedSourceUrl(referer) : null
@@ -370,6 +406,9 @@ export class SessionClient {
     }
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), this.timeoutMs)
+    const cancel = () => controller.abort(signal?.reason)
+    if (signal?.aborted) cancel()
+    else signal?.addEventListener?.('abort', cancel, { once: true })
     try {
       const { response, url: finalUrl } = await this.fetchCampus(url, requestInit, { source, signal: controller.signal })
       const limit = Math.max(1, Math.min(MAX_ATTACHMENT_RESPONSE_BYTES, Number(maxBytes) || MAX_ATTACHMENT_RESPONSE_BYTES))
@@ -384,6 +423,7 @@ export class SessionClient {
       throw new SourceRequestError(`${source} 下载失败: ${compactError(error)}`, { source, url, cause: error })
     } finally {
       clearTimeout(timer)
+      signal?.removeEventListener?.('abort', cancel)
     }
   }
 
@@ -399,11 +439,18 @@ export class SessionClient {
         throw new SourceRequestError(`${source} 请求已取消`, { source, url: target, code: 'ABORT_ERR' })
       }
       const result = await this.pageLoader(target, { source, signal })
-      const text = String(result?.text || '')
       const finalUrl = permittedSourceUrl(result?.url || target)
+      const text = result?.base64
+        ? decodeSourceBuffer(Buffer.from(String(result.base64), 'base64'), result.contentType || '')
+        : String(result?.text || '')
       if (!allowLogin && htmlLooksLikeLogin(text, finalUrl)) throw new AuthRequiredError(source, finalUrl)
       this.diagnostic('source.page_finished', { source, url: finalUrl, bytes: Buffer.byteLength(text), elapsedMs: Date.now() - startedAt })
-      return { response: null, text, url: finalUrl, headers: null }
+      return {
+        response: null,
+        text,
+        url: finalUrl,
+        headers: result?.headers || (result?.contentType ? new Headers({ 'content-type': result.contentType }) : null),
+      }
     } catch (error) {
       this.diagnostic('source.page_failed', { source, url: String(url), error: compactError(error), elapsedMs: Date.now() - startedAt })
       if (error instanceof AuthRequiredError || error instanceof SourceRequestError) throw error

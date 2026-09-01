@@ -48,7 +48,7 @@ assertAdvisorOverview() -> trusted read-only IPC -> renderer
 - 为生成 overview 发起模型或学校网络请求；
 - 把计算结果写回 CampusState。
 
-Loopback API、Feed、CLI 和 AI export 都是外部本机消费者的读取面。把进程内 Advisor 绕到这些读取面，会丢失或弱化 state、manifest revision、committedAt 与 domain digest 的原子关系，也会把静态导出合同误当作在线顾问的最小披露合同。
+Loopback API、Feed 和 AI export 都是外部本机消费者的读取面。把进程内 Advisor 绕到这些读取面，会丢失或弱化 state、manifest revision、committedAt 与 domain digest 的原子关系，也会把静态导出合同误当作在线顾问的最小披露合同。
 
 ## 3. 原子快照和 overview 实例
 

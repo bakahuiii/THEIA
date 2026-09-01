@@ -100,4 +100,4 @@ GET /v1/academic-progress
 GET /v1/school-schedule?termId=2025-3&keyword=MAT13904T
 ```
 
-The API is read-only. It must remain loopback-only and must not reveal credentials or browser session data.
+Data endpoints are read-only. The separate Agent chat route may accept a question, but it must remain loopback-only and must not reveal credentials or browser session data.

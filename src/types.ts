@@ -64,6 +64,22 @@ export interface TeachingMaterial {
   fetchedAt?: string | null;
   fetchStatus?: "succeeded" | "failed" | string;
   fetchError?: string | null;
+  materialType?: "introduction" | "syllabus" | "calendar" | string;
+  localPath?: string | null;
+  localStatus?: "saved" | "stale" | "failed" | string;
+  localBytes?: number | null;
+  localSha256?: string | null;
+  localCapturedAt?: string | null;
+  localError?: string | null;
+  localAttachments?: Array<{
+    title: string;
+    url: string;
+    localPath?: string | null;
+    localStatus?: string;
+    localBytes?: number | null;
+    localSha256?: string | null;
+    localError?: string | null;
+  }>;
 }
 
 export interface CourseResource {
@@ -324,6 +340,21 @@ export interface Assignment {
   status: "pending" | "submitted" | "unknown" | string;
   sourceUrl?: string | null;
   courseSourceUrl?: string | null;
+  localPath?: string | null;
+  localStatus?: "saved" | "stale" | "failed" | string;
+  localBytes?: number | null;
+  localSha256?: string | null;
+  localCapturedAt?: string | null;
+  localError?: string | null;
+  localAttachments?: Array<{
+    title: string;
+    url: string;
+    localPath?: string | null;
+    localStatus?: string;
+    localBytes?: number | null;
+    localSha256?: string | null;
+    localError?: string | null;
+  }>;
 }
 
 export interface CourseWorkspace {

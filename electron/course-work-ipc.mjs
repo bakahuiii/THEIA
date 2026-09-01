@@ -16,6 +16,7 @@ export function registerCourseWorkWorkflowIpc({
   syncService,
   store,
   theolAttachmentStore,
+  theolCourseArchiveStore,
   theolAttachmentMaxBytes,
   modelService,
   renderMarkdownToPdf,
@@ -52,12 +53,25 @@ export function registerCourseWorkWorkflowIpc({
   })
 
   ipcMain.handle('theia:open-assignment-source', async (_event, assignmentId) => {
-    const epoch = getAuthEpoch()
-    assertAuthEpoch(epoch)
-    const entry = courseWorkService.assignmentEntry(assignmentId, { requireCurrent: false })
-    await waitForSchoolProxy()
-    assertAuthEpoch(epoch)
-    await openCourseWorkWindow(entry, epoch)
+    const assignment = store.snapshot().assignments.find((item) => item?.source === 'theol' && item.id === assignmentId)
+    if (!assignment) throw new Error('未找到北化在线THEOL任务，请先同步')
+    if (!assignment.localPath) throw new Error(`任务“${assignment.title || assignmentId}”尚未成功保存到本地`)
+    const localPath = await theolCourseArchiveStore.validateLocalFile(assignment.localPath)
+    const openError = await shell.openPath(localPath)
+    if (openError) throw new Error(`本地任务详情已保存，但打开失败：${openError}`)
+    return true
+  })
+
+  ipcMain.handle('theia:open-course-material', async (_event, courseId, materialId) => {
+    const course = store.snapshot().courses.find((item) => item?.source === 'theol' && String(item.id || '') === String(courseId || ''))
+    if (!course) throw new Error('未找到北化在线THEOL课程，请先同步')
+    const material = (Array.isArray(course.teachingMaterials) ? course.teachingMaterials : [])
+      .find((item) => String(item?.id || '') === String(materialId || ''))
+    if (!material) throw new Error('未找到课程资料，请先同步课程资料')
+    if (!material.localPath) throw new Error(`课程资料“${material.title || materialId}”尚未成功保存到本地`)
+    const localPath = await theolCourseArchiveStore.validateLocalFile(material.localPath)
+    const openError = await shell.openPath(localPath)
+    if (openError) throw new Error(`本地课程资料已保存，但打开失败：${openError}`)
     return true
   })
 

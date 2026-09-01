@@ -392,3 +392,15 @@ test('THEOL authenticated dashboard parses onclick course links', () => {
     sourceUrl: 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=26234',
   })
 })
+
+test('THEOL dedicated course list parses alternate IDs and ignores list controls', () => {
+  const html = `<table><tr>
+    <td><a href="###" onclick="window.open('../homepage/course/course_index.jsp?courseid=303','manage_course')">课程丙</a></td>
+    <td><a href="blen.student.lesson.list.jsp?ACTION=LESSUP&lid=303" title="上移"></a></td>
+    <td><a href="blen.student.lesson.list.jsp?ACTION=LESSDOWN&lid=303" title="下移"></a></td>
+  </tr><tr><td><a href="../enter_course.jsp?lid=404&t=info">课程丁</a></td></tr></table>`
+  const result = parseTheolHome(html, 'https://course.buct.edu.cn/meol/lesson/blen.student.lesson.list.jsp')
+  assert.equal(result.loggedIn, true)
+  assert.deepEqual(result.courses.map((course) => course.id), ['303', '404'])
+  assert.equal(result.courses[0].sourceUrl, 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=303')
+})

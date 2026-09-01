@@ -5,27 +5,103 @@ function linkText($, node) {
   return normalizeText($(node).text() || $(node).attr('title') || $(node).attr('aria-label'))
 }
 
+const COURSE_ID_PATTERN = /(?:courseId|courseid|course_id|lid)\s*[=:]\s*['"]?([A-Za-z0-9_-]+)/i
+const GENERIC_COURSE_LINK_TEXT = /^(?:进入|进入课程|课程首页|详情|上移|下移|删除|编辑)$/u
+
+function courseUrlCandidate(rawUrl, baseUrl) {
+  const value = String(rawUrl || '').trim()
+  if (!value || /^javascript:/i.test(value) || /^#+$/u.test(value)) return null
+  return absoluteUrl(value, baseUrl)
+}
+
+function courseIdFromCandidate(rawValue, resolvedUrl) {
+  try {
+    const parsed = new URL(resolvedUrl || '')
+    for (const name of ['courseId', 'courseid', 'course_id', 'lid']) {
+      const value = parsed.searchParams.get(name)
+      if (value) return value.trim()
+    }
+  } catch {
+    // Fall back to the raw onclick/data attribute below.
+  }
+  return String(rawValue || '').match(COURSE_ID_PATTERN)?.[1] || null
+}
+
+function courseLinkFromOnclick(value) {
+  return String(value || '').match(/["']([^"']*(?:courseId|courseid|course_id|lid)\s*[=:][^"']*)["']/i)?.[1] || null
+}
+
+function courseContainer($, node) {
+  return $(node).closest('li, .course, .course-item, .lesson, .list-item, tr').first()
+}
+
+function courseTitle($, node, container) {
+  const candidates = [
+    $(node).attr('title'),
+    container.find('.title a[title], .courseName, .lessonName, .title').first().attr('title'),
+    $(node).text(),
+    container.find('.title, .courseName, .lessonName').first().text(),
+    container.find('[title]').toArray()
+      .map((candidate) => $(candidate).attr('title'))
+      .find((value) => value && !GENERIC_COURSE_LINK_TEXT.test(normalizeText(value))),
+    linkText($, node),
+  ]
+  return candidates.map(normalizeText).find((value) => value && !GENERIC_COURSE_LINK_TEXT.test(value)) || ''
+}
+
+function canonicalTheolCourseUrl(id, baseUrl) {
+  try {
+    const origin = new URL(baseUrl).origin
+    return absoluteUrl(`homepage/course/course_index.jsp?courseId=${encodeURIComponent(id)}`, `${origin}/meol/`)
+  } catch {
+    return absoluteUrl(`homepage/course/course_index.jsp?courseId=${encodeURIComponent(id)}`, baseUrl)
+  }
+}
+
+export function parseTheolCourses(html, baseUrl) {
+  const $ = cheerio.load(String(html || ''))
+  const courses = []
+  const nodes = $('a[href], a[onclick], [onclick], [data-url], [data-href], [data-src], [datasrc]')
+  nodes.each((_index, node) => {
+    const rawValues = [
+      $(node).attr('href'),
+      $(node).attr('data-url'),
+      $(node).attr('data-href'),
+      $(node).attr('data-src'),
+      $(node).attr('datasrc'),
+      courseLinkFromOnclick($(node).attr('onclick')),
+    ].filter(Boolean)
+    const source = `${rawValues.join(' ')} ${$(node).attr('onclick') || ''}`
+    if (!/(?:course_index|enter_course|(?:^|[?&#])(?:courseId|courseid|course_id|lid)\s*[=:])/i.test(source)) return
+    const resolvedUrl = rawValues.map((value) => courseUrlCandidate(value, baseUrl)).find(Boolean)
+    const id = courseIdFromCandidate(source, resolvedUrl)
+    if (!id || id === '0' || !resolvedUrl) return
+    const container = courseContainer($, node)
+    const title = courseTitle($, node, container)
+    if (!title) return
+    const parent = normalizeText(container.length ? container.text() : $(node).parent().text())
+    const item = {
+      id,
+      code: normalizeText(container.find('.coursenum').first().attr('title') || parent.match(/课程编号\s*[:：]\s*([^\s|]+)/)?.[1]) || null,
+      title,
+      teacher: normalizeText(container.find('.realname span.realname').first().text()
+        || container.find('.teacher, .teacherName, .realname').first().text()
+        || parent.match(/(?:主讲)?教师\s*[:：]\s*([^\s|]+)/)?.[1]) || null,
+      source: 'theol',
+      sourceUrl: canonicalTheolCourseUrl(id, baseUrl),
+    }
+    const existing = courses.find((course) => course.id === id)
+    if (!existing) courses.push(item)
+    else {
+      for (const key of ['title', 'code', 'teacher', 'sourceUrl']) if (!existing[key] && item[key]) existing[key] = item[key]
+    }
+  })
+  return courses
+}
+
 export function parseTheolHome(html, baseUrl) {
   const $ = cheerio.load(html)
-  const courses = []
-  $('a[href*="courseId="], a[onclick*="courseId="]').each((_index, node) => {
-    const onclickUrl = $(node).attr('onclick')?.match(/window\.open\(\s*['"]([^'"]*courseId=[^'"]*)/i)?.[1]
-    const href = absoluteUrl(onclickUrl || $(node).attr('href'), baseUrl)
-    if (!href) return
-    const courseId = new URL(href).searchParams.get('courseId')
-    const container = $(node).closest('li')
-    const title = normalizeText(container.find('.title a[title]').first().attr('title') || container.find('.title').first().text() || linkText($, node))
-    if (!courseId || !title || courses.some((item) => item.id === courseId)) return
-    const parent = normalizeText(container.length ? container.text() : $(node).parent().text())
-    courses.push({
-      id: courseId,
-      code: normalizeText(container.find('.coursenum').first().attr('title') || parent.match(/课程编号[:：]\s*([^\s|]+)/)?.[1]) || null,
-      title,
-      teacher: normalizeText(container.find('.realname span.realname').first().text() || parent.match(/(?:主讲)?教师[:：]\s*([^\s|]+)/)?.[1]) || null,
-      source: 'theol',
-      sourceUrl: href,
-    })
-  })
+  const courses = parseTheolCourses(html, baseUrl)
   const notices = []
   $('a').each((_index, node) => {
     const href = absoluteUrl($(node).attr('href'), baseUrl)
@@ -44,20 +120,41 @@ export function parseTheolHome(html, baseUrl) {
   const pageText = $.text()
   const hasUserSignal = /退出|个人中心|我的课程|登录时间[:：]|在线总时长|互动提醒/.test(pageText)
   const hasCredentialForm = $('input[type="password"], form[action*="loginCheck"]').length > 0 || /请输入密码|密码登录/.test(pageText)
-  return { courses, notices: notices.slice(0, 100), loggedIn: hasUserSignal || (courses.length > 0 && !hasCredentialForm) }
+  const isCourseList = /\/lesson\/blen\.student\.lesson\.list\.jsp$/i.test(new URL(baseUrl).pathname)
+  return { courses, notices: notices.slice(0, 100), loggedIn: hasUserSignal || (courses.length > 0 && (!hasCredentialForm || isCourseList)) }
 }
 
 export function parseTheolCourse(html, { course, sourceUrl, capturedAt = new Date().toISOString() } = {}) {
   const $ = cheerio.load(html)
   const links = []
-  $('a[href]').each((_index, node) => {
-    const href = absoluteUrl($(node).attr('href'), sourceUrl)
+  const addLink = (node, rawHref) => {
+    const href = absoluteUrl(rawHref, sourceUrl)
     const title = linkText($, node)
     if (!href || !title || title.length < 2) return
     if (!links.some((item) => item.url === href && item.title === title)) links.push({ title, url: href })
+  }
+  $('a[href]').each((_index, node) => addLink(node, $(node).attr('href')))
+  // Newer THEOL course shells keep the real column URL in datasrc while the
+  // clickable node is a <li> or <div>, so href-only parsing misses the three
+  // course-material columns entirely.
+  $('[datasrc]').each((_index, node) => addLink(node, $(node).attr('datasrc')))
+  $('[onclick]').each((_index, node) => {
+    const source = String($(node).attr('onclick') || '')
+    for (const match of source.matchAll(/(?:window\.open|location(?:\.href)?\s*=|MM_goToURL\([^,]+,)[^"']*["']([^"']+)["']/giu)) {
+      addLink(node, match[1])
+    }
   })
-  const resourceLinks = links.filter((item) => /资源|课件|资料|下载|播课|视频|文档|基本信息|课程介绍|课程简介|简介|教学大纲|教学日历|大纲|日历/.test(item.title))
-  const teachingMaterialLinks = resourceLinks.filter((item) => /基本信息|课程介绍|课程简介|简介|教学大纲|教学日历|大纲|日历/.test(item.title))
+  const resourceLinks = links.filter((item) => /基本信息|课程介绍|课程简介|简介|教学大纲|教学日历|大纲|日历/i.test(item.title))
+  const materialType = (item) => /教学日历|日历|calendar/i.test(`${item.title} ${item.url}`)
+    ? 'calendar'
+    : /教学大纲|大纲|syllabus/i.test(`${item.title} ${item.url}`)
+      ? 'syllabus'
+      : /基本信息|课程介绍|课程简介|简介|introduction|intro/i.test(`${item.title} ${item.url}`)
+        ? 'introduction'
+        : null
+  const teachingMaterialLinks = resourceLinks
+    .map((item) => ({ ...item, materialType: materialType(item) }))
+    .filter((item) => item.materialType)
   const assignmentLinks = links.filter((item) => /作业|任务|测试|试卷|问卷|hwtask|exam|quiz/i.test(`${item.title} ${item.url}`))
   const bodyText = normalizeText($.text())
   const courseInfo = {}
@@ -78,15 +175,35 @@ export function parseTheolCourse(html, { course, sourceUrl, capturedAt = new Dat
     courseId: String(course?.id || ''),
     title: item.title,
     url: item.url,
+    materialType: item.materialType,
     kind: 'page',
     capturedAt,
   }))
+  if (!teachingMaterials.some((item) => item.materialType === 'introduction') && sourceUrl) {
+    teachingMaterials.unshift({
+      id: stableId('theol-teaching-material', course?.id || '', sourceUrl, '课程介绍'),
+      courseId: String(course?.id || ''),
+      title: '课程介绍',
+      url: sourceUrl,
+      materialType: 'introduction',
+      kind: 'page',
+      capturedAt,
+    })
+  }
+  const onePerType = new Map()
+  for (const material of teachingMaterials) {
+    if (!onePerType.has(material.materialType)) onePerType.set(material.materialType, material)
+  }
+  const selectedMaterials = [...onePerType.values()].slice(0, 3)
   return {
     ...(course || {}),
     description: normalizeText($('.course-intro, .courseInfo, .course_introduce, [class*="intro"]').first().text()) || null,
     courseInfo: Object.keys(courseInfo).length ? courseInfo : null,
-    resourceLinks: resourceLinks.slice(0, 100),
-    teachingMaterials: teachingMaterials.slice(0, 100),
+    // Only the three local course-material categories are exposed to THEIA.
+    // The old resource tree remains a separate legacy API and is not part of
+    // the course-material view anymore.
+    resourceLinks: selectedMaterials.map(({ title, url }) => ({ title, url })),
+    teachingMaterials: selectedMaterials,
     assignmentLinks: assignmentLinks.slice(0, 100),
     sourceUrl,
     capturedAt,
@@ -186,8 +303,8 @@ function assignmentLink(rawHref, sourceUrl) {
   if (!href) return null
   const url = new URL(href)
   const match = [
-    { path: /\/hwtask\.view\.jsp$/i, parameter: 'hwtid', kind: 'assignment' },
-    { path: /\/stu_qtest_navigate\.jsp$/i, parameter: 'testId', kind: 'online-test' },
+    { path: /\/(?:hwtask\.view|hwtask_blended)\.jsp$/i, parameter: 'hwtid', kind: 'assignment' },
+    { path: /\/stu_qtest_(?:navigate|result|more_result|pre|over)\.jsp$/i, parameter: 'testId', kind: 'online-test' },
   ].find((candidate) => candidate.path.test(url.pathname))
   if (!match) return null
   const identifiers = url.searchParams.getAll(match.parameter).map((value) => value.trim()).filter(Boolean)

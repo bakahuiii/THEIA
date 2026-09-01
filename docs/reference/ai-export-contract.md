@@ -9,7 +9,7 @@
 
 ### 1.1 它解决什么问题
 
-用户在桌面设置页点击“导出给 AI”，或在 CLI 明确提供父目录后，会生成一个自包含目录。核心构造器按领域拆分 JSON，并提供供人和模型优先阅读的 `AI_CONTEXT.md` 与 `DATA_DICTIONARY.md`。AI 读完说明文件和 manifest 后，应能知道：
+用户在桌面设置页点击“导出给 AI”并选择目录后，会生成一个自包含目录。核心构造器按领域拆分 JSON，并提供供人和模型优先阅读的 `AI_CONTEXT.md` 与 `DATA_DICTIONARY.md`。AI 读完说明文件和 manifest 后，应能知道：
 
 - 用户资料、已发现学期、课程、个人课表、考试、成绩、培养方案和已选课程；
 - 当前 / 历史作业、工作包安全元数据、课程与教务通知；
@@ -48,15 +48,7 @@ Settings 导出入口
   -> main process: 用户选择父目录、建立导出目录、写入文件
 ```
 
-`core/ai-export.mjs` 的 `createAiExportBundle()` 与 `writeAiExport()` 是唯一的包构造和写入实现。它已接入桌面设置页、preload、`TheiaBridge` 类型、Electron 主进程和 CLI；它们共享同一份净化、目录命名和完整性逻辑。浏览器预览中的 bridge 会拒绝文件导出，因为浏览器模式没有用户目录选择能力。
-
-CLI 用法：
-
-```powershell
-theia export --format ai --output "D:\\Exports"
-```
-
-`--output` 是**父目录**，不是最终数据包目录或单一 JSON 文件；省略它或传入 `-` 会被 CLI 拒绝。桌面 UI 打开目录选择器后也将该目录作为父目录。`writeAiExport()` 必要时创建父目录，并在其中写入新的包目录；不覆盖旧导出。
+`core/ai-export.mjs` 的 `createAiExportBundle()` 与 `writeAiExport()` 是唯一的包构造和写入实现。它已接入桌面设置页、preload、`TheiaBridge` 类型和 Electron 主进程，共享同一份净化、目录命名和完整性逻辑。桌面 UI 通过目录选择器取得父目录，再由主进程写入；浏览器预览中的 bridge 会拒绝文件导出，因为浏览器模式没有用户目录选择能力。
 
 ### 2.2 目录名称
 
@@ -402,7 +394,6 @@ manifest 的最小形状如下：
 npm test
 npm run lint
 npm run build
-npm run cli -- export --format ai --output .\test-output
 ```
 
 至少增加 / 保持以下自动测试：
@@ -410,7 +401,7 @@ npm run cli -- export --format ai --output .\test-output
 - 生成目录不覆盖已有导出，文件清单完整且名称固定；
 - manifest 和每个 JSON envelope 的 schema、时间、一致性、record count、SHA-256 正确；manifest 只列出 18 个非自身文件；测试须从写出的目录重新计算每个 digest；
 - 每一个规定文件即使对应集合为空也存在；
-- CLI 与 desktop 导出使用相同 schema / 净化函数；
+- 桌面入口与核心导出构造器使用相同 schema / 净化函数；
 - fixture 中注入 password、cookie、token、API key、absolute path、附件正文、HTML、query secret 后，导出任意文件均不含它们；
 - workspace 仅输出安全摘要，不输出本机路径或生成文件内容；
 - source URL 去 query / fragment，且不接受非 HTTP(S) 兜底；

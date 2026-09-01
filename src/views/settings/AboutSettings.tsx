@@ -1,10 +1,12 @@
-import { Braces, Database, Download, ExternalLink, HeartHandshake, RefreshCw, RotateCw, ShieldCheck, Smartphone } from "lucide-react";
+import { AlertCircle, Braces, CheckCircle2, CircleHelp, Database, Download, ExternalLink, Github, HeartHandshake, LoaderCircle, RotateCw, ShieldCheck, Smartphone } from "lucide-react";
 import { bridge } from "../../bridge";
 import { useGithubUpdateStatus } from "../../hooks/useGithubUpdateStatus";
 import theiaMark from "../../assets/theia-mark.png";
-import type { CampusState, GithubUpdateStatus } from "../../types";
+import type { ApiStatus, CampusState, GithubUpdateStatus } from "../../types";
 
+const PROJECT_URL = "https://github.com/bakahuiii/THEIA";
 const ANDROID_PROJECT_URL = "https://github.com/bakahuiii/THEIA-Android";
+const RELEASES_URL = `${PROJECT_URL}/releases`;
 
 function formatUpdateTime(value: string | null) {
   if (!value) return "尚未检查";
@@ -16,7 +18,7 @@ function describeUpdate(status: GithubUpdateStatus) {
   if (!status.supported) return "仅正式 Windows 安装包支持 GitHub 自动更新。";
   if (status.state === "checking") return "正在检查 GitHub Release。";
   if (status.state === "available") {
-    return "发现新版本 " + (status.availableVersion || "未知版本") + "，正在下载。";
+    return "发现新版本 " + (status.availableVersion || "未知版本") + "，准备下载。";
   }
   if (status.state === "downloading") {
     const percent = Number.isFinite(status.progress?.percent) ? Math.max(0, Math.min(100, status.progress?.percent || 0)) : 0;
@@ -30,24 +32,65 @@ function describeUpdate(status: GithubUpdateStatus) {
   return "当前版本 " + status.currentVersion;
 }
 
+function updateTone(status: GithubUpdateStatus) {
+  if (!status.supported) return "unsupported";
+  if (status.state === "error") return "error";
+  if (status.state === "downloaded") return "ready";
+  if (status.state === "checking" || status.state === "available" || status.state === "downloading") return "progress";
+  if (status.state === "not-available") return "current";
+  return "idle";
+}
+
 export function AboutSettings({
   state,
   apiBase,
+  apiStatus,
 }: {
   state: CampusState;
   apiBase: string;
+  apiStatus: ApiStatus;
 }) {
   const updateStatus = useGithubUpdateStatus(state.appVersion || "web");
 
-  const checking = updateStatus.state === "checking" || updateStatus.state === "downloading";
+  const apiOnline = Boolean(apiStatus.baseUrl && apiStatus.host && apiStatus.port > 0);
+  const updateInProgress = updateStatus.state === "checking" || updateStatus.state === "available" || updateStatus.state === "downloading";
   const downloading = updateStatus.state === "downloading";
   const updatePercent = Number.isFinite(updateStatus.progress?.percent)
     ? Math.max(0, Math.min(100, updateStatus.progress?.percent || 0))
     : 0;
   const canInstall = updateStatus.supported && updateStatus.state === "downloaded";
-  const primaryLabel = canInstall ? "重启并安装更新" : checking ? "检查中" : "检查更新";
+  const primaryLabel = !updateStatus.supported
+    ? "仅安装包可用"
+    : canInstall
+      ? "重启并安装更新"
+      : updateStatus.state === "checking"
+        ? "检查中"
+        : updateStatus.state === "available"
+          ? "准备下载"
+          : downloading
+            ? "下载中"
+            : "检查更新";
+  const UpdateIcon = !updateStatus.supported
+    ? CircleHelp
+    : updateStatus.state === "error"
+      ? AlertCircle
+      : canInstall
+        ? CheckCircle2
+        : updateStatus.state === "checking"
+          ? LoaderCircle
+          : updateStatus.state === "available" || downloading
+            ? Download
+            : RotateCw;
+  const ActionIcon = !updateStatus.supported
+    ? CircleHelp
+    : canInstall
+      ? Download
+      : updateInProgress
+        ? UpdateIcon
+        : RotateCw;
 
   const runUpdateAction = async () => {
+    if (!updateStatus.supported || updateInProgress) return;
     if (canInstall) {
       await bridge.installUpdate();
       return;
@@ -71,46 +114,49 @@ export function AboutSettings({
       </div>
 
       <div className="about-facts">
-        <div>
-          <ShieldCheck size={17} />
+        <div className="about-fact about-fact-security">
+          <ShieldCheck size={17} aria-hidden="true" />
           <span>
             <strong>本机优先</strong>
             <small>账号凭据由当前 Windows 账户保护。</small>
           </span>
         </div>
-        <div>
-          <Database size={17} />
+        <div className={`about-fact about-fact-api ${apiOnline ? "is-online" : "is-offline"}`}>
+          {apiOnline ? <CheckCircle2 size={17} aria-hidden="true" /> : <Database size={17} aria-hidden="true" />}
           <span>
             <strong>本地数据接口</strong>
-            <small>{apiBase || "127.0.0.1:" + state.settings.apiPort}</small>
+            <small>{apiStatus.baseUrl || apiBase || "尚未启动"}</small>
           </span>
         </div>
-        <div>
-          <Braces size={17} />
+        <div className="about-fact about-fact-format">
+          <Braces size={17} aria-hidden="true" />
           <span>
             <strong>数据格式</strong>
-            <small>{state.schema}</small>
+            <small>{state.schema}{apiStatus.mcp?.schema ? ` · MCP ${apiStatus.mcp.schema}` : ""}</small>
           </span>
         </div>
-        <div>
-          <HeartHandshake size={17} />
+        <div className="about-fact about-fact-version">
+          <HeartHandshake size={17} aria-hidden="true" />
           <span>
             <strong>版本</strong>
-            <small>THEIA {state.appVersion || "0.6.3"}</small>
+            <small>THEIA {state.appVersion || "开发版本"}</small>
           </span>
         </div>
       </div>
 
-      <div className="about-update">
+      <div className={`about-update is-${updateTone(updateStatus)}`}>
+        <div className="about-update-icon" aria-hidden="true">
+          <UpdateIcon size={17} className={updateInProgress ? "spinning" : undefined} />
+        </div>
         <div className="about-update-copy">
           <strong>GitHub 自动更新</strong>
           <small>{describeUpdate(updateStatus)}</small>
-          <span>当前版本：THEIA {updateStatus.currentVersion}</span>
+          <span>当前版本：THEIA {updateStatus.currentVersion || state.appVersion || "开发版本"}</span>
           <span>上次检查：{formatUpdateTime(updateStatus.lastCheckedAt)}</span>
-          {(updateStatus.state === "checking" || updateStatus.state === "available" || downloading) && (
+            {updateInProgress && (
             <div className={`about-update-progress ${downloading ? "" : "is-indeterminate"}`}>
               <div className="about-update-progress-label">
-                <span>{downloading ? "下载进度" : "更新准备"}</span>
+                <span>{downloading ? "下载进度" : updateStatus.state === "available" ? "准备下载" : "检查进度"}</span>
                 <strong>{downloading ? `${Math.round(updatePercent)}%` : "进行中"}</strong>
               </div>
               <div
@@ -131,9 +177,9 @@ export function AboutSettings({
             type="button"
             className={canInstall ? "primary-button" : "secondary-button"}
             onClick={() => void runUpdateAction()}
-            disabled={!updateStatus.supported || checking}
+            disabled={!updateStatus.supported || updateInProgress}
           >
-            {canInstall ? <Download size={16} /> : checking ? <RefreshCw size={16} className="spinning" /> : <RotateCw size={16} />}
+            <ActionIcon size={16} className={updateInProgress ? "spinning" : undefined} aria-hidden="true" />
             {primaryLabel}
           </button>
         </div>
@@ -141,7 +187,7 @@ export function AboutSettings({
 
       <section className="about-android" aria-labelledby="about-android-title">
         <div className="about-android-icon" aria-hidden="true">
-          <Smartphone size={19} />
+          <Smartphone size={19} aria-hidden="true" />
         </div>
         <div className="about-android-copy">
           <div className="about-android-heading">
@@ -158,13 +204,24 @@ export function AboutSettings({
           rel="noreferrer"
           title="打开 THEIA-Android 项目"
         >
-          <ExternalLink size={15} />
+          <ExternalLink size={15} aria-hidden="true" />
           查看 Android 项目
         </a>
       </section>
 
+      <div className="about-boundary">
+        <ShieldCheck size={16} aria-hidden="true" />
+        <span><strong>本地数据边界</strong><small>校园数据、凭据和模型配置由本机能力管理；公开 API 和 MCP 只提供脱敏、只读数据，不包含密码、Cookie、令牌或任意学校侧写入。</small></span>
+      </div>
+
+      <div className="about-links" aria-label="项目链接">
+        <a href={PROJECT_URL} target="_blank" rel="noreferrer"><Github size={15} aria-hidden="true" />GitHub 源码</a>
+        <a href={RELEASES_URL} target="_blank" rel="noreferrer"><Download size={15} aria-hidden="true" />发行版本</a>
+        <span>MIT License</span>
+      </div>
+
       <div className="about-footer">
-        <span>THEIA Campus Client</span>
+        <span>THEIA CAMPUS CLIENT</span>
         <small>
           {state.profile?.studentId
             ? "已为 " + state.profile.studentId + " 准备本地工作区"

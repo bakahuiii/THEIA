@@ -2,9 +2,9 @@
 
 ## 1. 目标和范围
 
-THEIA 将多种校园来源变成一个可离线读取、可追溯、可恢复的本机快照。数据生命周期的设计目标并非“尽可能抓取原始页面”，而是让以下消费者围绕同一个、结构稳定的事实来源工作：桌面界面、CLI、loopback API、显式导出、课程任务工作区以及 AI 顾问。
+THEIA 将多种校园来源变成一个可离线读取、可追溯、可恢复的本机快照。数据生命周期的设计目标并非“尽可能抓取原始页面”，而是让以下消费者围绕同一个、结构稳定的事实来源工作：桌面界面、loopback API、显式导出、课程任务工作区以及 AI 顾问。
 
-这篇文档说明数据从读取、规范化、合并、持久化、发布、导出到恢复的完整路径。关于每个字段和类型，请看 [数据模型参考](reference/data-model.md)；关于使用这些数据给 AI，请看 [AI 数据导出契约](reference/ai-export-contract.md)。
+这篇文档说明数据从读取、规范化、合并、持久化、发布、导出到恢复的完整路径。关于每个字段和类型，请看 [数据模型参考](../reference/data-model.md)；关于使用这些数据给 AI，请看 [AI 数据导出契约](../reference/ai-export-contract.md)。
 
 ## 2. 数据根目录
 
@@ -172,7 +172,7 @@ course-work/<assignment-id>/
 
 ### 8.1 完整 JSON
 
-界面“完整 JSON”与 CLI `theia export --format json` 序列化当前完整 `CampusState`。这是最接近本机业务快照的单文件导出，可用于个人备份、严谨的数据分析或 AI 读取，但它可能包含个人资料、成绩、邮件正文、作业详情、来源 URL 和本机路径。它不包含秘密凭据和浏览器会话。
+界面“完整 JSON”会序列化当前完整 `CampusState`。这是最接近本机业务快照的单文件导出，可用于个人备份、严谨的数据分析或 AI 读取，但它可能包含个人资料、成绩、邮件正文、作业详情、来源 URL 和本机路径。它不包含秘密凭据和浏览器会话。
 
 ### 8.2 THEIA Feed
 
@@ -190,18 +190,18 @@ Feed 便于本地工具快速获得综合上下文，但它仍是完整状态的
 
 - ICS：考试与作业截止时间，适合日历应用；不是完整课表/成绩备份。
 - CSV：一个扁平集合；当前字段表头按对象键收集，嵌套对象不应被当作通用结构化交换格式。
-- NDJSON：当前仅 CLI 选项，按集合逐条输出一行包装；适合流式处理，但不是界面导出选项。
+- NDJSON：当前不是桌面导出选项；需要流式处理时应直接使用 JSON API 的集合端点。
 - loopback API：分集合按需读取、可用 `?since=<ISO-8601>` 获取时间筛选结果，适合正在运行时的集成。
 
-精确接口、响应包装、CORS 和命令见 [接口与 IPC 参考](reference/api-and-ipc.md)。
+精确接口、响应包装和 CORS 见 [接口与 IPC 参考](../reference/api-and-ipc.md)。
 
 ### 8.4 AI 上下文包
 
-设置页的“导出给 AI”以及 CLI 的 `theia export --format ai --output DIRECTORY` 会把当前同一份 `CampusStore` 快照写入一个新的 `THEIA-AI-EXPORT-YYYYMMDD-HHmmss/` 子目录。它固定包含 `manifest.json`、`AI_CONTEXT.md`、`DATA_DICTIONARY.md` 与各个业务领域的 JSON 文件；即使某个集合为空，对应文件也会保留，避免消费者把“文件不存在”误读成“不适用”。
+设置页的“导出给 AI”会把当前同一份 `CampusStore` 快照写入一个新的 `THEIA-AI-EXPORT-YYYYMMDD-HHmmss/` 子目录。它固定包含 `manifest.json`、`AI_CONTEXT.md`、`DATA_DICTIONARY.md` 与各个业务领域的 JSON 文件；即使某个集合为空，对应文件也会保留，避免消费者把“文件不存在”误读成“不适用”。
 
 每个领域 JSON 都有 `theia-ai-context/v1` envelope，其中的 `generatedAt` 是整包构建时刻，`updatedAt` 是该领域已知的最新时间，`recordCount`、`sources` 和 `completeness` 描述覆盖程度。`sources` 保留来源标签，URL 形式的来源会裁剪为 HTTP(S) origin/path。`manifest.json` 的 `theia-ai-export-manifest/v1` 清单包含 18 个非 manifest 文件的 UTF-8 字节数和 SHA-256；物理目录总计 19 个文件。消费者必须在解释内容前校验。导出在临时子目录完成后再原子 rename，若已有同名目录会追加序号而绝不覆盖旧导出。
 
-AI 包是净化后的解释视图，不是 `CampusState` 的字节级备份。它排除密码、授权码、Cookie、session、API Key、原始认证页面、绝对本机路径、附件二进制和工作区产物文件；但可能保留姓名、学号、成绩、作业、通知、邮件文本、附件名称、体测和校历等敏感个人业务数据。它不会在导出时重新同步、读取附件或上传任何内容。准确文件清单和字段转换以 [AI 数据导出契约](reference/ai-export-contract.md) 为准。
+AI 包是净化后的解释视图，不是 `CampusState` 的字节级备份。它排除密码、授权码、Cookie、session、API Key、原始认证页面、绝对本机路径、附件二进制和工作区产物文件；但可能保留姓名、学号、成绩、作业、通知、邮件文本、附件名称、体测和校历等敏感个人业务数据。它不会在导出时重新同步、读取附件或上传任何内容。准确文件清单和字段转换以 [AI 数据导出契约](../reference/ai-export-contract.md) 为准。
 
 ## 9. 隐私、保留和删除边界
 
@@ -212,7 +212,7 @@ AI 包是净化后的解释视图，不是 `CampusState` 的字节级备份。�
 - `CampusState`；
 - 分片 value；
 - `theia-feed.json`；
-- UI/CLI 导出；
+- 桌面 UI 导出；
 - `/v1/*` 响应；
 - `auth-diagnostics.ndjson`、活动日志或测试 fixture。
 
@@ -237,4 +237,4 @@ AI 读取 THEIA 数据时应把每个时间戳和来源字段视为证据，而�
 
 进程内顾问从 `snapshotWithRevision()` 生成 overview，不走 loopback API 或 AI 导出。其一个评估实例由 `{snapshotRevision,evaluatedAt,timeZone,rulesVersion}` 定义，UI/消费者必须整体替换，不能按 claim ID 跨实例合并动态值。外部 AI 才使用用户明确生成的导出包。
 
-AI 消费的安全说明和机器可读规则在 [AI 数据导出契约](reference/ai-export-contract.md) 中单独维护。使用 AI 包时，应先校验 manifest，再阅读 `AI_CONTEXT.md`、`DATA_DICTIONARY.md`、`sync.json` 与 `provenance.json`；不要把带日期的静态快照、空集合或本地工作区状态当作学校系统的实时确认。
+AI 消费的安全说明和机器可读规则在 [AI 数据导出契约](../reference/ai-export-contract.md) 中单独维护。使用 AI 包时，应先校验 manifest，再阅读 `AI_CONTEXT.md`、`DATA_DICTIONARY.md`、`sync.json` 与 `provenance.json`；不要把带日期的静态快照、空集合或本地工作区状态当作学校系统的实时确认。

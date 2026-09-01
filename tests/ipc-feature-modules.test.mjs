@@ -7,6 +7,7 @@ import { registerCourseWorkWorkflowIpc } from '../electron/course-work-ipc.mjs'
 import { registerDataExportIpc } from '../electron/data-export-ipc.mjs'
 import { registerIrisIpc } from '../electron/iris-ipc.mjs'
 import { registerModelConfigIpc } from '../electron/model-config-ipc.mjs'
+import { TheolCourseArchiveStore } from '../core/theol-course-archive-store.mjs'
 
 function fakeIpc() {
   const handlers = new Map()
@@ -25,7 +26,7 @@ function registerCourseWorkForTest(overrides = {}) {
   registerCourseWorkWorkflowIpc({
     ipcMain,
     dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
-    shell: { openPath: async () => '' },
+    shell: overrides.shell || { openPath: async () => '' },
     getMainWindow: () => null,
     courseWorkService: {
       validatedWorkspace: () => ({ directory: 'C:\\course-work', title: 'Test' }),
@@ -34,11 +35,12 @@ function registerCourseWorkForTest(overrides = {}) {
     },
     sessionClient: null,
     syncService: { runTheolInteraction: (operation) => operation(), retryCourseResources: async () => ({}) },
-    store: {
+    store: overrides.store || {
       snapshot: () => ({ settings: { dataRoot: 'wrong-config-field' }, assignments: [], notices: [], courses: [] }),
       update: async (update) => update({ workspaces: [] }),
     },
     theolAttachmentStore: null,
+    theolCourseArchiveStore: overrides.theolCourseArchiveStore || { validateLocalFile: async (path) => path },
     theolAttachmentMaxBytes: 32 * 1024 * 1024,
     modelService,
     renderMarkdownToPdf: async () => Buffer.from('%PDF-'),
@@ -71,6 +73,7 @@ test('course-work IPC keeps its handlers in one duplicate-checked feature module
     'theia:prepare-course-work',
     'theia:open-course-work',
     'theia:open-assignment-source',
+    'theia:open-course-material',
     'theia:refresh-course-resources',
     'theia:download-course-resource',
     'theia:import-course-work-file',
@@ -88,6 +91,36 @@ test('course-work IPC keeps its handlers in one duplicate-checked feature module
   await ipcMain.handlers.get('theia:summarize-notices')()
   assert.equal(request[1].dataRoot, 'expected-user-data-root')
   assert.notEqual(request[1].dataRoot, 'wrong-config-field')
+})
+
+test('course material and assignment IPC open only validated local archive files', async () => {
+  const root = await mkdtemp(join(process.env.TEMP || process.cwd(), 'theia-theol-local-open-'))
+  try {
+    const archive = new TheolCourseArchiveStore(root)
+    const material = await archive.savePage({ kind: 'course', parentId: '101', id: 'material-1', title: '课程介绍', html: '<h1>介绍</h1>' })
+    const assignment = await archive.savePage({ kind: 'assignment', parentId: 'assignment-1', id: 'assignment-1', title: '作业', html: '<h1>作业</h1>' })
+    const opened = []
+    const { ipcMain } = registerCourseWorkForTest({
+      shell: { openPath: async (path) => { opened.push(path); return '' } },
+      store: { snapshot: () => ({ courses: [{ id: '101', source: 'theol', teachingMaterials: [{ id: 'material-1', title: '课程介绍', localPath: material.localPath }] }], assignments: [{ id: 'assignment-1', source: 'theol', title: '作业', localPath: assignment.localPath }] }) },
+      theolCourseArchiveStore: archive,
+    })
+    await ipcMain.handlers.get('theia:open-course-material')(null, '101', 'material-1')
+    await ipcMain.handlers.get('theia:open-assignment-source')(null, 'assignment-1')
+    assert.deepEqual(opened, [material.localPath, assignment.localPath])
+
+    const outside = join(root, 'outside.html')
+    const tampered = registerCourseWorkForTest({
+      store: { snapshot: () => ({ courses: [{ id: '101', source: 'theol', teachingMaterials: [{ id: 'material-1', title: '越界', localPath: outside }] }], assignments: [] }) },
+      theolCourseArchiveStore: archive,
+    })
+    await assert.rejects(
+      tampered.ipcMain.handlers.get('theia:open-course-material')(null, '101', 'material-1'),
+      /路径无效|路径越界/u,
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 test('data export IPC writes local JSON and opens bounded local directories', async () => {

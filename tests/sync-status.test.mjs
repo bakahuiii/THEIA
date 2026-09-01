@@ -4,7 +4,15 @@ import {
   createSyncFailureObserver,
   describeSyncFreshness,
   sanitizeSyncFailure,
+  syncStartedDuringRenderer,
 } from '../src/hooks/sync-status.mjs'
+
+test('stale persisted sync runs do not appear active in a new renderer', () => {
+  const rendererStartedAt = Date.parse('2026-09-01T04:00:00.000Z')
+  assert.equal(syncStartedDuringRenderer({ lastStartedAt: '2026-09-01T03:59:58.000Z' }, rendererStartedAt), true)
+  assert.equal(syncStartedDuringRenderer({ lastStartedAt: '2026-09-01T03:55:35.000Z' }, rendererStartedAt), false)
+  assert.equal(syncStartedDuringRenderer({ lastStartedAt: '2026-09-01T03:55:35.000Z' }, rendererStartedAt, 300_000), true)
+})
 
 test('sync failure observer ignores startup history and reports each failed run once', () => {
   const reports = []
