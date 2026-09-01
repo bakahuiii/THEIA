@@ -68,6 +68,8 @@ export function createSourceActionsRuntime({
   getAuthEpoch,
   openLoginWindow,
   verifiedStatus,
+  freshSourceStatus = null,
+  recoverTheolReadSession = null,
   verifiedSessions,
   rememberVerifiedSession,
   assertAuthEpoch,
@@ -386,12 +388,14 @@ async function openCourseWorkWindow(entry, expectedEpoch = getAuthEpoch(), asser
   assertAuthEpoch(epoch)
   const assertSnapshot = typeof assertCurrentSnapshot === 'function' ? assertCurrentSnapshot : () => {}
   assertSnapshot()
-  const resumeWhileOpening = getSyncService().pauseAssignmentScan()
+  let resumeWhileOpening = getSyncService().pauseAssignmentScan()
   try {
     await getSyncService().waitForAssignmentScan()
     assertAuthEpoch(epoch)
     assertSnapshot()
-    let status = await verifiedStatus(source)
+    let status = typeof freshSourceStatus === 'function'
+      ? await freshSourceStatus(source)
+      : await verifiedStatus(source)
     assertAuthEpoch(epoch)
     assertSnapshot()
     if (!status) {
@@ -407,10 +411,21 @@ async function openCourseWorkWindow(entry, expectedEpoch = getAuthEpoch(), asser
       resumeWhileOpening({ schedule: false })
       assertAuthEpoch(epoch)
       assertSnapshot()
-      await openLoginWindow({ sources: [source], expectedEpoch: epoch })
+      if (typeof recoverTheolReadSession === 'function') {
+        await recoverTheolReadSession(epoch)
+      } else {
+        await openLoginWindow({ sources: [source], expectedEpoch: epoch })
+      }
       assertAuthEpoch(epoch)
       assertSnapshot()
-      throw new Error('北化在线THEOL会话已失效，请完成登录后重试')
+      status = typeof freshSourceStatus === 'function'
+        ? await freshSourceStatus(source)
+        : await verifiedStatus(source)
+      if (!status?.connected) throw new Error('北化在线THEOL会话已失效，请完成登录后重试')
+      // Recovery temporarily released the assignment pause while its actor
+      // authenticated. Reacquire it before opening the task window.
+      resumeWhileOpening = getSyncService().pauseAssignmentScan()
+      assertAuthEpoch(epoch)
     }
     if (!verifiedSessions[source]) {
       await rememberVerifiedSession(source, status.url || entry.courseSourceUrl, epoch)

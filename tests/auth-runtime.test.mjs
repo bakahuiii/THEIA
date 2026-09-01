@@ -109,6 +109,8 @@ test('THEOL read recovery clears a stale verification and waits for the login ac
   ]
   const loginRequests = []
   const remembered = []
+  const freshStatusOptions = []
+  const invalidatedSources = []
   const openedActor = { source: 'theol', authenticated: true, lifecycle: Promise.resolve() }
   const runtime = createAuthRuntime({
     authActorManager: {
@@ -131,7 +133,11 @@ test('THEOL read recovery clears a stale verification and waits for the login ac
     getSyncOrchestrator: () => ({}),
     getCredentialVault: () => ({ status: async () => ({ saved: true }) }),
     getSchoolProxyReady: () => Promise.resolve(),
-    freshSourceStatus: async () => statuses.shift(),
+    freshSourceStatus: async (_source, options) => {
+      freshStatusOptions.push(options)
+      return statuses.shift()
+    },
+    invalidateSourceStatus: (source) => { invalidatedSources.push(source) },
     rememberVerifiedSession: async (source, url, epoch) => remembered.push({ source, url, epoch }),
     loginTargetDetails: () => ({ url: 'https://course.buct.edu.cn/meol/homepage/common/sso_login.jsp' }),
     assertAuthEpoch: () => {},
@@ -155,4 +161,6 @@ test('THEOL read recovery clears a stale verification and waits for the login ac
     url: 'https://course.buct.edu.cn/meol/personal.do',
     epoch: 1,
   }])
+  assert.deepEqual(freshStatusOptions, [undefined, undefined])
+  assert.deepEqual(invalidatedSources, ['theol', 'theol'])
 })

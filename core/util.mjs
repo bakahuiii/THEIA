@@ -175,6 +175,11 @@ export function htmlLooksLikeLogin(html, finalUrl = '') {
     || ((urlText.includes('experimental-auth-endpoint') || urlText.includes('/login') || hasPasswordField) && hasLoginMarker)
 }
 
+export function htmlLooksLikeRateLimit(html) {
+  const lower = String(html || '').toLowerCase()
+  return /访问(?:过于|太过|过度)?频繁|请求(?:过于|太过|过度)?频繁|操作(?:过于|太过|过度)?频繁|请不要频繁|稍后再试/u.test(lower)
+}
+
 const SENSITIVE_DIAGNOSTIC_KEYS = [
   'password', 'passcode', 'apikey', 'authorization', 'cookie', 'session',
   'sessionid', 'jsessionid', 'token', 'secret', 'credential', 'privatekey',

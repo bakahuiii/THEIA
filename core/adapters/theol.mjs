@@ -1,7 +1,7 @@
 import * as cheerio from 'cheerio'
 import { dirname, relative } from 'node:path'
 import { compactError, normalizeText } from '../util.mjs'
-import { AuthRequiredError } from '../source-client.mjs'
+import { AuthRequiredError, isSourceRateLimited } from '../source-client.mjs'
 import { parseTheolAssignments, parseTheolCourse, parseTheolCourseResources, parseTheolHome } from '../parsers/theol.mjs'
 import {
   documentExtension,
@@ -643,7 +643,12 @@ export class TheolAdapter {
     }
   }
 
-  async syncAssignments(courses, { shouldContinue = () => true, signal = null } = {}) {
+  async syncAssignments(courses, {
+    shouldContinue = () => true,
+    signal = null,
+    archive = Boolean(this.archiveStore),
+    onCourseResult = null,
+  } = {}) {
     const capturedAt = new Date().toISOString()
     const errors = []
     const assignments = []
@@ -656,8 +661,19 @@ export class TheolAdapter {
     let mobileFallback = { attempted: false, status: 'not-needed', added: 0 }
     let mobileFallbackIds = new Set()
     let primaryAssignmentIds = new Set()
+    let rateLimited = false
+    const notifyCourseResult = async (courseId, courseAssignments, complete, error = null) => {
+      if (typeof onCourseResult !== 'function') return
+      await onCourseResult({
+        courseId: String(courseId),
+        assignments: [...courseAssignments],
+        complete: Boolean(complete),
+        error: error ? compactError(error) : null,
+      })
+    }
 
     for (const listedCourse of listedCourses) {
+      if (rateLimited) break
       if (!shouldContinue()) return { aborted: true, capturedAt, errors }
       try {
         let courseComplete = true
@@ -705,6 +721,7 @@ export class TheolAdapter {
               courseComplete = false
               incompleteCourseIds.add(String(listedCourse.id))
               errors.push(`${listedCourse.title}: ${compactError(error)}`)
+              rateLimited ||= isSourceRateLimited(error)
               break
             }
           }
@@ -712,18 +729,21 @@ export class TheolAdapter {
         assignments.push(...courseAssignments)
         if (courseComplete) successfulCourseIds.push(String(listedCourse.id))
         else failedCourseIds.push(String(listedCourse.id))
+        await notifyCourseResult(listedCourse.id, courseAssignments, courseComplete)
       } catch (error) {
         if (!shouldContinue() || signal?.aborted) return { aborted: true, capturedAt, errors }
         if (error instanceof AuthRequiredError) throw error
         failedCourseIds.push(String(listedCourse.id))
         errors.push(`${listedCourse.title}: ${compactError(error)}`)
+        rateLimited ||= isSourceRateLimited(error)
+        await notifyCourseResult(listedCourse.id, [], false, error)
       }
     }
 
     // The old official mobile endpoint is only a read-only fallback. It has a
     // global pending-task feed, so it can recover the entire course set when a
     // rendered course page changes shape or fails mid-scan.
-    if ((errors.length > 0 || assignments.length === 0) && typeof this.client?.json === 'function') {
+    if (!rateLimited && (errors.length > 0 || assignments.length === 0) && typeof this.client?.json === 'function') {
       try {
         const payload = await this.client.json(MOBILE_UNDONE_TASKS, {}, {
           source: 'THEOL mobile pending-task fallback', signal,
@@ -773,7 +793,7 @@ export class TheolAdapter {
     const now = Date.now()
     let currentAssignments = [...new Map(assignments.map((item) => [item.id, item])).values()]
       .filter((item) => isCurrentTask(item, now))
-    if (this.archiveStore) {
+    if (archive && this.archiveStore) {
       const archived = []
       for (const assignment of currentAssignments) {
         try {
@@ -851,7 +871,14 @@ export class TheolAdapter {
         }),
       },
       errors,
-      source: { connected: true, checkedAt: capturedAt, errors, mobileFallback },
+      source: {
+        connected: true,
+        checkedAt: capturedAt,
+        errors,
+        mobileFallback,
+        captureMode: archive ? 'archived' : 'list-only',
+        ...(rateLimited ? { rateLimited: true } : {}),
+      },
     }
   }
 }

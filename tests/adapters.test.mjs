@@ -226,6 +226,31 @@ test('THEOL assignment sync keeps each course and task list strictly serial', as
   assert.equal(result.domainOutcomes.assignments.completeness, 'complete')
 })
 
+test('THEOL assignment sync stops after a rate-limit response', async () => {
+  const first = { id: '101', title: 'Course One', source: 'theol', sourceUrl: 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=101' }
+  const second = { id: '102', title: 'Course Two', source: 'theol', sourceUrl: 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=102' }
+  const requested = []
+  let fallbackCalls = 0
+  const error = new Error('访问过于频繁')
+  error.status = 429
+  const adapter = new TheolAdapter({
+    async page(url) {
+      requested.push(url)
+      throw error
+    },
+    async json() {
+      fallbackCalls += 1
+      return { status: 1, datas: [] }
+    },
+  })
+
+  const result = await adapter.syncAssignments([first, second])
+  assert.deepEqual(requested, [first.sourceUrl])
+  assert.equal(fallbackCalls, 0)
+  assert.equal(result.source.rateLimited, true)
+  assert.deepEqual(result.failedCourseIds, ['101'])
+})
+
 test('THEOL assignment sync removes tasks whose real due time has passed', async () => {
   const course = {
     id: '101', title: 'Course One', source: 'theol',
@@ -650,6 +675,41 @@ test('JWGLXT queries current-term schedule, grades and exams through their stude
   assert.deepEqual(secondaryStarted, new Set(['selected-courses', 'notices']))
   const firstSecondary = requestPhases.findIndex((phase) => ['selected-courses', 'notices'].includes(phase))
   assert.ok(firstSecondary > requestPhases.findLastIndex((phase) => ['schedule', 'exams', 'grades', 'academic-progress'].includes(phase)))
+})
+
+test('JWGLXT publishes a completed domain while another domain is still pending', async () => {
+  let releaseExams
+  const examsGate = new Promise((resolveGate) => { releaseExams = resolveGate })
+  let observeSchedule
+  const schedulePublished = new Promise((resolvePublished) => { observeSchedule = resolvePublished })
+  const client = {
+    async page(url) {
+      if (url.includes('/xtgl/')) return { url, text: '<span>退出</span><input id="xh" value="2024TEST01"><input id="xnm" value="2026"><input id="xqm" value="3">' }
+      if (url.includes('/kbcx/')) return { url, text: '<form id="ajaxForm"><select name="xnm"><option value="2026" selected>2026-2027</option></select><select name="xqm"><option value="3" selected>1</option></select></form>' }
+      if (url.includes('/kwgl/')) {
+        await examsGate
+        return { url, text: '<form id="searchForm"></form>' }
+      }
+      return { url, text: '<form></form>' }
+    },
+    async form(url) {
+      if (url.includes('/kbcx/')) return JSON.stringify({ kbList: [{ kcmc: 'Early schedule', kch: 'MAT14000G', xqj: '1', jcs: '1-2' }] })
+      return JSON.stringify({ items: [] })
+    },
+  }
+  const adapter = new JwglxtAdapter(client)
+  adapter.onDomainResult = async ({ domain }) => {
+    if (domain === 'schedule') observeSchedule()
+  }
+  const pending = adapter.sync({ domains: ['schedule', 'exams'] })
+  await Promise.race([
+    schedulePublished,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('schedule domain was not published')), 1_000)),
+  ])
+  releaseExams()
+  const result = await pending
+  assert.equal(result.domainOutcomes.schedule.succeeded, true)
+  assert.equal(result.domainOutcomes.exams.succeeded, true)
 })
 
 test('JWGLXT schedule sync prioritizes the selected term and ignores years before admission', async () => {

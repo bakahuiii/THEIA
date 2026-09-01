@@ -35,6 +35,7 @@ export function createAuthRuntime({
   getSchoolProxyReady,
   verifiedStatus,
   freshSourceStatus,
+  invalidateSourceStatus = () => {},
   rememberVerifiedSession,
   loginTargetDetails,
   sourceWindowOptions,
@@ -639,6 +640,7 @@ export function createAuthRuntime({
     // JSESSIONID is no longer usable. Clear only the THEOL verification so the
     // actor cannot incorrectly reuse that stale browser session.
     verifiedSessions.theol = null
+    invalidateSourceStatus('theol')
     const status = await freshSourceStatus('theol')
     if (status?.connected) {
       await rememberVerifiedSession('theol', status.url || loginTargetDetails('theol').url, epoch)
@@ -664,7 +666,17 @@ export function createAuthRuntime({
     if (actor?.lifecycle) await actor.lifecycle
     assertAuthEpoch(epoch)
 
-    const refreshed = await freshSourceStatus('theol')
+    invalidateSourceStatus('theol')
+    let refreshed = await freshSourceStatus('theol')
+    // The actor can observe the authenticated THEOL frame just before the
+    // shared browser session has finished publishing its cookie. Give that
+    // cookie one bounded propagation window before declaring recovery failed.
+    if (!refreshed?.connected && actor?.authenticated) {
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 400))
+      assertAuthEpoch(epoch)
+      invalidateSourceStatus('theol')
+      refreshed = await freshSourceStatus('theol')
+    }
     if (!refreshed?.connected) {
       void writeDiagnostic('course_work.read_auth_recovery_failed', {
         actorAuthenticated: Boolean(actor?.authenticated),

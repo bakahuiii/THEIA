@@ -171,6 +171,7 @@ export class AcademicApiFirstAdapter {
     this.clientFactory = clientFactory
     this.adapterFactory = adapterFactory
     this.onProgress = null
+    this.onDomainResult = null
   }
 
   async status() {
@@ -200,6 +201,7 @@ export class AcademicApiFirstAdapter {
     if (!domains.length || !this.browserAdapter?.sync) return result
     this.onDiagnostic('academic_api.browser_fallback_started', { domains })
     try {
+      this.browserAdapter.onDomainResult = this.onDomainResult
       const browserResult = await this.browserAdapter.sync({ ...options, domains })
       const { merged, browserFailures } = mergeBrowserFallback(result, browserResult, domains, apiErrors)
       merged.source = {
@@ -228,6 +230,7 @@ export class AcademicApiFirstAdapter {
 
   async sync(options = {}) {
     this.browserAdapter.onProgress = this.onProgress
+    this.browserAdapter.onDomainResult = this.onDomainResult
     const wantsAcademicProgress = options.domains === undefined || options.domains.includes('academic-progress')
     if (!this.isEnabled()) return this.browserAdapter.sync(options)
     const credentials = await this.credentialVault.readCredentials()
@@ -243,6 +246,7 @@ export class AcademicApiFirstAdapter {
       const createAdapter = () => {
         const adapter = this.adapterFactory(client)
         adapter.onDiagnostic = this.onDiagnostic
+        adapter.onDomainResult = this.onDomainResult
         client.setDiagnostic?.(this.onDiagnostic)
         return adapter
       }

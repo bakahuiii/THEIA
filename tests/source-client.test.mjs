@@ -80,6 +80,33 @@ test('session client retries transient GET failures but never retries a POST', a
   assert.equal(getCalls, 3)
 })
 
+test('session client stops immediately on a rate-limit response or page', async () => {
+  let calls = 0
+  const client = new SessionClient(
+    { cookies: { get: async () => [] } },
+    {
+      requestSession: {
+        fetch: async () => {
+          calls += 1
+          return new Response('<html><body>访问太过频繁，请稍后再试</body></html>', { status: 200 })
+        },
+      },
+    },
+  )
+
+  await assert.rejects(
+    client.request('https://course.buct.edu.cn/meol/personal.do', {}, { source: 'THEOL' }),
+    (error) => error?.code === 'ERATELIMIT' && /访问过于频繁/u.test(error.message),
+  )
+  assert.equal(calls, 1)
+
+  await assert.rejects(
+    client.request('https://course.buct.edu.cn/meol/personal.do', {}, { source: 'THEOL' }),
+    (error) => error?.code === 'ERATELIMIT',
+  )
+  assert.equal(calls, 2)
+})
+
 test('session client retries Electron cancelled redirects for idempotent GET requests', async () => {
   let calls = 0
   const client = new SessionClient(

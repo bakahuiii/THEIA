@@ -3,9 +3,16 @@ import assert from 'node:assert/strict'
 import {
   createSyncFailureObserver,
   describeSyncFreshness,
+  isRateLimitFailure,
   sanitizeSyncFailure,
   syncStartedDuringRenderer,
 } from '../src/hooks/sync-status.mjs'
+
+test('rate-limit failures are classified for non-blocking UI handling', () => {
+  assert.equal(isRateLimitFailure(new Error('访问太过频繁，请稍后再试')), true)
+  assert.equal(isRateLimitFailure(Object.assign(new Error('source failed'), { code: 'ERATELIMIT' })), true)
+  assert.equal(isRateLimitFailure(new Error('登录时间超时')), false)
+})
 
 test('stale persisted sync runs do not appear active in a new renderer', () => {
   const rendererStartedAt = Date.parse('2026-09-01T04:00:00.000Z')

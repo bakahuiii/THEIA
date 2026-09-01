@@ -1,5 +1,5 @@
 import iconv from 'iconv-lite'
-import { compactError, htmlLooksLikeLogin } from './util.mjs'
+import { compactError, htmlLooksLikeLogin, htmlLooksLikeRateLimit } from './util.mjs'
 import { permittedSourceUrl } from './source-url-policy.mjs'
 
 const MAX_TEXT_RESPONSE_BYTES = 16 * 1024 * 1024
@@ -23,6 +23,10 @@ export class SourceRequestError extends Error {
     this.name = 'SourceRequestError'
     Object.assign(this, details)
   }
+}
+
+export function isSourceRateLimited(error) {
+  return error?.code === 'ERATELIMIT' || Number(error?.status) === 429
 }
 
 function normalizeEncoding(value) {
@@ -168,7 +172,7 @@ async function limitedResponseBuffer(response, { maxBytes, source, url }) {
 }
 
 export class SessionClient {
-  constructor(session, { requestSession = session, timeoutMs = 25_000, pageLoader = null, formLoader = null, binaryLoader = null, onDiagnostic = null, redirectMode = null } = {}) {
+  constructor(session, { requestSession = session, timeoutMs = 25_000, pageLoader = null, formLoader = null, binaryLoader = null, onDiagnostic = null, redirectMode = null, minRequestIntervalMs = 0 } = {}) {
     this.cookieSession = session
     this.requestSession = requestSession
     this.timeoutMs = timeoutMs
@@ -177,10 +181,43 @@ export class SessionClient {
     this.binaryLoader = typeof binaryLoader === 'function' ? binaryLoader : null
     this.onDiagnostic = typeof onDiagnostic === 'function' ? onDiagnostic : null
     this.redirectMode = ['follow', 'manual', 'error'].includes(redirectMode) ? redirectMode : null
+    this.minRequestIntervalMs = Math.max(0, Number(minRequestIntervalMs) || 0)
+    this.nextRequestAt = 0
+    this.requestGate = Promise.resolve()
   }
 
   diagnostic(event, fields = {}) {
     try { void this.onDiagnostic?.(event, fields) } catch { /* diagnostics must never affect requests */ }
+  }
+
+  async waitForRequestSlot(signal = null) {
+    if (!this.minRequestIntervalMs) return
+    const queued = this.requestGate.catch(() => {}).then(async () => {
+      const delayMs = Math.max(0, this.nextRequestAt - Date.now())
+      if (delayMs > 0) {
+        await new Promise((resolveDelay, rejectDelay) => {
+          let settled = false
+          const timer = setTimeout(() => {
+            if (settled) return
+            settled = true
+            signal?.removeEventListener?.('abort', cancel)
+            resolveDelay()
+          }, delayMs)
+          const cancel = () => {
+            if (settled) return
+            settled = true
+            clearTimeout(timer)
+            signal?.removeEventListener?.('abort', cancel)
+            rejectDelay(signal?.reason || new Error('Request aborted'))
+          }
+          if (signal?.aborted) cancel()
+          else signal?.addEventListener?.('abort', cancel, { once: true })
+        })
+      }
+      this.nextRequestAt = Date.now() + this.minRequestIntervalMs
+    })
+    this.requestGate = queued.catch(() => {})
+    await queued
   }
 
   async mirrorCookies(cookies) {
@@ -254,6 +291,7 @@ export class SessionClient {
   }
 
   async requestOnce(url, init = {}, { source = 'school', allowLogin = false, signal = null } = {}) {
+    await this.waitForRequestSlot(signal)
     const controller = new AbortController()
     let timedOut = false
     const timer = setTimeout(() => {
@@ -273,6 +311,11 @@ export class SessionClient {
         url: finalUrl,
       })
       const text = decodeResponse(buffer, response.headers.get('content-type') || '')
+      if (response.status === 429 || htmlLooksLikeRateLimit(text)) {
+        throw new SourceRequestError(`${source} 访问过于频繁，请稍后再试`, {
+          source, status: response.status, url: finalUrl, code: 'ERATELIMIT',
+        })
+      }
       if (!response.ok) {
         throw new SourceRequestError(`${source} 请求失败 (${response.status})`, { source, status: response.status, url: finalUrl })
       }
@@ -305,7 +348,7 @@ export class SessionClient {
         return await this.requestOnce(url, init, options)
       } catch (error) {
         const status = Number(error?.status)
-        const transientStatus = [408, 425, 429].includes(status) || status >= 500
+        const transientStatus = [408, 425].includes(status) || status >= 500
         const errorText = compactError(error)
         // Electron's fetch can surface a cancelled redirect when the campus
         // CAS briefly replaces a session or the renderer closes a redirecting
@@ -370,6 +413,7 @@ export class SessionClient {
     const requestInit = { method: requestMethod, headers: requestHeaders }
     if (body !== undefined) requestInit.body = body
     if (this.binaryLoader && !isHttpUrl(url)) {
+      await this.waitForRequestSlot(signal)
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), this.timeoutMs)
       try {
@@ -410,11 +454,17 @@ export class SessionClient {
     if (signal?.aborted) cancel()
     else signal?.addEventListener?.('abort', cancel, { once: true })
     try {
+      await this.waitForRequestSlot(signal)
       const { response, url: finalUrl } = await this.fetchCampus(url, requestInit, { source, signal: controller.signal })
       const limit = Math.max(1, Math.min(MAX_ATTACHMENT_RESPONSE_BYTES, Number(maxBytes) || MAX_ATTACHMENT_RESPONSE_BYTES))
       const buffer = await limitedResponseBuffer(response, { maxBytes: limit, source, url: finalUrl })
-      if (!response.ok) throw new SourceRequestError(`${source} 请求失败 (${response.status})`, { source, status: response.status, url: finalUrl })
       const contentType = response.headers.get('content-type') || ''
+      if (response.status === 429 || htmlLooksLikeRateLimit(decodeResponse(buffer, contentType))) {
+        throw new SourceRequestError(`${source} 访问过于频繁，请稍后再试`, {
+          source, status: response.status, url: finalUrl, code: 'ERATELIMIT',
+        })
+      }
+      if (!response.ok) throw new SourceRequestError(`${source} 请求失败 (${response.status})`, { source, status: response.status, url: finalUrl })
       if (/html|text\//i.test(contentType) && htmlLooksLikeLogin(decodeResponse(buffer, contentType), finalUrl)) throw new AuthRequiredError(source, finalUrl)
       return { buffer, url: finalUrl, headers: response.headers }
     } catch (error) {
@@ -434,6 +484,7 @@ export class SessionClient {
     const startedAt = Date.now()
     this.diagnostic('source.page_started', { source, url: String(url) })
     try {
+      await this.waitForRequestSlot(signal)
       const target = permittedSourceUrl(url)
       if (signal?.aborted) {
         throw new SourceRequestError(`${source} 请求已取消`, { source, url: target, code: 'ABORT_ERR' })
@@ -443,6 +494,11 @@ export class SessionClient {
       const text = result?.base64
         ? decodeSourceBuffer(Buffer.from(String(result.base64), 'base64'), result.contentType || '')
         : String(result?.text || '')
+      if (Number(result?.status) === 429 || htmlLooksLikeRateLimit(text)) {
+        throw new SourceRequestError(`${source} 访问过于频繁，请稍后再试`, {
+          source, status: Number(result?.status) || null, url: finalUrl, code: 'ERATELIMIT',
+        })
+      }
       if (!allowLogin && htmlLooksLikeLogin(text, finalUrl)) throw new AuthRequiredError(source, finalUrl)
       this.diagnostic('source.page_finished', { source, url: finalUrl, bytes: Buffer.byteLength(text), elapsedMs: Date.now() - startedAt })
       return {
@@ -464,11 +520,17 @@ export class SessionClient {
       const startedAt = Date.now()
       this.diagnostic('source.form_started', { source, url: String(url), referer: options.referer ? String(options.referer) : undefined })
       try {
+        await this.waitForRequestSlot(options.signal || null)
         const target = permittedSourceUrl(url)
         const referer = permittedSourceUrl(options.referer || target)
         const result = await this.formLoader(target, values || {}, { referer, signal: options.signal || null, source })
         const text = String(result?.text || '')
         const finalUrl = permittedSourceUrl(result?.url || target)
+        if (Number(result?.status) === 429 || htmlLooksLikeRateLimit(text)) {
+          throw new SourceRequestError(`${source} 访问过于频繁，请稍后再试`, {
+            source, status: Number(result?.status) || null, url: finalUrl, code: 'ERATELIMIT',
+          })
+        }
         if (result?.status && (result.status < 200 || result.status >= 300)) {
           throw new SourceRequestError(`${source} request failed (${result.status})`, { source, status: result.status, url: finalUrl })
         }

@@ -4,6 +4,7 @@ import { createLatestApiStatusLoader } from "./runtime-api-status.mjs";
 import {
   createSyncFailureObserver,
   describeSyncFreshness,
+  isRateLimitFailure,
   sanitizeSyncFailure,
   syncStartedDuringRenderer,
 } from "./sync-status.mjs";
@@ -108,6 +109,12 @@ export function useTheiaApp() {
     ), [setMsg]);
   const showDataError = useCallback((error: unknown) => {
     const text = sanitizeSyncFailure(error);
+    if (isRateLimitFailure(error) || isRateLimitFailure(text)) {
+      setMsg("校园系统暂时限制访问，已保留本地数据，请稍后再试。", "info");
+      setSyncFailure(null);
+      setRuntimeSyncError(null);
+      return;
+    }
     setMsg(text, "error");
     setSyncFailure(text);
     setRuntimeSyncError(text);

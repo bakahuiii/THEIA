@@ -1,6 +1,7 @@
-import { AlertCircle, Braces, CheckCircle2, CircleHelp, Database, Download, ExternalLink, Github, HeartHandshake, LoaderCircle, RotateCw, ShieldCheck, Smartphone } from "lucide-react";
+import { AlertCircle, Braces, CheckCircle2, CircleHelp, Database, Download, ExternalLink, Github, Hash, HeartHandshake, LoaderCircle, Mail, MessagesSquare, RotateCw, ShieldCheck, Smartphone } from "lucide-react";
 import { bridge } from "../../bridge";
 import { useGithubUpdateStatus } from "../../hooks/useGithubUpdateStatus";
+import authorAvatar from "../../assets/bakahuiii-avatar.jpg";
 import theiaMark from "../../assets/theia-mark.png";
 import type { ApiStatus, CampusState, GithubUpdateStatus } from "../../types";
 
@@ -123,15 +124,32 @@ export function AboutSettings({
 
   return (
     <section className="settings-section about-settings">
-      <div className="about-hero">
-        <div className="about-mark">
-          <img src={theiaMark} alt="THEIA" />
+      <div className="about-brand-row">
+        <div className="about-hero">
+          <div className="about-mark">
+            <img src={theiaMark} alt="THEIA" />
+          </div>
+          <div>
+            <span>Θεία</span>
+            <h2>THEIA</h2>
+          </div>
         </div>
-        <div>
-          <span>Θεία</span>
-          <h2>THEIA</h2>
-          <p>为北化学生准备的本地优先校园工作台。</p>
-        </div>
+
+        <section className="about-me" aria-labelledby="about-me-title">
+          <div className="about-me-avatar-shell">
+            <img className="about-me-avatar" src={authorAvatar} alt="头像" />
+          </div>
+          <div className="about-me-copy">
+            <div className="about-me-heading">
+              <h3 id="about-me-title">关于我</h3>
+            </div>
+            <div className="about-me-contacts" aria-label="联系方式">
+              <a href="mailto:1411575779@qq.com"><Mail size={13} aria-hidden="true" />1411575779@qq.com</a>
+              <span><Hash size={13} aria-hidden="true" />QQ 1411575779</span>
+              <span><MessagesSquare size={13} aria-hidden="true" />微信 bakahui0225</span>
+            </div>
+          </div>
+        </section>
       </div>
 
       <div className="about-facts">

@@ -881,6 +881,53 @@ test('a scoped free-classroom query reaches the adapter without widening its dom
   }
 })
 
+test('sync persists a completed domain before the source adapter settles', async () => {
+  const root = await mkdtemp(resolve(tmpdir(), 'theia-sync-domain-stream-'))
+  let releaseSource
+  try {
+    const store = new CampusStore(root)
+    await store.load()
+    const sourceGate = new Promise((resolveGate) => { releaseSource = resolveGate })
+    let observePublished
+    const published = new Promise((resolvePublished) => { observePublished = resolvePublished })
+    const service = new SyncService({
+      store,
+      jwglxt: {
+        async sync() {
+          await this.onDomainResult({
+            domain: 'schedule',
+            result: {
+              schedule: [{ id: 'early-schedule', source: 'jwglxt', weekday: 1, period: '1-2' }],
+              source: { connected: true },
+              errors: [],
+            },
+            outcome: sourceDomainOutcome({
+              source: 'jwglxt', attempted: true, succeeded: true, status: 'succeeded',
+              capturedAt: new Date().toISOString(), completeness: 'complete', parserVersion: 'test',
+            }),
+          })
+          observePublished()
+          await sourceGate
+          return {
+            schedule: [{ id: 'early-schedule', source: 'jwglxt', weekday: 1, period: '1-2' }],
+            source: { connected: true },
+            errors: [],
+          }
+        },
+      },
+      theol: {},
+    })
+    const pending = service.syncNow({ sources: ['jwglxt'], domains: ['schedule'] })
+    await published
+    assert.equal(store.snapshot().schedule.some((item) => item.id === 'early-schedule'), true)
+    releaseSource()
+    await pending
+  } finally {
+    releaseSource?.()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('independent filtered platform syncs start concurrently instead of sharing a global queue', async () => {
   const root = await mkdtemp(resolve(tmpdir(), 'theia-sync-independent-sources-'))
   let releaseAcademic = () => {}
@@ -2397,6 +2444,56 @@ test('assignment retry reuses the THEOL scan without starting either platform sy
     assert.equal(state.sync.domains.assignments.outcomes.theol.status, 'succeeded')
   } finally {
     service?.stop()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('assignment scans commit each course before the full scan settles', async () => {
+  const root = await mkdtemp(resolve(tmpdir(), 'theia-assignment-incremental-'))
+  let service
+  let releaseScan
+  try {
+    const store = new CampusStore(root)
+    await store.load()
+    await store.update((state) => ({
+      ...state,
+      courses: [
+        { id: 'course-1', title: 'THEOL course', source: 'theol', sourceUrl: 'https://course.buct.edu.cn/meol/course?courseId=1' },
+      ],
+    }))
+    const partialCommitted = new Promise((resolveCommit) => {
+      const observeCommit = () => resolveCommit()
+      releaseScan = null
+      service = new SyncService({
+        store,
+        jwglxt: { async sync() {} },
+        theol: {
+          async sync() {},
+          async syncAssignments(_courses, options) {
+            await options.onCourseResult({
+              courseId: 'course-1',
+              assignments: [{ id: 'assignment-early', title: '先到的作业', source: 'theol', courseId: 'course-1' }],
+              complete: true,
+            })
+            observeCommit()
+            await new Promise((resolveGate) => { releaseScan = resolveGate })
+            return {
+              assignments: [{ id: 'assignment-early', title: '先到的作业', source: 'theol', courseId: 'course-1' }],
+              successfulCourseIds: ['course-1'], failedCourseIds: [], errors: [], source: { connected: true },
+            }
+          },
+        },
+      })
+    })
+
+    const pending = service.retryAssignments()
+    await partialCommitted
+    assert.equal(store.snapshot().assignments.some((item) => item.id === 'assignment-early'), true)
+    releaseScan()
+    await pending
+  } finally {
+    service?.stop()
+    releaseScan?.()
     await rm(root, { recursive: true, force: true })
   }
 })

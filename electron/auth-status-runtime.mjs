@@ -78,6 +78,10 @@ export function createAuthStatusRuntime({
     return check
   }
 
+  function invalidateSourceStatus(source) {
+    statusChecks[source] = null
+  }
+
   function freshSourceStatus(source) {
     forceSourceStatusChecks.add(source)
     const check = sourceStatus(source)
@@ -253,6 +257,7 @@ export function createAuthStatusRuntime({
     verifiedStatus,
     sourceStatus,
     freshSourceStatus,
+    invalidateSourceStatus,
     cachedStatus,
     loggedOutStatus,
     requestUnifiedAuthVerification,

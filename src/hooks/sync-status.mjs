@@ -32,6 +32,11 @@ function failureSignature(error) {
   return sanitizeSyncFailure(error).toLocaleLowerCase();
 }
 
+export function isRateLimitFailure(error) {
+  const text = error instanceof Error ? `${error.message} ${error.code || ""}` : String(error ?? "");
+  return /(?:访问|请求|操作)(?:过于|太过|过度)?频繁|请不要频繁|稍后再试|rate[-_ ]?limit|\b429\b|eratlimit/i.test(text);
+}
+
 const SYNC_RENDERER_START_GRACE_MS = 5_000;
 
 export function syncStartedDuringRenderer(sync, rendererStartedAt, graceMs = SYNC_RENDERER_START_GRACE_MS) {

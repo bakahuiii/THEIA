@@ -13,6 +13,7 @@ import {
 import {
   aggregateDomainProvenance,
   mergeDomainSourceOutcomes,
+  sourceDomainOutcome,
 } from './domain-provenance.mjs'
 import { SyncCancelledError } from './sync-errors.mjs'
 import {
@@ -168,6 +169,52 @@ export async function runSync(service, {
     commitQueue = pending.catch(() => undefined)
     return pending
   }
+  const mergePartialResult = (previous, incoming) => {
+    const next = { ...(previous || {}), ...(incoming || {}) }
+    if (incoming?.academicExtras && typeof incoming.academicExtras === 'object') {
+      next.academicExtras = {
+        ...(previous?.academicExtras || {}),
+        ...incoming.academicExtras,
+        domains: {
+          ...(previous?.academicExtras?.domains || {}),
+          ...(incoming.academicExtras.domains || {}),
+        },
+      }
+    }
+    next.errors = [...new Set([...(previous?.errors || []), ...(incoming?.errors || [])])]
+    return next
+  }
+  const publishDomainResult = async (source, payload = {}) => {
+    const domain = String(payload.domain || '').trim()
+    if (!domain || !payload.outcome || !payload.result || typeof payload.result !== 'object') return
+    const attemptedAt = new Date().toISOString()
+    const outcome = sourceDomainOutcome({
+      ...payload.outcome,
+      source: payload.outcome.source || source,
+      runId,
+      attemptedAt: payload.outcome.attemptedAt || attemptedAt,
+      completedAt: payload.outcome.completedAt || attemptedAt,
+      sourceSucceededAt: payload.outcome.succeeded
+        ? payload.outcome.sourceSucceededAt || payload.outcome.completedAt || attemptedAt
+        : payload.outcome.sourceSucceededAt || null,
+    })
+    const partialResult = normalizeSyncPayload({
+      ...payload.result,
+      errors: payload.errors || payload.result.errors || [],
+      domainOutcomes: { [domain]: outcome },
+    })
+    results[source] = mergePartialResult(results[source], partialResult)
+    sources[source] = sanitizeDiagnosticValue({
+      ...(sources[source] || {}),
+      ...(payload.source || partialResult.source || {}),
+      errors: [...new Set([...(sources[source]?.errors || []), ...(partialResult.errors || [])])],
+    })
+    domainOutcomes = mergeDomainSourceOutcomes(domainOutcomes, {
+      [source]: { [domain]: outcome },
+    })
+    for (const error of partialResult.errors || []) appendError(error, source)
+    await queueCommit(null)
+  }
   const syncSource = async (name, adapter) => {
     if (!service.isSyncGenerationCurrent(generation)) throw new SyncCancelledError()
     const attemptedAt = new Date().toISOString()
@@ -189,9 +236,16 @@ export async function runSync(service, {
         const adapterOptions = adapterOptionsBySource[name] || {}
         return adapter.sync({ ...adapterOptions, ...(domains === null ? {} : { domains }) })
       }
-      const rawResult = name === 'theol'
-        ? await service.runTheolExclusive(execute)
-        : await execute()
+      const previousDomainHandler = adapter.onDomainResult
+      adapter.onDomainResult = (payload) => publishDomainResult(name, payload)
+      let rawResult
+      try {
+        rawResult = name === 'theol'
+          ? await service.runTheolExclusive(execute)
+          : await execute()
+      } finally {
+        adapter.onDomainResult = previousDomainHandler
+      }
       results[name] = normalizeSyncPayload(rawResult)
       if (!service.isSyncGenerationCurrent(generation)) throw new SyncCancelledError()
       sources[name] = sanitizeDiagnosticValue(results[name].source)

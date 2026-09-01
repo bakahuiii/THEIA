@@ -45,6 +45,26 @@ import {
 const BASE = 'https://jwglxt.buct.edu.cn/jwglxt/'
 const HOME = new URL('xtgl/index_initMenu.html', BASE).toString()
 
+function domainResultPayload(domain, value, capturedAt) {
+  if (value === undefined) return {}
+  if (JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES.includes(domain)) {
+    return {
+      academicExtras: {
+        schema: 'theia-jwglxt-extras/v1',
+        capturedAt,
+        parserVersion: JWGLXT_EXTRA_PARSER_VERSION,
+        domains: { [domain]: value },
+      },
+    }
+  }
+  const field = domain === 'selected-courses'
+    ? 'selectedCourses'
+    : domain === 'academic-progress'
+      ? 'academicProgress'
+      : domain
+  return { [field]: value }
+}
+
 export const JWGLXT_SYNC_METHODS = {
   async sync(options = {}) {
     const requested = selectedDomains(options)
@@ -120,6 +140,39 @@ export const JWGLXT_SYNC_METHODS = {
     // term first. The Zhengfang selectors contain placeholder/future years;
     // sorting the raw list alone can push the real current term out of the cap.
     const relevantTerms = scheduleTerms(term, allTerms, homepage.profile)
+    const notifyDomainResult = async (domain, value, outcome, {
+      errors: resultErrors = [],
+      source = null,
+    } = {}) => {
+      if (typeof this.onDomainResult !== 'function') return
+      await this.onDomainResult({
+        domain,
+        result: {
+          ...domainResultPayload(domain, value, capturedAt),
+          capturedAt,
+          parserVersion: PARSER_VERSION,
+          errors: [...new Set(resultErrors.filter(Boolean))],
+          source: source || {
+            connected: true,
+            checkedAt: capturedAt,
+            errors: [...new Set(resultErrors.filter(Boolean))],
+          },
+        },
+        outcome,
+      })
+    }
+
+    if (wants('profile')) {
+      await notifyDomainResult('profile', homepage.profile, successfulDomain(homepage.profile, 'profile', capturedAt, {
+        completeness: homepage.profile ? 'complete' : 'complete',
+      }))
+    }
+    if (wants('terms')) {
+      await notifyDomainResult('terms', relevantTerms, successfulDomain(relevantTerms, 'terms', capturedAt, {
+        completeness: discoveredTerm ? 'complete' : 'partial',
+        errorCode: discoveredTerm ? null : 'term_inferred_locally',
+      }))
+    }
 
     const scheduleTask = needsSchedule ? (async () => {
       const allSchedule = []
@@ -197,8 +250,18 @@ export const JWGLXT_SYNC_METHODS = {
       }
       this.onProgress?.({ stage: 'schedule', status: 'done', label: `课表读取完成，共 ${allSchedule.length} 条` })
       finishScheduleIdentity()
+      const value = fetchLog.some((item) => !item.error && !item.unpositioned) ? allSchedule : undefined
+      await notifyDomainResult('schedule', value, value === undefined
+        ? failedDomain('schedule_read_failed', { failedTermIds: fetchLog.filter((item) => item.error || item.unpositioned).map((item) => item.termId) })
+        : successfulDomain(value, 'schedule', capturedAt, {
+            completeness: fetchLog.some((item) => item.error || item.unpositioned) ? 'partial' : 'complete',
+            errorCode: fetchLog.some((item) => item.error || item.unpositioned) ? 'partial_schedule_read' : null,
+          }), {
+        errors: taskErrors,
+        source: { connected: true, checkedAt: capturedAt, errors: taskErrors },
+      })
       return {
-        value: fetchLog.some((item) => !item.error && !item.unpositioned) ? allSchedule : undefined,
+        value,
         fetchLog,
         errors: taskErrors,
       }
@@ -255,7 +318,17 @@ export const JWGLXT_SYNC_METHODS = {
       } catch (error) {
         taskErrors.push(compactError(error))
       }
-      return { value: fetchLog.some((item) => !item.error) ? allExams : undefined, fetchLog, errors: taskErrors }
+      const value = fetchLog.some((item) => !item.error) ? allExams : undefined
+      await notifyDomainResult('exams', value, value === undefined
+        ? failedDomain('exams_read_failed')
+        : successfulDomain(value, 'exams', capturedAt, {
+            completeness: taskErrors.length ? 'partial' : 'complete',
+            errorCode: taskErrors.length ? 'partial_exams_read' : null,
+          }), {
+        errors: taskErrors,
+        source: { connected: true, checkedAt: capturedAt, errors: taskErrors },
+      })
+      return { value, fetchLog, errors: taskErrors }
     })() : Promise.resolve({ value: undefined, fetchLog: [], errors: [] })
 
     const gradesTask = needsGrades ? (async () => {
@@ -269,6 +342,18 @@ export const JWGLXT_SYNC_METHODS = {
       let queryUrl = null
       const alternateQueryUrl = new URL('cjcx/cjcx_cxDgXscj.html?doType=query&gnmkdm=N305005', BASE).toString()
       let gradePageTerms = []
+      const finish = async () => {
+        await notifyDomainResult('grades', value, value === undefined
+          ? failedDomain('grades_read_failed')
+          : successfulDomain(value, 'grades', capturedAt, {
+              completeness: fetchLog.some((item) => item.error) ? 'partial' : 'complete',
+              errorCode: fetchLog.some((item) => item.error) ? 'partial_grades_read' : null,
+            }), {
+          errors: taskErrors,
+          source: { connected: true, checkedAt: capturedAt, errors: taskErrors },
+        })
+        return { value, fetchLog, errors: taskErrors }
+      }
       try {
         gradesIndex = await this.client.page(gradesIndexUrl, { source: 'Grades' })
         gradesForm = parseJwQueryForm(gradesIndex.text, gradesIndex.url, '#searchForm')
@@ -294,7 +379,7 @@ export const JWGLXT_SYNC_METHODS = {
         // path; do not multiply six doomed requests against an expired jar.
         if (error instanceof AuthRequiredError || Number(error?.code) === 1006) {
           taskErrors.push(compactError(error))
-          return { value, fetchLog, errors: taskErrors }
+          return finish()
         }
         // Some deployments expose the personal grade grid only through the
         // DgXscj endpoint (the same endpoint used by zfn_api). Try its
@@ -313,14 +398,14 @@ export const JWGLXT_SYNC_METHODS = {
             assertValidQueryPayload(body, 'grades')
             value = parseJwGrades(body, { term, sourceUrl: gradesIndex.url, capturedAt })
             fetchLog.push({ termId: 'all', count: value.length })
-            return { value, fetchLog, errors: taskErrors }
+            return finish()
           } catch {
             // Concrete-term recovery below records the final actionable error.
           }
         }
         if (!gradesForm || !queryUrl) {
           taskErrors.push(compactError(error))
-          return { value, fetchLog, errors: taskErrors }
+          return finish()
         }
         const recovered = []
         const fallbackErrors = []
@@ -358,7 +443,7 @@ export const JWGLXT_SYNC_METHODS = {
         if (recovered.length || !fallbackErrors.length) value = recovered
         else taskErrors.push(compactError(error), compactError(fallbackErrors[0]))
       }
-      return { value, fetchLog, errors: taskErrors }
+      return finish()
     })() : Promise.resolve({ value: undefined, fetchLog: [], errors: [] })
 
     const academicProgressTask = needsAcademicProgress ? (async () => {
@@ -370,6 +455,23 @@ export const JWGLXT_SYNC_METHODS = {
       } catch (error) {
         taskErrors.push(compactError(error))
       }
+      await notifyDomainResult('academic-progress', value, value === null || value === undefined
+        ? failedDomain('academic_progress_read_failed')
+        : successfulDomain(value, 'academic-progress', capturedAt, {
+            completeness: Array.isArray(value.roots) && value.roots.length
+              && !String(value.requirementSource || '').endsWith('inferred-tree')
+              && !(this.academicProgressDiagnostics?.detailErrors > 0) ? 'complete' : 'partial',
+            errorCode: !Array.isArray(value.roots) || !value.roots.length
+              ? 'requirement_tree_missing'
+              : String(value.requirementSource || '').endsWith('inferred-tree')
+                ? 'requirement_tree_inferred'
+                : this.academicProgressDiagnostics?.detailErrors > 0
+                  ? 'partial_requirement_details'
+                  : null,
+          }), {
+        errors: taskErrors,
+        source: { connected: true, checkedAt: capturedAt, errors: taskErrors },
+      })
       return { value, errors: taskErrors }
     })() : Promise.resolve({ value: undefined, errors: [] })
 
@@ -397,6 +499,15 @@ export const JWGLXT_SYNC_METHODS = {
             ? { ...homepage, profile: { ...(homepage.profile || {}), ...planIdentity } }
             : homepage
           const fetched = await this.fetchExtraRoute({ domain, route, page, term, terms: relevantTerms, homepage: planHomepage, capturedAt, freeClassroomQuery: domain === 'free-classroom' ? options.freeClassroom : null })
+          const routeErrors = fetched.errors || []
+          const routePartial = routeErrors.length > 0 || fetched.stats?.failed > 0 || fetched.stats?.capped === true
+          await notifyDomainResult(domain, fetched.value, successfulDomain(fetched.value, domain, capturedAt, {
+            completeness: routePartial ? 'partial' : 'partial',
+            errorCode: routePartial ? 'partial_extra_query' : 'partial_extra_domain_read',
+          }), {
+            errors: routeErrors,
+            source: { connected: true, checkedAt: capturedAt, errors: routeErrors },
+          })
           return { domain, route, ...fetched }
         } catch (error) {
           return { domain, route, error: compactError(error) }
@@ -430,6 +541,15 @@ export const JWGLXT_SYNC_METHODS = {
         } else {
           outcomes[domain] = failedDomain('extra_domain_read_failed')
         }
+        await notifyDomainResult(domain, value, outcomes[domain], {
+          errors: [...new Set(routeResults
+            .filter((item) => item.domain === domain && item.error)
+            .map((item) => item.error)
+            .concat(routeResults
+              .filter((item) => item.domain === domain && !item.error)
+              .flatMap((item) => item.errors || [])))],
+          source: { connected: true, checkedAt: capturedAt, errors: taskErrors },
+        })
       }
       return { value: Object.keys(values).length ? { schema: 'theia-jwglxt-extras/v1', capturedAt, parserVersion: JWGLXT_EXTRA_PARSER_VERSION, domains: values } : undefined, outcomes, errors: [...new Set(taskErrors)] }
     })() : Promise.resolve({ value: undefined, outcomes: {}, errors: [] })
@@ -499,10 +619,31 @@ export const JWGLXT_SYNC_METHODS = {
     })() : Promise.resolve({ value: undefined, errors: [] })
 
     const [selectedCoursesResult, noticesResult] = await Promise.all([selectedCoursesTask, noticesTask])
-    const selectedCourses = selectedCoursesResult.value
-    const selectedCoursesFetchLog = selectedCoursesResult.fetchLog
-    const notices = noticesResult.value
-    errors.push(...selectedCoursesResult.errors, ...noticesResult.errors)
+      const selectedCourses = selectedCoursesResult.value
+      const selectedCoursesFetchLog = selectedCoursesResult.fetchLog
+      const notices = noticesResult.value
+      errors.push(...selectedCoursesResult.errors, ...noticesResult.errors)
+
+    if (wants('selected-courses')) {
+      await notifyDomainResult('selected-courses', selectedCourses, selectedCourses === undefined
+        ? failedDomain('selected_courses_read_failed')
+        : successfulDomain(selectedCourses, 'selected-courses', capturedAt, {
+            completeness: selectedCoursesFetchLog.some((item) => item.error) ? 'partial' : 'complete',
+            errorCode: selectedCoursesFetchLog.some((item) => item.error) ? 'partial_selected_courses_read' : null,
+          }), {
+        errors: selectedCoursesResult.errors,
+        source: { connected: true, checkedAt: capturedAt, errors: selectedCoursesResult.errors },
+      })
+    }
+    if (wants('notices')) {
+      await notifyDomainResult('notices', notices, successfulDomain(notices === undefined ? (homepage.notices || []) : notices, 'notices', capturedAt, {
+        completeness: notices === undefined ? 'partial' : 'complete',
+        errorCode: notices === undefined ? 'notices_query_failed_homepage_fallback' : null,
+      }), {
+        errors: noticesResult.errors,
+        source: { connected: true, checkedAt: capturedAt, errors: noticesResult.errors },
+      })
+    }
 
     // ── 课程列表（从各数据源归并）────────────────────────────────────
     // Deduplicate by the official course code. Internal Zhengfang IDs are
@@ -546,6 +687,22 @@ export const JWGLXT_SYNC_METHODS = {
         ? { ...(homepage.profile || {}), gpa: academicProgress.gpa }
         : homepage.profile
     const finalNotices = notices === undefined ? (homepage.notices || []) : notices
+
+    if (wants('courses')) {
+      await notifyDomainResult('courses', courses, successfulDomain(courses, 'courses', capturedAt, {
+        completeness: errors.length ? 'partial' : 'complete',
+        errorCode: errors.length ? 'partial_course_aggregation' : null,
+      }), {
+        errors,
+        source: { connected: true, checkedAt: capturedAt, errors },
+      })
+    }
+    if (wants('profile') && finalProfile?.gpa !== homepage.profile?.gpa) {
+      await notifyDomainResult('profile', finalProfile, successfulDomain(finalProfile, 'profile', capturedAt), {
+        errors: [],
+        source: { connected: true, checkedAt: capturedAt, errors: [] },
+      })
+    }
 
     const domainOutcomes = {}
     if (wants('profile')) domainOutcomes.profile = successfulDomain(finalProfile, 'profile', capturedAt, {

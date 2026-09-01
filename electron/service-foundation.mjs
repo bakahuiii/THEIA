@@ -157,6 +157,10 @@ export async function initializeServiceFoundation({
     pageLoader: smokeFile ? null : loadSchoolPage,
     formLoader: smokeFile ? null : submitSchoolForm,
     onDiagnostic: onClientDiagnostic,
+    // THEOL is sensitive to rapid sequential page loads. Background scans
+    // already serialize through the hidden browser; this adds a small guard
+    // for direct/mobile fallback requests sharing the same session.
+    minRequestIntervalMs: 800,
   })
   const academicSessionClient = new SessionClient(schoolSession, {
     pageLoader: smokeFile ? null : loadSchoolPage,

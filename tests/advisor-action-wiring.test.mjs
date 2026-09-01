@@ -67,7 +67,7 @@ test('advisor assignment navigation rechecks its snapshot after waits and before
   )
 
   assert.match(openCourseWork, /await getSyncService\(\)\.waitForAssignmentScan\(\)\s*assertAuthEpoch\(epoch\)\s*assertSnapshot\(\)/)
-  assert.match(openCourseWork, /let status = await verifiedStatus\(source\)\s*assertAuthEpoch\(epoch\)\s*assertSnapshot\(\)/)
+  assert.match(openCourseWork, /let status = typeof freshSourceStatus === 'function'[\s\S]*?\? await freshSourceStatus\(source\)[\s\S]*?: await verifiedStatus\(source\)\s*assertAuthEpoch\(epoch\)\s*assertSnapshot\(\)/)
   assert.match(openCourseWork, /await openLoginWindow\([\s\S]*?assertAuthEpoch\(epoch\)\s*assertSnapshot\(\)/)
   assert.match(openCourseWork, /await rememberVerifiedSession\([\s\S]*?assertAuthEpoch\(epoch\)\s*assertSnapshot\(\)/)
   assert.match(openCourseWork, /assertSnapshot\(\)\s*const window = await openTheolInteractiveWindow\(/)

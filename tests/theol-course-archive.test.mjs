@@ -88,6 +88,36 @@ test('THEOL archive saves course materials and current task details locally', as
   }
 })
 
+test('THEOL list-only assignment scans do not fetch task details or attachments', async () => {
+  const course = { id: '101', title: '列表模式', source: 'theol', sourceUrl: courseUrl }
+  const requested = []
+  const courseResults = []
+  const adapter = new TheolAdapter({
+    async page(url) {
+      requested.push(url)
+      if (url === courseUrl) {
+        return { url, text: '<input name="lid" value="101"><a href="/meol/common/hw/student/hwtask.jsp">课程作业</a>' }
+      }
+      return {
+        url: 'https://course.buct.edu.cn/meol/common/hw/student/hwtask.jsp?lid=101',
+        text: `<input name="lid" value="101"><table><tr><td><a href="${homeworkUrl}">第一次作业</a></td><td>2099-12-31 23:59</td><td>未提交</td></tr></table>`,
+      }
+    },
+    async binary() { throw new Error('list-only scan must not download attachments') },
+  }, { archiveStore: { savePage: async () => { throw new Error('list-only scan must not archive pages') } } })
+
+  const result = await adapter.syncAssignments([course], {
+    archive: false,
+    onCourseResult: (value) => { courseResults.push(value) },
+  })
+  assert.deepEqual(requested, [courseUrl, 'https://course.buct.edu.cn/meol/common/hw/student/hwtask.jsp?lid=101'])
+  assert.deepEqual(courseResults.map((item) => ({ courseId: item.courseId, complete: item.complete })), [
+    { courseId: '101', complete: true },
+  ])
+  assert.equal(result.source.captureMode, 'list-only')
+  assert.equal(result.assignments[0].localPath, undefined)
+})
+
 test('THEOL assignment parser accepts blended homework and test result pages', () => {
   const course = { id: '101', title: '归档测试', sourceUrl: courseUrl }
   const parsed = parseTheolAssignments(`

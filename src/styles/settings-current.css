@@ -60,6 +60,139 @@
   border-radius: 24%;
 }
 
+.about-brand-row {
+  display: grid;
+  grid-template-columns: minmax(250px, 4fr) minmax(0, 6fr);
+  align-items: stretch;
+  gap: 12px;
+  margin-top: 0;
+}
+
+.about-brand-row > * { min-width: 0; }
+
+.about-hero {
+  position: relative;
+  overflow: hidden;
+  min-height: 196px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 24px;
+  text-align: left;
+  background: color-mix(in srgb, var(--primary) 11%, var(--card));
+}
+
+.about-hero::after {
+  content: "";
+  position: absolute;
+  right: 24px;
+  bottom: 17px;
+  left: 24px;
+  height: 1px;
+  background: color-mix(in srgb, var(--primary) 32%, transparent);
+  opacity: .72;
+}
+
+.about-hero > div:last-child {
+  min-width: 0;
+  flex: 1 1 auto;
+  justify-items: start;
+}
+
+.about-mark {
+  width: 88px;
+  height: 88px;
+}
+
+.about-me {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  justify-items: stretch;
+  align-items: center;
+  gap: 18px;
+  margin-top: 0;
+  min-height: 196px;
+  padding: 20px 22px;
+  text-align: left;
+  background: var(--card);
+  border: 1px solid color-mix(in srgb, var(--primary) 16%, var(--border));
+  border-radius: 16px;
+}
+
+.about-me-avatar-shell {
+  width: 84px;
+  height: 84px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  background: var(--card);
+  border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--border));
+  border-radius: 25px;
+  box-shadow: 0 12px 24px -18px color-mix(in srgb, var(--foreground) 62%, transparent);
+}
+
+.about-me-avatar {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+.about-me-copy {
+  width: auto;
+  min-width: 0;
+  display: grid;
+  justify-items: stretch;
+  align-content: center;
+  gap: 13px;
+}
+
+.about-me-heading {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.about-me-heading h3 {
+  margin: 0;
+  color: var(--foreground);
+  font-family: "Cinzel", "Noto Serif SC", Georgia, serif;
+  font-size: 23px;
+  font-weight: 700;
+}
+
+.about-me-contacts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  gap: 7px 14px;
+}
+
+.about-me-contacts a,
+.about-me-contacts span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  min-height: 27px;
+  padding-top: 5px;
+  color: var(--muted-foreground);
+  border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  font-size: 13px;
+  line-height: 1.45;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.about-me-contacts a:hover { color: var(--primary); }
+.about-me-contacts svg { flex: 0 0 auto; color: var(--primary); }
+
+html[data-app-background="image"] .about-brand-row > .about-hero,
+html[data-app-background="image"] .about-brand-row > .about-me {
+  background: var(--card);
+  backdrop-filter: blur(var(--theia-background-glass-blur)) saturate(1.05);
+}
+
 .settings-modal-nav button > svg.settings-nav-icon {
   color: color-mix(in srgb, var(--sidebar-foreground) 68%, transparent);
   opacity: .84;
@@ -363,6 +496,13 @@
   .about-mark img { width: 100%; height: 100%; }
   .about-hero h2 { font-size: 22px; }
   .about-footer { align-items: flex-start; flex-direction: column; gap: 6px; }
+  .about-me { grid-template-columns: 60px minmax(0, 1fr); min-height: 154px; gap: 12px; padding: 14px; }
+  .about-me-avatar-shell { width: 60px; height: 60px; border-radius: 20px; }
+  .about-me-contacts { grid-template-columns: 1fr; gap: 5px; }
+}
+
+@media (max-width: 760px) {
+  .about-brand-row { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 640px) {

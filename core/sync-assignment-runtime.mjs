@@ -87,7 +87,10 @@ export async function retryAssignments() {
       const generation = this.assignmentGeneration
       const runId = randomUUID()
       this.onProgress({ stage: 'assignments', status: 'syncing', label: '正在单独获取作业与测试…', scope: 'domain' })
-      const pending = this.runTheolExclusive(() => this.runAssignmentScan(runId, generation, { scoped: true }))
+      const pending = this.runTheolExclusive(() => this.runAssignmentScan(runId, generation, {
+        scoped: true,
+        archive: true,
+      }))
       this.assignmentActive = pending
       const snapshot = await pending
       if (!snapshot) throw new SyncCancelledError('Assignment retry was cancelled')
@@ -240,7 +243,7 @@ export function flushAssignmentScan() {
         label: '正在后台获取作业与测试…',
         scope: 'domain',
       })
-      const pending = this.runTheolExclusive(() => this.runAssignmentScan(runId, generation))
+      const pending = this.runTheolExclusive(() => this.runAssignmentScan(runId, generation, { archive: false }))
       this.assignmentActive = pending
       pending.then((snapshot) => {
         if (!snapshot) return
@@ -270,7 +273,7 @@ export function flushAssignmentScan() {
     }, 0)
   }
 
-export async function runAssignmentScan(runId, generation, { scoped = false } = {}) {
+export async function runAssignmentScan(runId, generation, { scoped = false, archive = false } = {}) {
     const controller = new AbortController()
     this.assignmentAbortController = controller
     const shouldContinue = () => generation === this.assignmentGeneration && !this.hasActiveSync() && !controller.signal.aborted
@@ -280,10 +283,83 @@ export async function runAssignmentScan(runId, generation, { scoped = false } = 
     }
     const attemptedAt = new Date().toISOString()
     const courses = this.store.snapshot().courses.filter((item) => item?.source === 'theol')
+    const partialSuccessfulCourseIds = new Set()
+    const partialFailedCourseIds = new Set()
+    const commitCourseResult = async ({ courseId, assignments = [], complete = false, error = null } = {}) => {
+      if (!shouldContinue()) return
+      const completedAt = new Date().toISOString()
+      const normalizedCourseId = String(courseId || '').trim()
+      if (!normalizedCourseId) return
+      if (complete) {
+        partialSuccessfulCourseIds.add(normalizedCourseId)
+        partialFailedCourseIds.delete(normalizedCourseId)
+      } else {
+        partialFailedCourseIds.add(normalizedCourseId)
+        partialSuccessfulCourseIds.delete(normalizedCourseId)
+      }
+      let committed = false
+      const partialOutcome = sourceDomainOutcome({
+        source: 'theol',
+        runId,
+        attempted: true,
+        succeeded: !error,
+        status: error ? 'failed' : 'succeeded',
+        attemptedAt,
+        completedAt,
+        capturedAt: completedAt,
+        completeness: 'partial',
+        retainedPrevious: !complete && domainHasData(this.store.snapshot(), 'assignments'),
+        previousRecordCount: this.store.snapshot().assignments.length,
+        receivedRecordCount: Array.isArray(assignments) ? assignments.length : 0,
+        errorCode: error ? 'partial_assignment_scan' : complete ? null : 'partial_assignment_scan',
+        parserVersion: 'theol-adapter/5',
+      })
+      const state = await this.trackSyncWrite(this.store.update((current) => {
+        if (generation !== this.assignmentGeneration || (!scoped && current.sync.runId !== runId)) return current
+        committed = true
+        const currentAssignments = retainableAssignments(current.assignments)
+        const freshAssignments = Array.isArray(assignments) ? assignments : []
+        const mergedAssignments = error
+          ? currentAssignments
+          : mergeAssignmentScan(currentAssignments, freshAssignments, partialOutcome, complete ? [normalizedCourseId] : [])
+        const domains = aggregateDomainProvenance(current.sync.domains, {
+          theol: { assignments: partialOutcome },
+        }, { runId })
+        return {
+          ...current,
+          assignments: mergedAssignments,
+          sync: {
+            ...current.sync,
+            domains,
+            sources: {
+              ...current.sync.sources,
+              theol: {
+                ...(current.sync.sources?.theol || {}),
+                assignmentScan: sanitizeDiagnosticValue({
+                  checkedAt: completedAt,
+                  connected: !error,
+                  completeness: 'partial',
+                  successfulCourseCount: partialSuccessfulCourseIds.size,
+                  failedCourseCount: partialFailedCourseIds.size,
+                  captureMode: archive ? 'archived' : 'list-only',
+                  error: error || null,
+                }),
+              },
+            },
+          },
+        }
+      }))
+      if (committed && generation === this.assignmentGeneration && !controller.signal.aborted) this.onChange(state)
+    }
     let result
     let error = null
     try {
-      result = await this.theol.syncAssignments(courses, { shouldContinue, signal: controller.signal })
+      result = await this.theol.syncAssignments(courses, {
+        shouldContinue,
+        signal: controller.signal,
+        archive,
+        onCourseResult: commitCourseResult,
+      })
       if (result?.aborted || !shouldContinue()) return
     } catch (caught) {
       if (!shouldContinue()) return
@@ -339,6 +415,8 @@ export async function runAssignmentScan(runId, generation, { scoped = false } = 
         successfulCourseCount: Array.isArray(result?.successfulCourseIds) ? result.successfulCourseIds.length : null,
         failedCourseCount: Array.isArray(result?.failedCourseIds) ? result.failedCourseIds.length : null,
         mobileFallback: result?.source?.mobileFallback || null,
+        captureMode: result?.source?.captureMode || (archive ? 'archived' : 'list-only'),
+        rateLimited: result?.source?.rateLimited === true,
         error: error ? compactError(error) : result.errors?.length ? result.errors.join('; ') : null,
       })
       return {

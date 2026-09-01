@@ -96,7 +96,7 @@ const feed = await fetchTheiaFeed({ timeoutMs: 5_000 })
 
 #### 直接同步
 
-`POST /v1/sync` 是课程资料、作业和测试的确定性同步入口。它只能接收明确的 `domains` 数组，当前 THEOL 相关域包括 `theol-courses`、`theol-course-details`、`theol-notices` 和 `assignments`；作业域会调用现有串行 THEOL 扫描并保留截止时间过滤。该入口直接进入 THEIA 主进程的同步编排器，不创建顾问线程、不调用模型接口，也不控制浏览器或桌面窗口。
+`POST /v1/sync` 是课程资料、作业和测试的确定性同步入口。它只能接收明确的 `domains` 数组，当前 THEOL 相关域包括 `theol-courses`、`theol-course-details`、`theol-notices` 和 `assignments`；作业域会按课程串行扫描列表、抓到一门先提交一门，并保留截止时间过滤。该入口不会自动归档每项任务的详情和附件；本地工作包由用户在具体任务上明确触发。该入口直接进入 THEIA 主进程的同步编排器，不创建顾问线程、不调用模型接口，也不控制浏览器或桌面窗口。
 
 ```json
 {
