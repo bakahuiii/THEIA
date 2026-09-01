@@ -1,7 +1,7 @@
 {
   "name": "theia-campus-client",
   "private": true,
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "THEIA, a local-first desktop workspace for Beijing University of Chemical Technology campus services.",
   "author": "bakahuiii",
   "license": "MIT",

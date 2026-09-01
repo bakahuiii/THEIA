@@ -1,8 +1,8 @@
 # THEIA
 
-> THEIA v0.7.1：北京化工大学校园工作台使用说明
+> THEIA v0.7.2：北京化工大学校园工作台使用说明
 
-[下载 Windows x64 v0.7.1](https://github.com/bakahuiii/THEIA/releases/tag/v0.7.1) · [Android 客户端](https://github.com/bakahuiii/THEIA-Android) · [用户指南](docs/guides/USER_GUIDE.md) · [发行说明](docs/releases/v0.7.1.md)
+[下载 Windows x64 v0.7.2](https://github.com/bakahuiii/THEIA/releases/tag/v0.7.2) · [Android 客户端](https://github.com/bakahuiii/THEIA-Android) · [用户指南](docs/guides/USER_GUIDE.md) · [发行说明](docs/releases/v0.7.2.md)
 
 THEIA 是面向北京化工大学学生的本地优先 Windows 校园工作台。它把教务系统、北化在线 THEOL、校园邮箱和本地学习工具放到同一个桌面应用中，负责读取、整理、计算、提醒和准备操作；学校系统中的最终提交、选课决定和成绩认定仍由用户确认。
 
@@ -16,7 +16,7 @@ THEIA 是面向北京化工大学学生的本地优先 Windows 校园工作台�
 - [API 与 IPC 参考](docs/reference/api-and-ipc.md)：桌面桥接和本地 API 契约。
 - [本地 MCP 接入](integration/README.md)：Codex / Claude Code 的只读接入说明。
 - [Iris 使用指南](docs/guides/IRIS_GUIDE.md)：QQ 伴侣的配置和使用方式。
-- [v0.7.1 发行说明](docs/releases/v0.7.1.md)：版本变更、发布文件和校验值。
+- [v0.7.2 发行说明](docs/releases/v0.7.2.md)：版本变更、发布文件和校验值。
 - [安全策略](SECURITY.md)：安全问题的报告方式。
 
 ## 前言
@@ -321,15 +321,15 @@ theia classroom/教室/空闲/c <节次>    查看指定节次的空闲教室图
 
 ### 更新流程
 
-1. THEIA 通过 `electron-updater` 检查 GitHub Release。
+1. THEIA 通过 `electron-updater` 检查腾讯云 COS 的公开更新目录。
 2. 打包版启动时会自动检查，在“关于”页面也可以手动检查。
 3. 更新下载完成后，退出应用时会自动安装。
 
-能否更新取决于当前网络以及 GitHub Release 是否提供完整的更新元数据。
+能否更新取决于当前网络以及 COS 是否提供完整的更新元数据；GitHub 继续作为源码和发行存档镜像。
 
-因此，在可以访问 GitHub Release 的网络环境下，THEIA 会显示检查、下载和安装状态。
+因此，校园网无法稳定直连 GitHub 时，THEIA 仍可从 COS 检查、下载和安装更新。
 
-当前 v0.7.1 的安装包、源码归档和 SHA-256 校验值见[发行说明](docs/releases/v0.7.1.md)。安装包未配置可公开验证的 Authenticode 证书，Windows 可能显示未知发布者或 SmartScreen 提示。
+当前 v0.7.2 的安装包、源码归档和 SHA-256 校验值见[发行说明](docs/releases/v0.7.2.md)。安装包未配置可公开验证的 Authenticode 证书，Windows 可能显示未知发布者或 SmartScreen 提示。
 
 ---
 

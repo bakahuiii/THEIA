@@ -15,8 +15,8 @@ function formatUpdateTime(value: string | null) {
 }
 
 function describeUpdate(status: GithubUpdateStatus) {
-  if (!status.supported) return "仅正式 Windows 安装包支持 GitHub 自动更新。";
-  if (status.state === "checking") return "正在检查 GitHub Release。";
+  if (!status.supported) return "仅正式 Windows 安装包支持 COS 自动更新。";
+  if (status.state === "checking") return "正在检查 COS 更新服务。";
   if (status.state === "available") {
     return "发现新版本 " + (status.availableVersion || "未知版本") + "，准备下载。";
   }
@@ -149,7 +149,7 @@ export function AboutSettings({
           <UpdateIcon size={17} className={updateInProgress ? "spinning" : undefined} />
         </div>
         <div className="about-update-copy">
-          <strong>GitHub 自动更新</strong>
+          <strong>COS 自动更新</strong>
           <small>{describeUpdate(updateStatus)}</small>
           <span>当前版本：THEIA {updateStatus.currentVersion || state.appVersion || "开发版本"}</span>
           <span>上次检查：{formatUpdateTime(updateStatus.lastCheckedAt)}</span>

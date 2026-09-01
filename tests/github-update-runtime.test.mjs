@@ -1,7 +1,17 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import test from 'node:test'
-import { createGithubUpdateRuntime } from '../electron/github-update-runtime.mjs'
+import { configureCosUpdateProvider, createGithubUpdateRuntime, THEIA_COS_UPDATE_URL } from '../electron/github-update-runtime.mjs'
+
+test('COS update provider uses the public stable directory', () => {
+  let feed = null
+  const configured = configureCosUpdateProvider({
+    setFeedURL: (value) => { feed = value },
+  })
+
+  assert.equal(configured, true)
+  assert.deepEqual(feed, { provider: 'generic', url: THEIA_COS_UPDATE_URL })
+})
 
 function createFakeUpdater() {
   const updater = new EventEmitter()

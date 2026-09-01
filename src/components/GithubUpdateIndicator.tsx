@@ -27,7 +27,7 @@ function formatSpeed(value: number) {
 function statusCopy(status: GithubUpdateStatus) {
   switch (status.state) {
     case "checking":
-      return { title: "正在检查更新", detail: "正在连接 GitHub Release" };
+      return { title: "正在检查更新", detail: "正在连接 COS 更新服务" };
     case "available":
       return {
         title: "发现新版本",

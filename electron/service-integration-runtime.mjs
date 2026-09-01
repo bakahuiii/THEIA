@@ -2,7 +2,7 @@ import { IrisCompanion } from './iris-companion.mjs'
 import { startCourseWorkQueue } from './course-work-queue-runtime.mjs'
 import { createLocalApiHandlers } from './local-api-handlers.mjs'
 import { registerRuntimeIpc } from './runtime-ipc.mjs'
-import { createGithubUpdateRuntime } from './github-update-runtime.mjs'
+import { configureCosUpdateProvider, createGithubUpdateRuntime } from './github-update-runtime.mjs'
 import updater from 'electron-updater'
 import { THEOL_ATTACHMENT_MAX_BYTES } from '../core/theol-attachment-store.mjs'
 import { startLocalApi } from '../core/local-api.mjs'
@@ -189,10 +189,12 @@ export async function initializeServiceIntegration({
   setIrisCompanion(irisCompanion)
   void irisCompanion.start().catch((error) => writeDiagnostic('iris.start_failed', { error: diagnosticError(error) }))
 
+  const updateEnabled = app.isPackaged && process.env.THEIA_DISABLE_AUTO_UPDATE !== '1'
+  if (updateEnabled) configureCosUpdateProvider(autoUpdater)
   const updateRuntime = createGithubUpdateRuntime({
     autoUpdater,
     currentVersion: getVersion(),
-    enabled: app.isPackaged && process.env.THEIA_DISABLE_AUTO_UPDATE !== '1',
+    enabled: updateEnabled,
     platform: process.platform,
     sendStatus: (status) => {
       const window = getMainWindow()
@@ -200,7 +202,7 @@ export async function initializeServiceIntegration({
       window.webContents.send('theia:update-status', status)
     },
   })
-  if (app.isPackaged && !smokeFile && process.env.THEIA_DISABLE_AUTO_UPDATE !== '1') {
+  if (updateEnabled && !smokeFile) {
     void updateRuntime.checkForUpdates().catch((error) => writeDiagnostic('update.check_failed', { error: diagnosticError(error) }))
   }
 

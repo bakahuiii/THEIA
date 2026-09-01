@@ -9,6 +9,17 @@ const UPDATE_STATES = Object.freeze({
   error: 'error',
 })
 
+export const THEIA_COS_UPDATE_URL = 'https://theia-1314083262.cos.ap-beijing.myqcloud.com/stable/'
+
+export function configureCosUpdateProvider(autoUpdater) {
+  if (!autoUpdater || typeof autoUpdater.setFeedURL !== 'function') return false
+  autoUpdater.setFeedURL({
+    provider: 'generic',
+    url: THEIA_COS_UPDATE_URL,
+  })
+  return true
+}
+
 function cloneStatus(status) {
   return structuredClone(status)
 }
