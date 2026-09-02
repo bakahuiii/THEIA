@@ -21,7 +21,7 @@ THEIA 是面向北京化工大学学生的本地优先 Windows 校园工作台�
 | 读取 AI 离线导出包 | [AI 导出契约](reference/ai-export-contract.md) |
 | 理解顾问 Agent 的当前实现 | [顾问 Agent 工程说明](ai/20-a-b-c-advisor-agent-sidecar.md) |
 | 测试、打包和发布 | [运行、测试与发布](development/operations-and-testing.md) |
-| 阅读当前桌面候选版本更新 | [v0.7.4 更新说明](releases/v0.7.4.md) |
+| 阅读当前桌面候选版本更新 | [v0.7.5 更新说明](releases/v0.7.5.md) |
 | 推进 Android 手机版增量对齐 | [手机版增量技术交接](development/mobile-increment-v0.7.0.md) |
 | 查阅旧评审和实测记录 | [文档归档](archive/README.md) |
 

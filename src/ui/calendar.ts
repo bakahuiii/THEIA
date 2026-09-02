@@ -9,7 +9,7 @@ const SHANGHAI_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
   day: "2-digit",
 });
 
-function localDay(now = new Date()) {
+export function currentShanghaiDate(now = new Date()) {
   const parts = Object.fromEntries(
     SHANGHAI_DATE_FORMATTER.formatToParts(now)
       .filter(({ type }) => type !== "literal")
@@ -19,18 +19,18 @@ function localDay(now = new Date()) {
 }
 
 export function currentShanghaiWeekday(now = new Date()) {
-  const weekday = new Date(`${localDay(now)}T00:00:00Z`).getUTCDay();
+  const weekday = new Date(`${currentShanghaiDate(now)}T00:00:00Z`).getUTCDay();
   return weekday || 7;
 }
 
 export function currentAcademicVacation(calendar?: AcademicCalendar | null, now = new Date()) {
-  const day = localDay(now);
+  const day = currentShanghaiDate(now);
   return calendar?.vacations.find((vacation) => vacation.startDate <= day && day <= vacation.endDate) || null;
 }
 
 export function currentAcademicWeek(calendar?: AcademicCalendar | null, now = new Date()) {
   if (!calendar?.schoolYear) return null;
-  const day = localDay(now);
+  const day = currentShanghaiDate(now);
   const index = calendar.semesters.findIndex((semester) => semester.startDate <= day && day <= semester.endDate);
   if (index < 0) return null;
   const semester = calendar.semesters[index];

@@ -4,6 +4,7 @@ import { readFile, stat, writeFile } from 'node:fs/promises'
 import { execFile, spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
+import { publishCosArtifacts } from './publish-cos.mjs'
 
 export const PROJECT_ROOT = resolve(import.meta.dirname, '..')
 export const RELEASE_DIRECTORY = resolve(PROJECT_ROOT, 'release-bin')
@@ -176,6 +177,7 @@ export async function release({ projectRoot = PROJECT_ROOT } = {}) {
 
   const source = await inspectArtifact(resolve(releaseDirectory, `THEIA-${version}-source.zip`), '带 SOURCE-MANIFEST.json 的源码归档')
   const artifacts = [installer, blockmap, metadata, source]
+  await publishCosArtifacts({ projectRoot, version })
   const tag = `v${version}`
   const releaseUrl = `https://github.com/${repository.owner}/${repository.repo}/releases/tag/${tag}`
   await updateReleaseDocument({ projectRoot, version, artifacts, published: true, releaseUrl })

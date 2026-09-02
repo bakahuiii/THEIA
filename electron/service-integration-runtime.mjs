@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import { startCourseWorkQueue } from './course-work-queue-runtime.mjs'
 import { createLocalApiHandlers } from './local-api-handlers.mjs'
 import { registerRuntimeIpc } from './runtime-ipc.mjs'
-import { configureCosUpdateProvider, createGithubUpdateRuntime } from './github-update-runtime.mjs'
+import { configureCosUpdateProvider, configureGithubUpdateProvider, createGithubUpdateRuntime } from './github-update-runtime.mjs'
 import updater from 'electron-updater'
 import { THEOL_ATTACHMENT_MAX_BYTES } from '../core/theol-attachment-store.mjs'
 import { startLocalApi } from '../core/local-api.mjs'
@@ -211,6 +211,7 @@ export async function initializeServiceIntegration({
     enabled: updateEnabled,
     platform: process.platform,
     getSkippedVersion: () => skippedUpdateVersion,
+    fallbackUpdateProvider: updateEnabled ? () => configureGithubUpdateProvider(autoUpdater) : null,
     setSkippedVersion: async (version) => {
       skippedUpdateVersion = String(version || '').trim() || null
       await writeFile(

@@ -175,6 +175,12 @@ const validators = {
       && value.schema === 'theia-academic-plan-document-response/v1'
       && (value.item === null || object(value.item))
   },
+  academicCalendar(value) {
+    return object(value)
+      && value.schema === 'theia-academic-calendar-assets/v1'
+      && (value.calendar === null || object(value.calendar))
+      && (value.calendarError === null || typeof value.calendarError === 'string')
+  },
   venueCatalog(value) {
     return object(value)
       && value.schema === CATALOG_SCHEMA
@@ -200,6 +206,53 @@ const validators = {
 function timeoutValue(value) {
   const timeout = Number(value)
   return Number.isFinite(timeout) && timeout > 0 ? timeout : 5_000
+}
+
+function chinaDateParts(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  const dateParts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(date).filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]))
+  const weekdayLabel = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Shanghai', weekday: 'short',
+  }).format(date)
+  const weekday = { Sun: 7, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[weekdayLabel] || null
+  return { date: `${dateParts.year}-${dateParts.month}-${dateParts.day}`, weekday }
+}
+
+function academicWeekFromCalendar(calendar, value = new Date()) {
+  const current = chinaDateParts(value)
+  const semesters = Array.isArray(calendar?.semesters) ? calendar.semesters : []
+  if (!current || !semesters.length) return null
+  const semesterIndex = semesters.findIndex((item) => (
+    /^20\d{2}-\d{2}-\d{2}$/u.test(String(item?.startDate || ''))
+    && /^20\d{2}-\d{2}-\d{2}$/u.test(String(item?.endDate || ''))
+    && item.startDate <= current.date
+    && current.date <= item.endDate
+  ))
+  if (semesterIndex < 0) return null
+  const semester = semesters[semesterIndex]
+  const start = Date.parse(`${semester.startDate}T00:00:00Z`)
+  const today = Date.parse(`${current.date}T00:00:00Z`)
+  if (!Number.isFinite(start) || !Number.isFinite(today) || today < start) return null
+  const calculatedWeek = Math.floor((today - start) / 604_800_000) + 1
+  const declaredWeeks = Number(semester.weeks)
+  const week = Number.isInteger(declaredWeeks) && declaredWeeks > 0
+    ? Math.min(declaredWeeks, calculatedWeek)
+    : calculatedWeek
+  const schoolYear = String(calendar.schoolYear || '')
+  const year = Number.parseInt(schoolYear.slice(0, 4), 10)
+  const termCode = ['3', '12', '16'][semesterIndex] || ''
+  return {
+    date: current.date,
+    weekday: current.weekday,
+    week,
+    of: Number.isInteger(declaredWeeks) && declaredWeeks > 0 ? declaredWeeks : null,
+    termId: Number.isFinite(year) && termCode ? `${year}-${termCode}` : null,
+    semesterIndex: semesterIndex + 1,
+    semesterLabel: String(semester.label || '').trim() || null,
+  }
 }
 
 export function createTheiaClient({
@@ -371,30 +424,26 @@ export function createTheiaClient({
 
   /**
    * Fetch a rendered PNG free-classroom image for one period (节次).
-   * `periods` is required ("1", "3", "4"), weekdays defaults to today so
-   * the query returns classrooms that are free *today* at that period.
+   * `periods` is required ("1", "3", "4"). Missing weekday/week values are
+   * resolved from the China date and the official THEIA academic calendar.
    */
-  async function classroomTableImage({ periods = '', weekdays = '', weeks = '', termId = '' } = {}) {
+  async function classroomTableImage({ campus = '', periods = '', weekdays = '', weeks = '', termId = '', now = new Date() } = {}) {
     const params = new URLSearchParams()
     const periodsText = String(periods || '').trim().slice(0, 60)
     if (!periodsText) throw clientError('THEIA_CLASSROOM_PERIOD_REQUIRED', '请指定节次。')
     params.set('periods', periodsText)
-    // Default to today's weekday (Asia/Shanghai) + week 1 so the query is useful
-    // without extra args.
-    if (!weekdays) {
-      const parts = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'Asia/Shanghai', weekday: 'short',
-      }).formatToParts(new Date())
-      const weekdayLabel = parts.find((part) => part.type === 'weekday')?.value || ''
-      const weekdayMap = { Sun: 7, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
-      params.set('weekdays', String(weekdayMap[weekdayLabel] || 1))
-    } else {
-      params.set('weekdays', String(weekdays).trim().slice(0, 60))
+    const current = !weeks ? await currentClassroomScope(now) : null
+    const resolvedWeekdays = String(weekdays || '').trim() || String(current?.weekday || '')
+    const resolvedWeeks = String(weeks || '').trim() || String(current?.week || '')
+    if (!resolvedWeekdays || !resolvedWeeks) {
+      throw clientError('THEIA_CLASSROOM_SCOPE_UNAVAILABLE', '无法根据中国时区当前日期和 THEIA 校历确定教学周与星期。请先更新校历后重试。')
     }
-    if (!weeks) params.set('weeks', '1')
-    else params.set('weeks', String(weeks).trim().slice(0, 60))
+    params.set('weekdays', resolvedWeekdays.slice(0, 60))
+    params.set('weeks', resolvedWeeks.slice(0, 60))
     const termIdText = String(termId || '').trim().slice(0, 64)
-    if (termIdText) params.set('termId', termIdText)
+    if (termIdText || current?.termId) params.set('termId', termIdText || current.termId)
+    const campusText = String(campus || '').trim().slice(0, 80)
+    if (campusText) params.set('campus', campusText)
     params.set('title', `第${periodsText}节 · 空闲教室`)
     const buffer = await request(`/v1/free-classroom-image?${params.toString()}`, () => true, {
       timeoutMs: Math.max(requestTimeout, 90_000),
@@ -402,6 +451,16 @@ export function createTheiaClient({
       notFoundAsNull: true,
     })
     return buffer?.length ? buffer : null
+  }
+
+  function academicCalendar() {
+    return request('/v1/academic-calendar', validators.academicCalendar)
+  }
+
+  async function currentClassroomScope(value = new Date()) {
+    const response = await academicCalendar()
+    const current = academicWeekFromCalendar(response.calendar, value)
+    return current ? { ...current, weekdays: current.weekday } : null
   }
 
   function chinaDate() {
@@ -474,6 +533,8 @@ export function createTheiaClient({
     academicProgress: () => request('/v1/academic-progress', validators.academicProgress),
     academicAnalysis: () => request('/v1/academic-analysis', validators.academicAnalysis),
     academicPlanDocument: () => request('/v1/academic-plan-document', validators.academicPlanDocument),
+    academicCalendar,
+    currentClassroomScope,
     venueCatalog,
     venueStatuses,
     motionTableImage,

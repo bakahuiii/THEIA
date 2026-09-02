@@ -43,6 +43,10 @@
 .free-classroom-choice-list input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .free-classroom-choice-list svg { color: var(--primary); }
 .period-list label { min-width: 31px; justify-content: center; }
+.free-classroom-period-input { display: grid; gap: 5px; width: min(100%, 220px); }
+.free-classroom-period-input > span { color: var(--muted-foreground); font-size: 9px; font-weight: 650; }
+.free-classroom-period-input input { width: 100%; min-height: 32px; padding: 0 8px; color: var(--foreground); background: var(--secondary); border: 1px solid var(--border); border-radius: 5px; font-size: 10px; }
+.free-classroom-period-input input:focus { border-color: var(--primary); outline: 0; box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 15%, transparent); }
 .free-classroom-query-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .free-classroom-query-actions small { color: var(--muted-foreground); font-size: 9px; line-height: 1.45; }
 .free-classroom-query-actions .primary-button:disabled { opacity: .5; cursor: not-allowed; }
@@ -148,4 +152,3 @@
 .academic-calendar-pdf-reader { width: 100%; min-height: 0; flex: 1 1 auto; display: block; overscroll-behavior: contain; background: #fff; border: 1px solid color-mix(in srgb, var(--border) 82%, transparent); border-radius: 13px; }
 .academic-calendar-image-reader { min-width: 0; min-height: 0; flex: 1 1 auto; display: grid; place-items: center; overflow: auto; overscroll-behavior: contain; background: color-mix(in srgb, var(--secondary) 72%, transparent); border: 1px solid color-mix(in srgb, var(--border) 82%, transparent); border-radius: 13px; }
 .academic-calendar-image-reader img { display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; }
-

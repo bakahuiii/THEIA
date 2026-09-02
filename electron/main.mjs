@@ -48,6 +48,7 @@ import { initializeDomainServices } from './service-domain-runtime.mjs'
 import { initializeServiceIntegration } from './service-integration-runtime.mjs'
 import { createAuthStatusRuntime } from './auth-status-runtime.mjs'
 import { startLocalApi } from '../core/local-api.mjs'
+import { createLocalApiHandlers } from './local-api-handlers.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const PARTITION = 'persist:theia'
@@ -949,6 +950,17 @@ async function restartLocalApi(preferredPort) {
       syncCampusData: (request) => syncOrchestrator?.syncAdvisorCampusData(request),
       publishRuntime: false,
       renderTableImage: renderHtmlToPng,
+      ...createLocalApiHandlers({
+        store,
+        syncService,
+        motionVenueAdapter,
+        getAuthEpoch: () => authEpoch,
+        waitForSchoolProxy: () => schoolProxyReady.catch(() => undefined),
+        assertAuthEpoch,
+        sendSnapshot,
+        writeDiagnostic,
+        diagnosticError,
+      }),
     })
   let next
   try {

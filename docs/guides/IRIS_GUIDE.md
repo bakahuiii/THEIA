@@ -19,7 +19,7 @@ Iris 是 THEIA 内置的本机 QQ companion。它把 THEIA 的只读校园数据
 - `theia today/今天/今日/now`：查看今天的课程、考试和作业截止事项。
 - `theia agent/顾问/问问/a <问题>`：直接续接 THEIA 当前页面的 Agent 对话。
 - `theia motion/运动/场馆/m <项目>`：查询今天指定运动项目的场馆状态表，例如 `theia motion 羽毛球`。场馆状态每次查询都会实时刷新。
-- `theia classroom/教室/空闲/c <节次>`：查看指定节次的空闲教室图片，例如 `theia classroom 3-5`（第 3 到第 5 节都空闲的教室）。支持单节次 `1` 或范围 `3-5`；教室数据有缓存时直接使用，不重复查询。
+- `theia classroom/教室/空闲/room <节次>`：按当前周次、星期和指定节次实时查询空闲教室图片，例如 `theia classroom 3-5` 或 `theia classroom 10`。带节次的请求不会使用未筛选的 180 条缓存总表。
 
 Codex、Claude、Hermes、HYPERION 和 SELENE 默认不出现在帮助菜单中，但接口保持可用。需要让它们出现在 QQ 帮助里时，在“帮助菜单显示”页勾选对应 provider；只有想暂时停用某个接口时，才在“集成”页关闭它。
 

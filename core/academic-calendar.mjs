@@ -1,4 +1,5 @@
 const SEMESTER_CODES = ['3', '12', '16']
+const ACADEMIC_CALENDAR_TIME_ZONE = 'Asia/Shanghai'
 
 function dateOnly(value) {
   const text = String(value || '').trim()
@@ -69,12 +70,18 @@ export function academicCalendarWeek(calendar, value = new Date()) {
   const normalized = normalizeAcademicCalendar(calendar)
   const date = value instanceof Date ? value : new Date(value)
   if (Number.isNaN(date.getTime())) return null
-  const localDate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
-  const day = `${localDate.getFullYear()}-${String(localDate.getMonth() + 1).padStart(2, '0')}-${String(localDate.getDate()).padStart(2, '0')}`
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: ACADEMIC_CALENDAR_TIME_ZONE,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(date).filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]))
+  const day = `${parts.year}-${parts.month}-${parts.day}`
+  // Calculate elapsed days from stable UTC dates after extracting the China
+  // date. This keeps the result correct around local midnight on every host.
+  const localDate = new Date(`${day}T00:00:00Z`)
   const semesterIndex = normalized.semesters.findIndex((item) => item.startDate <= day && day <= item.endDate)
   if (semesterIndex < 0) return null
   const semester = normalized.semesters[semesterIndex]
-  const start = new Date(`${semester.startDate}T00:00:00`).getTime()
+  const start = new Date(`${semester.startDate}T00:00:00Z`).getTime()
   const week = Math.min(semester.weeks, Math.max(1, Math.floor((localDate.getTime() - start) / 604_800_000) + 1))
   const year = Number.parseInt(String(normalized.schoolYear || '').slice(0, 4), 10)
   return {
@@ -91,6 +98,11 @@ export function academicCalendarWeek(calendar, value = new Date()) {
 export function nextAcademicCalendarBoundary(calendar, value = new Date()) {
   const normalized = normalizeAcademicCalendar(calendar)
   const now = value instanceof Date ? value : new Date(value)
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  if (Number.isNaN(now.getTime())) return null
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: ACADEMIC_CALENDAR_TIME_ZONE,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(now).filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]))
+  const today = `${parts.year}-${parts.month}-${parts.day}`
   return normalized.semesters.find((item) => item.startDate > today)?.startDate || null
 }

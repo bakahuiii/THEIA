@@ -13,6 +13,7 @@ export function registerSyncIpc({
   waitForSchoolProxy = async () => {},
   getAuthEpoch = () => 0,
   assertAuthEpoch,
+  writeDiagnostic = () => {},
 } = {}) {
   ipcMain.handle('theia:sync-now', async () => {
     await waitForSchoolProxy()
@@ -51,6 +52,16 @@ export function registerSyncIpc({
   })
 
   ipcMain.handle('theia:query-free-classrooms', async (_event, query) => {
+    void writeDiagnostic('free_classroom.query_started', {
+      source: 'renderer-ipc',
+      termId: query?.termId || null,
+      weeks: Array.isArray(query?.weeks) ? query.weeks : [],
+      weekdays: Array.isArray(query?.weekdays) ? query.weekdays : [],
+      periods: Array.isArray(query?.periods) ? query.periods : [],
+      campus: query?.campus || null,
+      building: query?.building || null,
+      classroomType: query?.classroomType || null,
+    })
     const epoch = getAuthEpoch()
     assertAuthEpoch(epoch)
     await waitForSchoolProxy()
@@ -64,6 +75,16 @@ export function registerSyncIpc({
       foreground: true,
     })
     assertAuthEpoch(epoch)
+    const domain = snapshot.academicExtras?.domains?.['free-classroom']
+    void writeDiagnostic('free_classroom.query_finished', {
+      termId: query?.termId || null,
+      weeks: Array.isArray(query?.weeks) ? query.weeks : [],
+      weekdays: Array.isArray(query?.weekdays) ? query.weekdays : [],
+      periods: Array.isArray(query?.periods) ? query.periods : [],
+      records: Array.isArray(domain?.records) ? domain.records.length : 0,
+      capturedAt: domain?.capturedAt || null,
+    })
+    sendSnapshot()
     return snapshot
   })
 }

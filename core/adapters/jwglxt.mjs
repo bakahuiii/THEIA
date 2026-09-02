@@ -6,7 +6,7 @@ import { degreePlanDetailsToProgress, mergeAcademicProgressDetails } from '../ac
 import { BROWSER_SCHEDULE_ENDPOINT, requirementTreeHasCourses, unifiedLoginUrl } from './jwglxt-helpers.mjs'
 import { JWGLXT_EXTRA_METHODS } from './jwglxt-extra-runtime.mjs'
 import { JWGLXT_SYNC_METHODS } from './jwglxt-sync-runtime.mjs'
-export { buildFreeClassroomQuery, buildWeeklyScheduleQuery } from './jwglxt-helpers.mjs'
+export { buildFreeClassroomQuery, buildWeeklyScheduleQuery, filterOccupiedFreeClassrooms } from './jwglxt-helpers.mjs'
 
 const BASE = 'https://jwglxt.buct.edu.cn/jwglxt/'
 const HOME = new URL('xtgl/index_initMenu.html', BASE).toString()

@@ -379,21 +379,28 @@ export async function startLocalApi({ store, root, preferredPort = 8765, academi
     }
     if (url.pathname === '/v1/free-classroom-image' && typeof renderTableImage === 'function') {
       const building = String(url.searchParams.get('building') || '').slice(0, 80)
+      const campus = String(url.searchParams.get('campus') || '').slice(0, 80)
       const periods = String(url.searchParams.get('periods') || '').slice(0, 60)
       const weekdays = String(url.searchParams.get('weekdays') || '').slice(0, 60)
       const weeks = String(url.searchParams.get('weeks') || '').slice(0, 60)
       const termId = String(url.searchParams.get('termId') || '').slice(0, 64)
       const title = String(url.searchParams.get('title') || '').slice(0, 200) || '空闲教室'
-      // 教室每天基本不变，有缓存就用缓存，没有才实时查询
+      // A scoped request (especially Iris' period query) must never render the
+      // unscoped classroom catalog. The catalog is only a fallback for callers
+      // that did not provide any query dimensions.
+      const hasScopedQuery = Boolean(campus || building || periods || weekdays || weeks || termId)
       const source = state.academicExtras?.domains?.['free-classroom'] || null
-      let records = Array.isArray(source?.records) ? source.records : []
-      let capturedAt = source?.capturedAt || null
-      if (!records.length && typeof queryFreeClassrooms === 'function') {
+      let records = []
+      let capturedAt = null
+      if (hasScopedQuery && typeof queryFreeClassrooms === 'function') {
         try {
-          const fresh = await queryFreeClassrooms({ building, periods, weekdays, weeks, termId })
+          const fresh = await queryFreeClassrooms({ campus, building, periods, weekdays, weeks, termId })
           records = Array.isArray(fresh?.records) ? fresh.records : []
-          capturedAt = fresh?.capturedAt || capturedAt
+          capturedAt = fresh?.capturedAt || null
         } catch { /* keep empty */ }
+      } else if (!hasScopedQuery) {
+        records = Array.isArray(source?.records) ? source.records : []
+        capturedAt = source?.capturedAt || null
       }
       if (!records.length) return send(response, 404, { error: 'table_image_unavailable' }, undefined, origin, method)
       try {

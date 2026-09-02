@@ -213,6 +213,45 @@ test('local API triggers explicit sync domains without touching the agent runtim
   })
 })
 
+test('scoped free-classroom images query live data instead of rendering the cached catalog', async () => {
+  const root = await mkdtemp(resolve(tmpdir(), 'theia-local-api-classroom-'))
+  const state = emptyState()
+  state.academicExtras = {
+    domains: {
+      'free-classroom': {
+        records: [{ id: 'cached', classroom: '缓存教室' }],
+        capturedAt: '2026-09-02T02:00:00.000Z',
+      },
+    },
+  }
+  const calls = []
+  let api
+  try {
+    api = await startLocalApi({
+      store: { snapshot: () => state },
+      root,
+      preferredPort: 0,
+      publishRuntime: false,
+      queryFreeClassrooms: async (query) => {
+        calls.push(query)
+        return { records: [{ id: 'live', classroom: '实时教室' }], capturedAt: '2026-09-02T03:00:00.000Z' }
+      },
+      renderTableImage: async (html) => Buffer.from(html),
+    })
+    const response = await fetch(`${api.baseUrl}/v1/free-classroom-image?campus=2&periods=10&weekdays=3&weeks=1&termId=2026-3`, {
+      headers: { Authorization: `Bearer ${api.token}` },
+    })
+    const html = Buffer.from(await response.arrayBuffer()).toString('utf8')
+    assert.equal(response.status, 200)
+    assert.deepEqual(calls, [{ campus: '2', building: '', periods: '10', weekdays: '3', weeks: '1', termId: '2026-3' }])
+    assert.match(html, /实时教室/u)
+    assert.doesNotMatch(html, /缓存教室/u)
+  } finally {
+    await api?.close()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('local API requires explicit sync domains and never defaults to a model route', async () => {
   await withApi(async (api) => {
     const missing = await fetch(`${api.baseUrl}/v1/sync`, {

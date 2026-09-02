@@ -1,7 +1,7 @@
 {
   "name": "theia-campus-client",
   "private": true,
-  "version": "0.7.4",
+  "version": "0.7.5",
   "description": "THEIA, a local-first desktop workspace for Beijing University of Chemical Technology campus services.",
   "author": "bakahuiii",
   "license": "MIT",
@@ -26,6 +26,8 @@
     "dist:unpacked": "npm run build && electron-builder --win dir --x64",
     "dist:source": "node scripts/package-source.mjs",
     "dist:installer": "node scripts/release.mjs",
+    "cos:configure": "node scripts/publish-cos.mjs configure",
+    "cos:publish": "node scripts/publish-cos.mjs publish",
     "smoke:packaged": "node scripts/smoke-packaged.mjs",
     "benchmark:advisor": "node scripts/benchmark-advisor.mjs",
     "visual:advisor": "node scripts/visual-advisor.mjs"

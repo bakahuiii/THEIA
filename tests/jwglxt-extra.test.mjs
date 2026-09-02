@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildFreeClassroomQuery, buildWeeklyScheduleQuery, JwglxtAdapter } from '../core/adapters/jwglxt.mjs'
+import { buildFreeClassroomQuery, buildWeeklyScheduleQuery, filterOccupiedFreeClassrooms, JwglxtAdapter } from '../core/adapters/jwglxt.mjs'
 import {
   JWGLXT_EXTRA_DOMAINS,
   JWGLXT_EXTRA_DOMAIN_NAMES,
@@ -253,7 +253,9 @@ test('N2154/N2155 query builders reproduce the portal bitmasks', () => {
   assert.deepEqual(buildFreeClassroomQuery({
     term: { year: 2026, term: '3' }, formValues: { xqh_id: '2' }, weeks: [1, 3], weekdays: [2, 5], periods: [1, 4],
   }), {
-    xnm: '2026', xqm: '3', xqh_id: '2', lh: '', cdlb_id: '', cdejlb_id: '', qszws: '', jszws: '', cdmc: '', jyfs: '0',
+    xnm: '2026', xqm: '3', xqh_id: '2', lh: '', cdlb_id: '', cdejlb_id: '', qszws: '', jszws: '', cdmc: '', cd_id: '', jyfs: '0',
+    cdjylx: '', zysx: '', sflb: '', hbsl: '', bbsl: '', sfyzz: '', sfjtjs: '', tjsl: '', tymbsl: '', yczb: '', zws: '', sfbhkc: '', kszws1: '',
+    zd_fzdm: 'N211205-kxcdlb',
     zcd: 5, xqj: '2,5', jcd: 9,
   })
 })
@@ -302,14 +304,105 @@ test('N2155 applies user-selected week, weekday, period and classroom filters', 
   })
   const query = calls.find(([url]) => url.includes('cdjy_cxKxcdlb.html?doType=query'))
   assert.ok(query)
+  assert.deepEqual(calls.filter(([url]) => url.includes('cdjy_cxKxcdlb.html?doType=query')).map(([, values]) => values.xqh_id), ['2'])
   assert.equal(query[1].zcd, 8)
   assert.equal(query[1].xqj, '2,6')
   assert.equal(query[1].jcd, 12)
+  assert.equal(query[1].jyfs, '0')
+  assert.equal(query[1].zd_fzdm, 'N211205-kxcdlb')
   assert.equal(query[1].xqh_id, '2')
   assert.equal(query[1].lh, '主楼')
   assert.equal(query[1].cdlb_id, '普通')
   assert.equal(query[1].qszws, '20')
   assert.equal(query[1].jszws, '80')
+})
+
+test('N2155 overrides page term defaults and queries every campus for an all-campus request', async () => {
+  const calls = []
+  const client = {
+    async page(url) {
+      const target = String(url)
+      if (target.includes('/xtgl/')) return { url: target, text: '<input id="xh" value="2024020417"><a href="/cdjy/cdjy_cxKxcdlb.html">空闲教室</a>' }
+      return {
+        url: target,
+        text: `<form id="searchForm">
+          <select name="xnm"><option value="2026" selected>2026</option></select>
+          <select name="xqm"><option value="3" selected>第一学期</option></select>
+          <select name="xqh_id">
+            <option value="2" selected>北区</option><option value="1">东区</option><option value="3">西区</option>
+          </select>
+          <select name="lh"><option value="15" selected>第一教学楼</option></select>
+          <select name="cdlb_id"><option value="001" selected>普通</option></select>
+        </form>`,
+      }
+    },
+    async form(url, values) {
+      calls.push([String(url), values])
+      return JSON.stringify({ items: [{ cdbh: `${values.xqh_id}-101`, cdmc: `${values.xqh_id}-101`, xqmc: values.xqh_id }] })
+    },
+  }
+  const result = await new JwglxtAdapter(client).sync({
+    domains: ['free-classroom'],
+    freeClassroom: { term: { id: '2025-12', year: 2025, term: '12' }, weeks: [4], weekdays: [2], periods: [3] },
+  })
+  const queries = calls.filter(([url]) => url.includes('cdjy_cxKxcdlb.html?doType=query'))
+  assert.deepEqual(queries.map(([, values]) => values.xqh_id), ['2', '1', '3'])
+  assert.equal(queries.every(([, values]) => values.xnm === '2025' && values.xqm === '12'), true)
+  assert.equal(queries.every(([, values]) => values.lh === '' && values.cdlb_id === '' && values.cdejlb_id === '' && values.qszws === '' && values.jszws === '' && values.cdmc === ''), true)
+  assert.equal(result.academicExtras.domains['free-classroom'].records.length, 3)
+  assert.equal(result.academicExtras.domains['free-classroom'].completeness, 'complete')
+})
+
+test('free-classroom filtering removes only a same-term room occupied in the requested time slot', () => {
+  const result = filterOccupiedFreeClassrooms([
+    { id: 'occupied', classroom: '第一教学楼 101' },
+    { id: 'other-time', classroom: '第一教学楼 102' },
+    { id: 'other-term', classroom: '第一教学楼 103' },
+    { id: 'unknown-room', title: '未提供教室' },
+  ], [
+    { termId: '2026-3', room: '第一教学楼101', weekday: 2, period: '3-4', weeks: '1-16周' },
+    { termId: '2026-3', room: '第一教学楼102', weekday: 2, period: '5-6', weeks: '1-16周' },
+    { termId: '2025-3', room: '第一教学楼103', weekday: 2, period: '3-4', weeks: '1-16周' },
+  ], { termId: '2026-3', weeks: [4], weekdays: [2], periods: [3] })
+  assert.deepEqual(result.records.map((item) => item.id), ['other-time', 'other-term', 'unknown-room'])
+  assert.equal(result.excludedCount, 1)
+})
+
+test('free-classroom filtering expands a scheduled period range before matching a middle period', () => {
+  const result = filterOccupiedFreeClassrooms([
+    { id: 'occupied-short-range', classroom: '一教A-301' },
+    { id: 'occupied-two-digit-range', classroom: '一教A阶-203' },
+    { id: 'available', classroom: '一教A-302' },
+  ], [
+    { termId: '2026-3', room: '一教A-301', weekday: 3, period: '6-8', weeks: '1-9周,11-18周' },
+    { termId: '2026-3', room: '一教A阶-203', weekday: 3, period: '10-12', weeks: '1-9周,11-17周' },
+  ], { termId: '2026-3', weeks: [1], weekdays: [3], periods: [7, 11] })
+  assert.deepEqual(result.records.map((item) => item.id), ['available'])
+  assert.equal(result.excludedCount, 2)
+})
+
+test('N2155 applies the local occupancy backstop to the adapter result', async () => {
+  const client = {
+    async page(url) {
+      const target = String(url)
+      if (target.includes('/xtgl/')) return { url: target, text: '<input id="xh" value="2024020417"><a href="/cdjy/cdjy_cxKxcdlb.html">空闲教室</a>' }
+      return { url: target, text: '<form id="searchForm"><input name="xnm" value="2026"><input name="xqm" value="3"><input name="xqh_id" value="2"></form>' }
+    },
+    async form(_url, _values) {
+      return JSON.stringify({ items: [
+        { cdbh: 'A-101', cdmc: '第一教学楼101' },
+        { cdbh: 'A-102', cdmc: '第一教学楼102' },
+      ] })
+    },
+  }
+  const result = await new JwglxtAdapter(client).sync({
+    domains: ['free-classroom'],
+    freeClassroom: { term: { id: '2026-3', year: 2026, term: '3' }, campus: '2', weeks: [4], weekdays: [2], periods: [3] },
+    freeClassroomSchedule: [{ termId: '2026-3', room: '第一教学楼101', weekday: 2, period: '3-4', weeks: '1-16周' }],
+  })
+  const records = result.academicExtras.domains['free-classroom'].records
+  assert.deepEqual(records.map((record) => record.classroom), ['A-102'])
+  assert.match(result.academicExtras.domains['free-classroom'].messages.join(' '), /排除 1 间有课教室/u)
 })
 
 test('partial academic-extra refresh retains previous records', () => {
@@ -355,6 +448,24 @@ test('confirmed empty academic-extra refresh clears old records while an unconfi
   }, { succeeded: true, completeness: 'partial', emptyConfirmed: false })
   assert.deepEqual(unconfirmedEmpty.records, previous.records)
   assert.equal(unconfirmedEmpty.completeness, 'partial')
+})
+
+test('free-classroom partial refresh never retains a previous query result', () => {
+  const merged = mergeAcademicExtraDomain(
+    { records: [{ id: 'old-query-room' }], attachments: [], completeness: 'complete' },
+    { records: [{ id: 'new-query-room' }], attachments: [], completeness: 'partial' },
+    { succeeded: true, completeness: 'partial', emptyConfirmed: false },
+    'free-classroom',
+  )
+  assert.deepEqual(merged.records.map((item) => item.id), ['new-query-room'])
+
+  const empty = mergeAcademicExtraDomain(
+    { records: [{ id: 'old-query-room' }], attachments: [], completeness: 'complete' },
+    { records: [], attachments: [], completeness: 'partial' },
+    { succeeded: true, completeness: 'partial', emptyConfirmed: false },
+    'free-classroom',
+  )
+  assert.deepEqual(empty.records, [])
 })
 
 test('dynamic N305007 queries use the complete selected-term table and bounded fallback details', async () => {

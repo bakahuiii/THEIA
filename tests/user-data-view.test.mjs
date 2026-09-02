@@ -139,6 +139,21 @@ test('renderer snapshot strips large renderer-only collections but keeps counts 
   assert.equal(state.emails[0].body, '正文')
 })
 
+test('renderer snapshot keeps the current free-classroom result for the tool view', () => {
+  const state = fixtureState()
+  state.academicExtras.domains['free-classroom'] = {
+    label: '空闲教室',
+    capturedAt: '2026-09-02T08:08:50.346Z',
+    completeness: 'complete',
+    records: [{ id: 'room-1', classroom: 'D-404' }],
+    attachments: [],
+  }
+  const rendered = projectRendererSnapshot(state)
+  assert.equal(rendered.academicExtras.domains['free-classroom'].recordCount, 1)
+  assert.equal(rendered.academicExtras.domains['free-classroom'].records[0].classroom, 'D-404')
+  assert.equal(rendered.academicExtras.domains['free-classroom'].capturedAt, '2026-09-02T08:08:50.346Z')
+})
+
 test('local API exposes bounded user views without removing compatibility snapshot', async () => {
   const root = await mkdtemp(resolve(tmpdir(), 'theia-user-view-'))
   try {

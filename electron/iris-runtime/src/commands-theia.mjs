@@ -8,6 +8,60 @@ import {
   theiaError,
 } from './command-formatters.mjs'
 
+const CLASSROOM_WEEKDAY_LABELS = Object.freeze(['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'])
+const THEIA_CLASSROOM_CAMPUS = Object.freeze({ id: '2', label: '北区（昌平校区）' })
+
+function classroomNumber(value, label, maximum) {
+  const match = String(value ?? '').match(/\d{1,2}/u)
+  const number = match ? Number(match[0]) : NaN
+  if (!Number.isInteger(number) || number < 1 || number > maximum) {
+    return { error: `${label}无效，请使用 1-${maximum} 之间的数字。` }
+  }
+  return { value: number }
+}
+
+function classroomPeriods(value) {
+  const text = String(value ?? '').trim()
+  const match = text.match(/^(?:第\s*)?(\d{1,2})(?:\s*[-~至到]\s*(\d{1,2}))?(?:\s*节)?$/u)
+  if (!match) return { error: '节次无效，请使用 1-32 之间的数字或范围。' }
+  const start = Number(match[1])
+  const end = Number(match[2] || match[1])
+  if (start < 1 || end > 32 || start > end) return { error: '节次范围无效，请使用 1-32 之间的升序范围。' }
+  return { value: Array.from({ length: end - start + 1 }, (_item, index) => String(start + index)).join(',') }
+}
+
+function classroomWeekday(value) {
+  const text = String(value ?? '').trim()
+  const chinese = text.match(/(?:周|星期)\s*([一二三四五六日天])/u)?.[1]
+  if (chinese) return { value: ({ 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 7, 天: 7 })[chinese] }
+  return classroomNumber(text, '星期', 7)
+}
+
+function parseClassroomQuery(rest) {
+  const tokens = String(rest ?? '').trim().replace(/[，、,]+/gu, ' ').split(/\s+/u).filter(Boolean)
+  if (tokens.length === 1) {
+    const period = classroomPeriods(tokens[0])
+    return period.error ? period : { periods: period.value, explicit: false }
+  }
+  if (tokens.length !== 3) {
+    return { error: '格式：theia classroom <周次> <星期> <节次>，例如「theia classroom 4 3 10」。只输入节次也可以查询今天。' }
+  }
+  const week = classroomNumber(tokens[0], '周次', 64)
+  if (week.error) return week
+  const weekday = classroomWeekday(tokens[1])
+  if (weekday.error) return weekday
+  const period = classroomPeriods(tokens[2])
+  if (period.error) return period
+  return {
+    weeks: String(week.value),
+    weekdays: String(weekday.value),
+    periods: period.value,
+    week: week.value,
+    weekday: weekday.value,
+    explicit: true,
+  }
+}
+
 export function createTheiaCommands({ theia, now = () => new Date() } = {}) {
   const theiaDomainLabels = Object.freeze({
     courses: '课程',
@@ -286,31 +340,33 @@ export function createTheiaCommands({ theia, now = () => new Date() } = {}) {
     return safeReply(['【THEIA · Agent】', answer || 'Agent 没有返回可展示的回答。'])
   }
 
-  // `theia classroom <节次>` — live query the free-classroom table for one
-  // period (节次) and render a PNG grouped by building. The period argument is
-  // required: "theia classroom 1" = 第一节课.
+  // `theia classroom <周次> <星期> <节次>` — live query the free-classroom
+  // table with the same three selections as the THEIA desktop tool. A single
+  // period remains supported and means today's weekday/current academic week.
   async function theiaClassroom(rest = '') {
     if (typeof theia.classroomTableImage !== 'function') return '当前 THEIA 版本尚未提供空闲教室图片接口，请先更新 THEIA。'
-    const periodArg = String(rest || '').trim().split(/\s+/)[0] || ''
-    // Accept a single period ("1") or a range ("3-4", "3-5", "3-6").
-    const rangeMatch = periodArg.match(/^(\d{1,2})\s*[-~至]\s*(\d{1,2})$/u)
-    const singleMatch = periodArg.match(/^\d{1,2}$/u)
-    if (!rangeMatch && !singleMatch) {
-      return '格式：theia classroom <节次>，例如「theia classroom 1」或「theia classroom 3-5」查看第3到第5节的空闲教室。'
+    const parsed = parseClassroomQuery(rest)
+    if (parsed.error) return parsed.error
+    let resolved = parsed
+    if (!parsed.explicit) {
+      if (typeof theia.currentClassroomScope !== 'function') return '当前 THEIA 版本无法读取校历来确定当前教学周，请先更新 THEIA。'
+      const current = await theia.currentClassroomScope(now())
+      if (!current?.week || !current?.weekdays) return '无法根据中国时区当前日期和 THEIA 校历确定教学周与星期，请先更新校历后重试。'
+      resolved = {
+        ...parsed,
+        weeks: String(current.week),
+        weekdays: String(current.weekdays),
+        week: current.week,
+        weekday: current.weekdays,
+        termId: current.termId || '',
+      }
     }
-    let periods
-    if (rangeMatch) {
-      const start = Number(rangeMatch[1])
-      const end = Number(rangeMatch[2])
-      if (start < 1 || end > 20 || start > end) return '节次范围无效，请使用 1-20 之间的升序范围，例如「theia classroom 3-5」。'
-      periods = Array.from({ length: end - start + 1 }, (_item, index) => String(start + index)).join(',')
-    } else {
-      const n = Number(singleMatch[0])
-      if (n < 1 || n > 20) return '节次无效，请使用 1-20 之间的数字。'
-      periods = String(n)
-    }
-    const label = periods.includes(',') ? `第${periods.replace(/,/g, '-')}节` : `第${periods}节`
-    const png = await theia.classroomTableImage({ periods })
+    const query = { campus: THEIA_CLASSROOM_CAMPUS.id, periods: resolved.periods, weeks: resolved.weeks, weekdays: resolved.weekdays }
+    if (resolved.termId) query.termId = resolved.termId
+    const periodLabel = resolved.periods.includes(',') ? `第${resolved.periods.replace(/,/g, '-')}节` : `第${resolved.periods}节`
+    const scopeLabel = `第${resolved.week}周 · ${CLASSROOM_WEEKDAY_LABELS[resolved.weekday]} · `
+    const label = `${THEIA_CLASSROOM_CAMPUS.label} · ${scopeLabel}${periodLabel}`
+    const png = await theia.classroomTableImage(query)
     if (png && png.length) {
       return { type: 'image', mime: 'image/png', data: png.toString('base64'), fileName: 'free-classroom.png', text: `【THEIA · 空闲教室 · ${label}】` }
     }
@@ -380,4 +436,3 @@ export function createTheiaCommands({ theia, now = () => new Date() } = {}) {
     theiaMotion,
   }
 }
-

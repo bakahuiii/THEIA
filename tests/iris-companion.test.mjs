@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { normalizeIrisSettings, renderCommandHelp, COMMAND_DEFINITIONS, COMMAND_ALIAS_RULES } from '../electron/iris-runtime/src/settings.mjs'
 import { createCommandRouter } from '../electron/iris-runtime/src/commands.mjs'
+import { createTheiaCommands } from '../electron/iris-runtime/src/commands-theia.mjs'
 import { IrisCompanion } from '../electron/iris-companion.mjs'
 
 test('内置 Iris 默认只启用并显示 THEIA provider', () => {
@@ -53,6 +54,56 @@ test('隐藏 provider 仍可执行但不出现在帮助', async () => {
   await router('hyperion summary')
   assert.equal(codexCalled, true)
   assert.equal(hyperionCalled, true)
+})
+
+test('内置 Iris 空闲教室查询按周次、星期、节次原样下发', async () => {
+  let received = null
+  const { theiaClassroom } = createTheiaCommands({
+    theia: {
+      classroomTableImage: async (query) => {
+        received = query
+        return Buffer.from('png')
+      },
+    },
+  })
+  const result = await theiaClassroom('4 3 10')
+  assert.deepEqual(received, { campus: '2', periods: '10', weeks: '4', weekdays: '3' })
+  assert.equal(result.type, 'image')
+  assert.match(result.text, /第4周 · 周三 · 第10节/u)
+})
+
+test('内置 Iris 单参数空闲教室查询自动计算当前教学周和星期', async () => {
+  let received = null
+  const { theiaClassroom } = createTheiaCommands({
+    now: () => new Date('2026-09-02T01:00:00.000Z'),
+    theia: {
+      currentClassroomScope: async (value) => {
+        assert.equal(value.toISOString(), '2026-09-02T01:00:00.000Z')
+        return { week: 1, weekdays: 3, termId: '2026-3' }
+      },
+      classroomTableImage: async (query) => {
+        received = query
+        return Buffer.from('png')
+      },
+    },
+  })
+  const result = await theiaClassroom('10')
+  assert.deepEqual(received, { campus: '2', periods: '10', weeks: '1', weekdays: '3', termId: '2026-3' })
+  assert.equal(result.type, 'image')
+  assert.match(result.text, /第1周 · 周三 · 第10节/u)
+})
+
+test('内置 Iris 找不到当前教学周时不会查询未限定教室目录', async () => {
+  let imageCalled = false
+  const { theiaClassroom } = createTheiaCommands({
+    theia: {
+      currentClassroomScope: async () => null,
+      classroomTableImage: async () => { imageCalled = true; return Buffer.from('png') },
+    },
+  })
+  const result = await theiaClassroom('10')
+  assert.match(result, /无法根据中国时区当前日期和 THEIA 校历确定教学周与星期/u)
+  assert.equal(imageCalled, false)
 })
 
 test('Iris QQ Secret 只写入加密信封且状态不回显 Secret', async () => {

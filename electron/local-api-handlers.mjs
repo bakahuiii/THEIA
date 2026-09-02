@@ -3,6 +3,7 @@ import {
   cacheMotionVenueStatus,
   motionVenueCacheSummary,
 } from '../core/data-catalog.mjs'
+import { academicCalendarWeek } from '../core/academic-calendar.mjs'
 
 function parseIds(value) {
   return String(value || '')
@@ -36,19 +37,33 @@ export function createLocalApiHandlers({
   waitForSchoolProxy,
   assertAuthEpoch,
   sendSnapshot,
-  writeDiagnostic,
+  writeDiagnostic = () => {},
   diagnosticError = (error) => error?.message || String(error),
 }) {
   const queryFreeClassrooms = async (query = {}) => {
     const snapshot = store.snapshot()
-    const term = snapshot.terms.find((item) => item?.id === query?.termId) || newestTerm(snapshot.terms)
+    const currentWeek = academicCalendarWeek(snapshot.dataCatalog?.collections?.academicCalendar?.calendar || null)
+    const term = snapshot.terms.find((item) => item?.id === query?.termId)
+      || snapshot.terms.find((item) => item?.id === currentWeek?.termId)
+      || newestTerm(snapshot.terms)
     if (!term) throw new Error('请选择有效的教务学期')
     const epoch = getAuthEpoch()
     await waitForSchoolProxy()
     assertAuthEpoch(epoch)
-    const weeks = parseIds(query.weeks)
+    const requestedWeeks = parseIds(query.weeks)
+    const weeks = requestedWeeks.length ? requestedWeeks : (currentWeek?.week ? [currentWeek.week] : [])
     const weekdays = parseIds(query.weekdays)
     const periods = parseIds(query.periods)
+    if (!weeks.length) throw new Error('THEIA 校历未能确定当前教学周，拒绝执行未限定周次的空闲教室查询')
+    void writeDiagnostic('free_classroom.api_query_started', {
+      source: 'local-api',
+      termId: term.id,
+      weeks,
+      weekdays,
+      periods,
+      campus: query.campus || null,
+      building: query.building || null,
+    })
     const minSeats = validSeats(query.minSeats)
     const maxSeats = validSeats(query.maxSeats)
     const result = await syncService.syncNow({
@@ -69,6 +84,16 @@ export function createLocalApiHandlers({
     })
     assertAuthEpoch(epoch)
     const domain = result.academicExtras?.domains?.['free-classroom'] || {}
+    void writeDiagnostic('free_classroom.api_query_finished', {
+      source: 'local-api',
+      termId: term.id,
+      weeks,
+      weekdays,
+      periods,
+      campus: query.campus || null,
+      records: Array.isArray(domain.records) ? domain.records.length : 0,
+      capturedAt: domain.capturedAt || null,
+    })
     return { records: domain.records || [], capturedAt: domain.capturedAt || null }
   }
 

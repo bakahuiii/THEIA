@@ -17,6 +17,7 @@ import {
   EXTRA_QUERY_LIMIT,
   extraPageForm,
   filterPlanRows,
+  filterOccupiedFreeClassrooms,
   funcWidgetGuidFromPage,
   gradeTermLabel,
   inputValueById,
@@ -31,6 +32,19 @@ import {
 } from './jwglxt-helpers.mjs'
 
 const BASE = 'https://jwglxt.buct.edu.cn/jwglxt/'
+
+function queryMeta(payload) {
+  try {
+    const parsed = JSON.parse(String(payload || ''))
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const total = Number(parsed.totalResult ?? parsed.totalCount ?? parsed.recordsTotal ?? parsed.total)
+    return {
+      totalResult: Number.isSafeInteger(total) && total >= 0 ? total : null,
+    }
+  } catch {
+    return {}
+  }
+}
 
 export const JWGLXT_EXTRA_METHODS = {
   async fetchExtraPayload({
@@ -141,9 +155,10 @@ export const JWGLXT_EXTRA_METHODS = {
     if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
       const parsed = parseJwglxtExtraJson(trimmed, { domain, routeCode, sourceUrl, capturedAt, includeCandidateRecords })
       const decorated = decorateExtraValue(parsed, domain, recordType)
-      return includeCandidateRecords && Array.isArray(parsed.candidateRecords)
+      const result = includeCandidateRecords && Array.isArray(parsed.candidateRecords)
         ? { ...decorated, candidateRecords: parsed.candidateRecords }
         : decorated
+      return { ...result, queryMeta: queryMeta(trimmed) }
     }
     return decorateExtraValue(
       parseJwglxtExtraPage(body, { domain, routeCode, sourceUrl, capturedAt }),
@@ -152,14 +167,14 @@ export const JWGLXT_EXTRA_METHODS = {
     )
   },
 
-  async fetchExtraRoute({ domain, route, page, term, terms = [], homepage, capturedAt, freeClassroomQuery = null }) {
+  async fetchExtraRoute({ domain, route, page, term, terms = [], homepage, capturedAt, freeClassroomQuery = null, freeClassroomSchedule = [] }) {
     const pageForm = extraPageForm(page, route.code)
     // For jqGrid-backed N153540 the rendered page contains only the first
     // viewport row while the authoritative query returns the full result.
     // Start empty so that the query does not leave a duplicate/partial first
     // row beside the complete dataset. Other detail/status pages still use
     // their rendered fields as a useful fallback.
-    let value = route.code === 'N153540'
+    let value = ['N153540', 'N2155'].includes(route.code)
       ? normalizeJwglxtExtraDomain({ label: JWGLXT_EXTRA_DOMAINS[domain]?.label, routeCodes: [route.code], sourceUrl: page.url, capturedAt, records: [], completeness: 'partial' }, domain)
       : parseJwglxtExtraPage(page.text, {
         domain,
@@ -187,6 +202,12 @@ export const JWGLXT_EXTRA_METHODS = {
         })
         // Query statistics belong to the adapter outcome, not every merged
         // fragment. Avoid counting the same request twice when normalizing.
+        if (domain === 'free-classroom' && route.code === 'N2155') {
+          this.onDiagnostic?.('jwglxt.free_classroom_query_finished', {
+            totalResult: parsed?.queryMeta?.totalResult ?? null,
+            records: Array.isArray(parsed?.records) ? parsed.records.length : 0,
+          })
+        }
         value = mergeExtraDomainValues(value, { ...parsed, queryStats: { attempted: 0, succeeded: 0, failed: 0 } }, domain)
         stats.succeeded += 1
         return parsed
@@ -251,21 +272,36 @@ export const JWGLXT_EXTRA_METHODS = {
         })
       } else if (routeCode === 'N2155') {
         const selected = freeClassroomQuery && typeof freeClassroomQuery === 'object' ? freeClassroomQuery : {}
-        const classroomFormValues = {
-          ...pageForm.values,
-          ...(selected.campus !== undefined ? { xqh_id: selected.campus } : {}),
-          ...(selected.building !== undefined ? { lh: selected.building } : {}),
-          ...(selected.classroomType !== undefined ? { cdlb_id: selected.classroomType } : {}),
-          ...(selected.minSeats !== undefined ? { qszws: String(selected.minSeats) } : {}),
-          ...(selected.maxSeats !== undefined ? { jszws: String(selected.maxSeats) } : {}),
-        }
-        await run({
-          label: '空闲教室',
-          url: new URL('cdjy/cdjy_cxKxcdlb.html?doType=query', BASE).toString(),
-          // The portal's jqGrid defaults to ten rows when these paging
-          // fields are omitted. Ask for the complete bounded result in one
-          // read; the normalized snapshot still applies its safety ceiling.
-          values: {
+        const hasUserQuery = Boolean(freeClassroomQuery && typeof freeClassroomQuery === 'object')
+        const selectedCampus = selected.campus === undefined || selected.campus === null ? '' : String(selected.campus).trim()
+        const availableCampuses = (pageForm.options.xqh_id || [])
+          .map((option) => String(option?.value || '').trim())
+          .filter(Boolean)
+        const campusValues = selectedCampus
+          ? [selectedCampus]
+          : hasUserQuery
+            ? [...new Set(availableCampuses)]
+            : [String(pageForm.values.xqh_id || '').trim()]
+        if (!campusValues.length) campusValues.push(String(pageForm.values.xqh_id || '').trim())
+        for (const campusValue of campusValues) {
+          const classroomFormValues = {
+            ...pageForm.values,
+            ...(hasUserQuery ? {
+              // The N2155 page's selected option is only its display default;
+              // the explicit UI term must win for every query.
+              xnm: String(term?.year || ''),
+              xqm: String(term?.term || ''),
+              xqh_id: campusValue,
+              lh: selected.building ?? '',
+              cdlb_id: selected.classroomType ?? '',
+              cdejlb_id: '',
+              qszws: selected.minSeats === undefined || selected.minSeats === null ? '' : String(selected.minSeats),
+              jszws: selected.maxSeats === undefined || selected.maxSeats === null ? '' : String(selected.maxSeats),
+              cdmc: '',
+              jyfs: '0',
+            } : {}),
+          }
+          const queryValues = {
             ...buildFreeClassroomQuery({
               term,
               formValues: classroomFormValues,
@@ -275,8 +311,36 @@ export const JWGLXT_EXTRA_METHODS = {
               periods: selected.periods,
             }),
             ...queryModel(5000),
-          },
-        })
+          }
+          this.onDiagnostic?.('jwglxt.free_classroom_query_started', {
+            xnm: queryValues.xnm || null,
+            xqm: queryValues.xqm || null,
+            xqh_id: queryValues.xqh_id || null,
+            lh: queryValues.lh || null,
+            zcd: queryValues.zcd,
+            xqj: queryValues.xqj || null,
+            jcd: queryValues.jcd,
+            jyfs: queryValues.jyfs || null,
+            zd_fzdm: queryValues.zd_fzdm || null,
+            showCount: queryValues['queryModel.showCount'] || null,
+          })
+          await run({
+            label: campusValues.length > 1 ? `空闲教室（校区 ${campusValue}）` : '空闲教室',
+            url: new URL('cdjy/cdjy_cxKxcdlb.html?doType=query', BASE).toString(),
+            // The portal's jqGrid defaults to ten rows when these paging
+            // fields are omitted. Ask for the complete bounded result in one
+            // read; the normalized snapshot still applies its safety ceiling.
+            values: queryValues,
+          })
+        }
+        const filtered = filterOccupiedFreeClassrooms(value.records, freeClassroomSchedule, selected)
+        if (filtered.excludedCount > 0) {
+          value = normalizeJwglxtExtraDomain({
+            ...value,
+            records: filtered.records,
+            messages: [...(value.messages || []), `已按本地课表排除 ${filtered.excludedCount} 间有课教室`],
+          }, domain)
+        }
         // Expose the campus/building/classroom-type choices to the renderer so
         // the free-classroom UI can render selectors that submit real IDs
         // instead of typed display names.

@@ -83,7 +83,7 @@ const feed = await fetchTheiaFeed({ timeoutMs: 5_000 })
 | `GET /v1/venue-status?detailUrl=...&date=...&venue=...` | `{ schema, updatedAt, summary, item }` | 仅读本地 MOTION 状态缓存；没有匹配的日期/场馆组时 `item: null`。 |
 | `GET /v1/venue-statuses?activity=...&date=...` | `{ schema, updatedAt, summary, item }` | 实时读取 MOTION 场馆状态；每次请求都重新拉取公开页面，失败时回退缓存。 |
 | `GET /v1/motion-table-image?activity=...&date=...&title=...` | `image/png` | 场馆状态表图片；每次实时拉取并渲染，失败用缓存。 |
-| `GET /v1/free-classroom-image?periods=...&weekdays=...&weeks=...&termId=...&title=...` | `image/png` | 空闲教室图片；有缓存则用缓存，无缓存才实时查询教务系统。 |
+| `GET /v1/free-classroom-image?periods=...&weekdays=...&weeks=...&termId=...&title=...` | `image/png` | 带筛选条件时实时查询教务系统并渲染空闲教室图片；无筛选条件时才允许渲染本地目录缓存。 |
 | `GET /v1/table-image?domain=...&title=...&limit=...` | `image/png` | 教务资料表格图片（如 `free-classroom`）。 |
 | `GET /v1/academic-progress` | `{ schema, updatedAt, notModified, item }` | 培养方案 / 学分进度树。 |
 | `GET /v1/academic-analysis` | `theia-academic-analysis-response/v1` | 从当前快照计算的学业分析和 snapshot revision。 |
@@ -177,7 +177,7 @@ const feed = await fetchTheiaFeed({ timeoutMs: 5_000 })
 
 #### 空闲教室图片
 
-`/v1/free-classroom-image` 把空闲教室渲染为 `image/png`，支持 `periods`（如 `3,4`，对应节次位掩码）、`weekdays`、`weeks`、`termId` 和 `title`。教室每天基本不变，因此**有本地缓存时直接使用缓存**，没有缓存才实时查询教务系统。图片内按教学楼分组，阶梯教室（教室名含“阶”）排在普通教室之前，组内按教室名升序；底部标注数据读取时间。
+`/v1/free-classroom-image` 把空闲教室渲染为 `image/png`，支持 `periods`（如 `3,4`，对应节次位掩码）、`weekdays`、`weeks`、`termId` 和 `title`。只要请求带有任一筛选条件，就会实时查询教务系统，不能用未筛选的本地 180 条目录替代；请求未带筛选条件时才使用本地缓存。图片内按教学楼分组，阶梯教室（教室名含“阶”）排在普通教室之前，组内按教室名升序；底部标注数据读取时间。
 
 #### Agent 对话
 

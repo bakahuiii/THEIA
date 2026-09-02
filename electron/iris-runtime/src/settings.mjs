@@ -16,7 +16,7 @@ export const COMMAND_DEFINITIONS = [
   { id: 'theia-today', name: 'THEIA 今日', triggers: 'theia today', usage: 'theia today', description: '查看今天的课程、考试和作业截止事项。', group: 'theia' },
   { id: 'theia-agent', name: 'THEIA Agent', triggers: 'theia agent', usage: 'theia agent <问题>', description: '直接续接当前页面的 THEIA Agent 对话。', group: 'theia' },
   { id: 'theia-motion', name: 'THEIA 运动场馆', triggers: 'theia motion', usage: 'theia motion <项目>', description: '查看指定运动项目今天的场馆状态表。', group: 'theia' },
-  { id: 'theia-classroom', name: 'THEIA 空闲教室', triggers: 'theia classroom', usage: 'theia classroom', description: '按教学楼列出缓存的空闲教室（THEIA 桌面端需先查询一次）。', group: 'theia' },
+  { id: 'theia-classroom', name: 'THEIA 空闲教室', triggers: 'theia classroom', usage: 'theia classroom <周次> <星期> <节次>', description: '按周次、星期和节次实时查询空闲教室；只输入节次时查询今天。', group: 'theia' },
   { id: 'hyperion-diary', name: 'HYPERION 日记', triggers: 'hyperion diary', usage: 'hyperion diary <内容>', description: '把一段文字写进带时间的日记。', group: 'hyperion' },
   { id: 'hyperion-status', name: 'HYPERION 每日状态', triggers: 'hyperion status', usage: 'hyperion status <心情和记录>', description: '记录心情、睡眠、用药、饮酒或重点。', group: 'hyperion' },
   { id: 'hyperion-task', name: 'HYPERION 待办任务', triggers: 'hyperion task', usage: 'hyperion task', description: '查看当前待完成任务。', group: 'hyperion' },

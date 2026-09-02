@@ -498,12 +498,22 @@ export const JWGLXT_SYNC_METHODS = {
           const planHomepage = planIdentity
             ? { ...homepage, profile: { ...(homepage.profile || {}), ...planIdentity } }
             : homepage
-          const fetched = await this.fetchExtraRoute({ domain, route, page, term, terms: relevantTerms, homepage: planHomepage, capturedAt, freeClassroomQuery: domain === 'free-classroom' ? options.freeClassroom : null })
+          const fetched = await this.fetchExtraRoute({
+            domain,
+            route,
+            page,
+            term,
+            terms: relevantTerms,
+            homepage: planHomepage,
+            capturedAt,
+            freeClassroomQuery: domain === 'free-classroom' ? options.freeClassroom : null,
+            freeClassroomSchedule: domain === 'free-classroom' ? options.freeClassroomSchedule : [],
+          })
           const routeErrors = fetched.errors || []
           const routePartial = routeErrors.length > 0 || fetched.stats?.failed > 0 || fetched.stats?.capped === true
           await notifyDomainResult(domain, fetched.value, successfulDomain(fetched.value, domain, capturedAt, {
-            completeness: routePartial ? 'partial' : 'partial',
-            errorCode: routePartial ? 'partial_extra_query' : 'partial_extra_domain_read',
+            completeness: domain === 'free-classroom' ? (routePartial ? 'partial' : 'complete') : 'partial',
+            errorCode: routePartial ? 'partial_extra_query' : domain === 'free-classroom' ? null : 'partial_extra_domain_read',
           }), {
             errors: routeErrors,
             source: { connected: true, checkedAt: capturedAt, errors: routeErrors },

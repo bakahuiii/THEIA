@@ -507,7 +507,7 @@ export function projectRendererSnapshot(state) {
     ? {
       ...source.academicExtras,
       domains: Object.fromEntries(Object.entries(objectOrEmpty(source.academicExtras.domains)).map(([domain, value]) => {
-        const keepRecords = domain === 'grade-details'
+        const keepRecords = domain === 'grade-details' || domain === 'free-classroom'
         const records = list(value?.records)
         return [domain, {
           ...value,

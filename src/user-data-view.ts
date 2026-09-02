@@ -274,7 +274,7 @@ export function projectBrowserRendererSnapshot(state: CampusState): CampusState 
         return [domain, {
           ...value,
           recordCount,
-          records: domain === "grade-details" ? records : [],
+          records: domain === "grade-details" || domain === "free-classroom" ? records : [],
         }];
       })),
     }

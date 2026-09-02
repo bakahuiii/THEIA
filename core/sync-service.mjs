@@ -104,7 +104,15 @@ export class SyncService {
       })
     }
     const generation = this.syncGeneration
-    const adapterOptionsBySource = freeClassroom ? { jwglxt: { freeClassroom } } : {}
+    const adapterOptionsBySource = freeClassroom ? {
+      jwglxt: {
+        freeClassroom,
+        // The school endpoint is authoritative when it filters correctly;
+        // this cached schedule is only a conservative backstop for deployments
+        // that ignore zcd/xqj/jcd.
+        freeClassroomSchedule: this.store.snapshot().schedule,
+      },
+    } : {}
     const idleSources = []
     const pending = []
     for (const source of sources) {

@@ -23,6 +23,7 @@ export const SOURCE_FILES = [
   'scripts/dev.mjs',
   'scripts/package-source.mjs',
   'scripts/release.mjs',
+  'scripts/publish-cos.mjs',
   'scripts/advisor-benchmark-corpus.mjs',
   'scripts/benchmark-advisor.mjs',
   'scripts/smoke-packaged.mjs',

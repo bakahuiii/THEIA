@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import test from 'node:test'
-import { configureCosUpdateProvider, createGithubUpdateRuntime, THEIA_COS_UPDATE_URL } from '../electron/github-update-runtime.mjs'
+import {
+  configureCosUpdateProvider,
+  configureGithubUpdateProvider,
+  createGithubUpdateRuntime,
+  THEIA_COS_UPDATE_URL,
+  THEIA_GITHUB_UPDATE_PROVIDER,
+} from '../electron/github-update-runtime.mjs'
 
 test('COS update provider uses the public stable directory', () => {
   let feed = null
@@ -11,6 +17,16 @@ test('COS update provider uses the public stable directory', () => {
 
   assert.equal(configured, true)
   assert.deepEqual(feed, { provider: 'generic', url: THEIA_COS_UPDATE_URL })
+})
+
+test('GitHub fallback provider points at the public THEIA release repository', () => {
+  let feed = null
+  const configured = configureGithubUpdateProvider({
+    setFeedURL: (value) => { feed = value },
+  })
+
+  assert.equal(configured, true)
+  assert.deepEqual(feed, THEIA_GITHUB_UPDATE_PROVIDER)
 })
 
 function createFakeUpdater() {
@@ -136,6 +152,91 @@ test('GitHub updater treats a missing latest.yml release asset as not available'
 
   assert.equal(statuses.at(-1).state, 'not-available')
   assert.equal(statuses.at(-1).error, null)
+})
+
+test('an older client falls back from stale COS metadata to the newer GitHub release', async () => {
+  const updater = new EventEmitter()
+  let feed = null
+  let downloadFeed = null
+  updater.setFeedURL = (value) => { feed = value }
+  updater.checkForUpdates = async () => {
+    updater.emit('checking-for-update')
+    const info = feed?.provider === 'github'
+      ? {
+        version: '0.7.4',
+        releaseName: 'THEIA v0.7.4',
+        releaseDate: '2026-09-01T16:44:09.000Z',
+        files: [{ url: 'THEIA-0.7.4-x64-win.exe', size: 263151501 }],
+      }
+      : {
+        version: '0.7.2',
+        releaseName: 'THEIA v0.7.2',
+        files: [{ url: 'THEIA-0.7.2-x64-win.exe', size: 263124191 }],
+      }
+    if (feed?.provider === 'github') {
+      updater.emit('update-available', info)
+      return { isUpdateAvailable: true, updateInfo: info }
+    }
+    updater.emit('update-not-available', info)
+    return { isUpdateAvailable: false, updateInfo: info }
+  }
+  updater.downloadUpdate = async () => {
+    downloadFeed = feed
+    updater.emit('update-downloaded', {
+      version: '0.7.4',
+      files: [{ url: 'THEIA-0.7.4-x64-win.exe', size: 263151501 }],
+    })
+  }
+
+  configureCosUpdateProvider(updater)
+  const runtime = createGithubUpdateRuntime({
+    autoUpdater: updater,
+    currentVersion: '0.7.2',
+    enabled: true,
+    platform: 'win32',
+    fallbackUpdateProvider: () => configureGithubUpdateProvider(updater),
+  })
+
+  await runtime.checkForUpdates()
+
+  assert.equal(runtime.getStatus().state, 'available')
+  assert.equal(runtime.getStatus().availableVersion, '0.7.4')
+  assert.deepEqual(feed, THEIA_GITHUB_UPDATE_PROVIDER)
+
+  await runtime.downloadUpdate()
+  assert.deepEqual(downloadFeed, THEIA_GITHUB_UPDATE_PROVIDER)
+  assert.equal(runtime.getStatus().state, 'downloaded')
+})
+
+test('an update-source error also falls back to GitHub once', async () => {
+  const updater = new EventEmitter()
+  let feed = null
+  let checks = 0
+  updater.setFeedURL = (value) => { feed = value }
+  updater.checkForUpdates = async () => {
+    checks += 1
+    updater.emit('checking-for-update')
+    if (feed?.provider !== 'github') throw new Error('COS unavailable')
+    const info = { version: '0.7.4', files: [{ url: 'THEIA-0.7.4-x64-win.exe', size: 263151501 }] }
+    updater.emit('update-available', info)
+    return { isUpdateAvailable: true, updateInfo: info }
+  }
+
+  configureCosUpdateProvider(updater)
+  const runtime = createGithubUpdateRuntime({
+    autoUpdater: updater,
+    currentVersion: '0.7.2',
+    enabled: true,
+    platform: 'win32',
+    fallbackUpdateProvider: () => configureGithubUpdateProvider(updater),
+  })
+
+  await runtime.checkForUpdates()
+
+  assert.equal(checks, 2)
+  assert.equal(runtime.getStatus().state, 'available')
+  assert.equal(runtime.getStatus().availableVersion, '0.7.4')
+  assert.equal(runtime.getStatus().error, null)
 })
 
 test('GitHub updater keeps missing metadata as an error when the release is newer', async () => {

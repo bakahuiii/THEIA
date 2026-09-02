@@ -1,8 +1,8 @@
 # THEIA
 
-> THEIA v0.7.4：北京化工大学校园工作台使用说明
+> THEIA v0.7.5：北京化工大学校园工作台使用说明
 
-[下载 Windows x64 v0.7.4](https://theia-1314083262.cos.ap-beijing.myqcloud.com/stable/THEIA-0.7.4-x64-win.exe) · [GitHub 源码](https://github.com/bakahuiii/THEIA) · [Android 客户端](https://github.com/bakahuiii/THEIA-Android) · [用户指南](docs/guides/USER_GUIDE.md) · [发行说明](docs/releases/v0.7.4.md)
+[下载 Windows x64 v0.7.5](https://github.com/bakahuiii/THEIA/releases/download/v0.7.5/THEIA-0.7.5-x64-win.exe) · [GitHub 源码](https://github.com/bakahuiii/THEIA) · [Android 客户端](https://github.com/bakahuiii/THEIA-Android) · [用户指南](docs/guides/USER_GUIDE.md) · [发行说明](docs/releases/v0.7.5.md)
 
 THEIA 是面向北京化工大学学生的本地优先 Windows 校园工作台。它把教务系统、北化在线 THEOL、校园邮箱和本地学习工具放到同一个桌面应用中，负责读取、整理、计算、提醒和准备操作；学校系统中的最终提交、选课决定和成绩认定仍由用户确认。
 
@@ -16,7 +16,7 @@ THEIA 是面向北京化工大学学生的本地优先 Windows 校园工作台�
 - [API 与 IPC 参考](docs/reference/api-and-ipc.md)：桌面桥接和本地 API 契约。
 - [本地 MCP 接入](integration/README.md)：Codex / Claude Code 的只读接入说明。
 - [Iris 使用指南](docs/guides/IRIS_GUIDE.md)：QQ 伴侣的配置和使用方式。
-- [v0.7.4 发行说明](docs/releases/v0.7.4.md)：版本变更、发布文件和校验值。
+- [v0.7.5 发行说明](docs/releases/v0.7.5.md)：版本变更、发布文件和校验值。
 - [安全策略](SECURITY.md)：安全问题的报告方式。
 
 ## 前言
@@ -321,15 +321,19 @@ theia classroom/教室/空闲/c <节次>    查看指定节次的空闲教室图
 
 ### 更新流程
 
-1. THEIA 通过 `electron-updater` 检查腾讯云 COS 的公开更新目录。
+1. THEIA 通过 `electron-updater` 优先检查腾讯云 COS 的公开更新目录。
 2. 打包版启动时会自动检查，在右下角提示新版本；“更新”按钮开始下载，“跳过版本”会记住当前版本。
 3. 关于页会显示下载进度、实际文件大小和速度；更新下载完成后，退出应用时会自动安装。
 
-能否更新取决于当前网络以及 COS 是否提供完整的更新元数据；GitHub 继续作为源码和发行存档镜像。
+如果 COS 元数据落后或暂时不可用，客户端会自动回退到 GitHub Release，并使用回退源继续下载；GitHub 同时保留源码和发行存档。
 
-因此，校园网无法稳定直连 GitHub 时，THEIA 仍可从 COS 检查、下载和安装更新。
+因此，校园网无法稳定直连 GitHub 时，THEIA 仍优先从 COS 检查、下载和安装更新；COS 异常时则使用 GitHub 作为可用回退源。
 
-当前 v0.7.4 的安装包、源码归档和 SHA-256 校验值见[发行说明](docs/releases/v0.7.4.md)。安装包未配置可公开验证的 Authenticode 证书，Windows 可能显示未知发布者或 SmartScreen 提示。
+当前 v0.7.5 的安装包、源码归档和 SHA-256 校验值见[发行说明](docs/releases/v0.7.5.md)。安装包未配置可公开验证的 Authenticode 证书，Windows 可能显示未知发布者或 SmartScreen 提示。
+
+### 本机发布到 COS
+
+COS 发布不需要每次登录控制台。首次在本机运行 `npm run cos:configure`，填入腾讯云 API 密钥；THEIA 会将凭据用当前 Windows 用户的 DPAPI 保存到 `%APPDATA%\\THEIA\\cos-publish.json`，不会写入仓库。完成配置后，`npm run dist:installer` 会自动将 `stable/` 更新目录中的安装包、blockmap、`latest.yml` 和源码归档上传到 COS；已有 `release-bin` 文件时也可以单独运行 `npm run cos:publish` 重传。
 
 ---
 

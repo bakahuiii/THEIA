@@ -69,6 +69,7 @@ test('release packaging also creates a filtered, buildable source archive', asyn
     'electron/advisor-upgrade-rule.mjs',
     'scripts/package-source.mjs',
     'scripts/release.mjs',
+    'scripts/publish-cos.mjs',
     'scripts/advisor-benchmark-corpus.mjs',
     'scripts/benchmark-advisor.mjs',
     'scripts/strip-jpeg-metadata.mjs',

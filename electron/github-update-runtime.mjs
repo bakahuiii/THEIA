@@ -10,6 +10,11 @@ const UPDATE_STATES = Object.freeze({
 })
 
 export const THEIA_COS_UPDATE_URL = 'https://theia-1314083262.cos.ap-beijing.myqcloud.com/stable/'
+export const THEIA_GITHUB_UPDATE_PROVIDER = Object.freeze({
+  provider: 'github',
+  owner: 'bakahuiii',
+  repo: 'THEIA',
+})
 
 export function configureCosUpdateProvider(autoUpdater) {
   if (!autoUpdater || typeof autoUpdater.setFeedURL !== 'function') return false
@@ -17,6 +22,12 @@ export function configureCosUpdateProvider(autoUpdater) {
     provider: 'generic',
     url: THEIA_COS_UPDATE_URL,
   })
+  return true
+}
+
+export function configureGithubUpdateProvider(autoUpdater) {
+  if (!autoUpdater || typeof autoUpdater.setFeedURL !== 'function') return false
+  autoUpdater.setFeedURL(THEIA_GITHUB_UPDATE_PROVIDER)
   return true
 }
 
@@ -94,6 +105,7 @@ export function createGithubUpdateRuntime({
   now = () => new Date().toISOString(),
   getSkippedVersion = () => null,
   setSkippedVersion = async () => {},
+  fallbackUpdateProvider = null,
 } = {}) {
   const updater = autoUpdater && typeof autoUpdater.on === 'function' ? autoUpdater : null
   const supported = Boolean(enabled && updater && platform === 'win32')
@@ -115,6 +127,24 @@ export function createGithubUpdateRuntime({
   let checking = false
   let downloading = false
   let disposed = false
+
+  async function checkFallbackProvider() {
+    if (typeof fallbackUpdateProvider !== 'function') return false
+    let configured = false
+    try {
+      configured = await fallbackUpdateProvider()
+    } catch (error) {
+      onError(error)
+      return true
+    }
+    if (!configured) return false
+    try {
+      await updater.checkForUpdates()
+    } catch (error) {
+      onError(error)
+    }
+    return true
+  }
 
   const publish = (next) => {
     status = {
@@ -241,9 +271,12 @@ export function createGithubUpdateRuntime({
       if (checking || downloading) return cloneStatus(status)
       try {
         onCheckingForUpdate()
-        await updater.checkForUpdates()
+        const result = await updater.checkForUpdates()
+        if (result?.isUpdateAvailable === false || status.state === UPDATE_STATES.notAvailable) {
+          await checkFallbackProvider()
+        }
       } catch (error) {
-        onError(error)
+        if (!(await checkFallbackProvider())) onError(error)
       }
       return cloneStatus(status)
     },

@@ -238,6 +238,7 @@ export function registerRuntimeIpc({
     waitForSchoolProxy,
     getAuthEpoch,
     assertAuthEpoch,
+    writeDiagnostic,
   })
 
   ipcMain.handle('theia:get-snapshot', () => {

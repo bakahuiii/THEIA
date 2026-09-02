@@ -875,6 +875,7 @@ test('a scoped free-classroom query reaches the adapter without widening its dom
     assert.deepEqual(receivedOptions, {
       domains: ['free-classroom'],
       freeClassroom: { term: { id: '2026-3', year: 2026, term: '3' }, weeks: [2], weekdays: [4], periods: [5] },
+      freeClassroomSchedule: [],
     })
   } finally {
     await rm(root, { recursive: true, force: true })

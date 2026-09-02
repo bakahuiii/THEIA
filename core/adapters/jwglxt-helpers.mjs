@@ -1,4 +1,5 @@
 import { academicTermCandidate, parseAcademicTerm } from '../util.mjs'
+import { filterOccupiedFreeClassrooms } from '../free-classroom-filter.mjs'
 import {
   JWGLXT_ACTIVE_EXTRA_DOMAIN_NAMES,
   normalizeJwglxtExtraDomain,
@@ -326,7 +327,24 @@ export function buildFreeClassroomQuery({ term, formValues = {}, formOptions = {
     qszws: values.qszws || '',
     jszws: values.jszws || '',
     cdmc: values.cdmc || '',
+    cd_id: values.cd_id || values.cd_id_cx || '',
     jyfs: values.jyfs || '0',
+    cdjylx: values.cdjylx || '',
+    zysx: values.zysx || '',
+    sflb: values.sflb || '',
+    hbsl: values.hbsl || '',
+    bbsl: values.bbsl || '',
+    sfyzz: values.sfyzz || '',
+    sfjtjs: values.sfjtjs || '',
+    tjsl: values.tjsl || '',
+    tymbsl: values.tymbsl || '',
+    yczb: values.yczb || '',
+    zws: values.zws || '',
+    sfbhkc: values.sfbhkc || '',
+    kszws1: values.kszws1 || '',
+    // jqGrid's remoteParams are part of the portal's query contract. Without
+    // this discriminator the endpoint can return the unfiltered room catalog.
+    zd_fzdm: values.zd_fzdm || 'N211205-kxcdlb',
   }
   result.zcd = selectedWeeks === null ? (values.zcd ?? 0) : bitmask(selectedWeeks, 64)
   result.xqj = selectedWeekdays === null
@@ -335,6 +353,7 @@ export function buildFreeClassroomQuery({ term, formValues = {}, formOptions = {
   result.jcd = selectedPeriods === null ? (values.jcd ?? 0) : bitmask(selectedPeriods, 32)
   return result
 }
+export { filterOccupiedFreeClassrooms } from '../free-classroom-filter.mjs'
 
 export function buildWeeklyScheduleQuery({ term, formValues = {}, studentId = '' } = {}) {
   const values = formValues && typeof formValues === 'object' ? formValues : {}

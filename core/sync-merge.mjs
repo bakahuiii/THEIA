@@ -100,6 +100,10 @@ export function mergeAcademicExtraDomain(current, fresh, outcome, domain = '') {
     }
     return normalizedFresh
   }
+  // A free-classroom result belongs to one explicit query. Unioning it with a
+  // previous query makes occupied rooms appear available and leaves stale
+  // rooms behind when the new response is empty.
+  if (domain === 'free-classroom') return normalizedFresh
   if (!normalizedCurrent || outcome?.completeness === 'complete') return normalizedFresh
   // Dynamic JWGLXT pages can return one route/detail fragment at a time. Keep
   // the last complete records while replacing refreshed IDs; an empty partial

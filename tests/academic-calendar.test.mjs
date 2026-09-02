@@ -25,3 +25,14 @@ test('academic calendar maps a date to the official term and teaching week', () 
   assert.equal(academicCalendarWeek(calendar, new Date('2026-03-09T12:00:00')).week, 2)
   assert.equal(academicCalendarWeek(calendar, new Date('2026-02-01T12:00:00')), null)
 })
+
+test('academic calendar week uses China date around UTC midnight', () => {
+  const calendar = {
+    schoolYear: '2026-2027',
+    semesters: [{ label: '第一学期', startDate: '2026-08-31', endDate: '2027-01-17', weeks: 20 }],
+  }
+  const beforeShanghaiMidnight = new Date('2026-09-01T15:59:59.000Z')
+  const afterShanghaiMidnight = new Date('2026-09-01T16:00:00.000Z')
+  assert.equal(academicCalendarWeek(calendar, beforeShanghaiMidnight)?.date, '2026-09-01')
+  assert.equal(academicCalendarWeek(calendar, afterShanghaiMidnight)?.date, '2026-09-02')
+})
