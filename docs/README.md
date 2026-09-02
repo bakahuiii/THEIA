@@ -14,6 +14,8 @@ THEIA 是面向北京化工大学学生的本地优先 Windows 校园工作台�
 | 使用 Iris QQ 伴侣 | [Iris 使用指南](guides/IRIS_GUIDE.md) |
 | 理解进程、权限和数据流 | [系统架构](development/architecture.md) |
 | 修改代码 | [开发者指南](development/developer-guide.md) |
+| 提交改动 | [贡献与提交](../CONTRIBUTING.md) |
+| 完整上手和跨层维护 | [开发者手册](development/developer-handbook.md) |
 | 理解数据如何采集、保存和恢复 | [数据生命周期](development/data-lifecycle.md) |
 | 排查启动和数据问题 | [启动排障](development/troubleshooting.md) |
 | 对接本机 API、MCP 或 Electron bridge | [API 与 IPC 参考](reference/api-and-ipc.md) 与 [本地 MCP 接入](../integration/README.md) |

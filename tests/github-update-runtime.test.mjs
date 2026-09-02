@@ -16,7 +16,11 @@ test('COS update provider uses the public stable directory', () => {
   })
 
   assert.equal(configured, true)
-  assert.deepEqual(feed, { provider: 'generic', url: THEIA_COS_UPDATE_URL })
+  assert.deepEqual(feed, {
+    provider: 'generic',
+    url: THEIA_COS_UPDATE_URL,
+    useMultipleRangeRequest: false,
+  })
 })
 
 test('GitHub fallback provider points at the public THEIA release repository', () => {

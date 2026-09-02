@@ -4,8 +4,26 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 
+const ignoredWorkspacePaths = [
+  'dist',
+  'release-bin',
+  'node_modules',
+  '.references',
+  '.rendered-pages-*',
+  '.session-inspection-*',
+  '.satellite-*',
+  '.tmp-*',
+  '.api-crawl*',
+  '.crawl*',
+  '.post-api*',
+  '.preview-*',
+  '.codex-*',
+  'coverage',
+  'test-results',
+]
+
 export default tseslint.config(
-  { ignores: ['dist', 'release-bin', 'node_modules', '.references', '.rendered-pages-*', '.session-inspection-*', '.satellite-*'] },
+  { ignores: ignoredWorkspacePaths },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ['src/**/*.{ts,tsx}'],

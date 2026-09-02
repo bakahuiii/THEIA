@@ -7,10 +7,12 @@
 - Windows；Node.js `>=22.12.0`；npm `>=10.0.0`。
 - `npm run dev`：启动 Electron 桌面开发模式。
 - `npm run dev:web`：仅预览前端；不具备真实凭据、校园会话、文件和主进程能力。
-- `npm test`、`npm run lint`、`npm run build`：标准质量门槛。
+- `npm test`、`npm run lint`、`npm run typecheck`：快速质量检查；`npm run check` 会按顺序执行这三项。
+- `npm run build`：生成校园网格并执行 TypeScript/Vite 构建。
+- `npm run clean:generated`：删除可重建的构建输出、缓存和根目录临时探测产物，不触碰依赖、参考资料或本机数据。
 - `npm run dist:unpacked`、`npm run dist:source`、`npm run dist:installer`、`npm run smoke:packaged`：Windows 打包、源码归档与产物烟雾测试；正式安装器流程会同时生成同版本源码包。
 
-完整操作顺序见 [运行、测试与发布](docs/development/operations-and-testing.md)，扩展规范见 [开发者指南](docs/development/developer-guide.md)。
+完整操作顺序见 [运行、测试与发布](docs/development/operations-and-testing.md)，扩展规范见 [开发者指南](docs/development/developer-guide.md)。开放协作阶段的提交、审查和交接规则见 [贡献与提交](CONTRIBUTING.md) 与 [开发者手册](docs/development/developer-handbook.md)。
 
 ## 运行时结构
 

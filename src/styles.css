@@ -1,5 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+
+/* Shared component and compatibility foundations. Keep this order stable. */
 @import "./components/advisor/AdvisorWorkbench.v2.css";
 @import "./styles/foundation.css";
 @import "./styles/appearance-controls.css";
@@ -9,6 +11,8 @@
 @import "./styles/legacy-settings.css";
 @import "./styles/semantic-bridge.css";
 @import "./styles/desktop-shell.css";
+
+/* Tool and source-specific surfaces. */
 @import "./styles/tools-shell.css";
 @import "./styles/tools-calendar.css";
 @import "./styles/tools-fitness.css";
@@ -16,6 +20,8 @@
 @import "./styles/tools-second-class.css";
 @import "./styles/tools-innovation.css";
 @import "./styles/portal.css";
+
+/* Visual refinement layers and feature-specific overrides. */
 @import "./styles/visual-refinement-workspace.css";
 @import "./styles/visual-refinement-records.css";
 @import "./styles/visual-refinement-motion.css";
@@ -30,7 +36,6 @@
 @import "./styles/surface-contract.css";
 @import "./styles/final-surfaces.css";
 @import "./styles/settings-current.css";
-
 
 @custom-variant dark (&:is(.dark *));
 

@@ -6,7 +6,7 @@ import { request as httpRequest } from 'node:http'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { CampusStore, CampusStoreRecoveryError } from '../core/store.mjs'
-import { counts, normalizeState, toTheiaFeed, toIcs } from '../core/schema.mjs'
+import { APP_VERSION, counts, normalizeState, toTheiaFeed, toIcs } from '../core/schema.mjs'
 import { startLocalApi } from '../core/local-api.mjs'
 import { cacheAcademicCalendarAssets, cacheFitnessResults, cacheSchoolScheduleResult } from '../core/data-catalog.mjs'
 import { SyncService } from '../core/sync-service.mjs'
@@ -856,5 +856,5 @@ test('loopback API streams locally cached academic-calendar assets', async () =>
   }
 })
 test('normalizing an older snapshot reports the current application version', () => {
-  assert.equal(normalizeState({ appVersion: '0.1.0' }).appVersion, '0.7.4')
+  assert.equal(normalizeState({ appVersion: '0.1.0' }).appVersion, APP_VERSION)
 })

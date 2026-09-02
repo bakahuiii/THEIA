@@ -21,6 +21,9 @@ export function configureCosUpdateProvider(autoUpdater) {
   autoUpdater.setFeedURL({
     provider: 'generic',
     url: THEIA_COS_UPDATE_URL,
+    // Tencent COS accepts single byte ranges but does not return the
+    // multipart/byteranges response expected by electron-updater.
+    useMultipleRangeRequest: false,
   })
   return true
 }

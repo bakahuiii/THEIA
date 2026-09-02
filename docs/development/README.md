@@ -7,6 +7,7 @@
 | 目的 | 文档 |
 | --- | --- |
 | 先理解进程、权限和数据流 | [系统架构](architecture.md) |
+| 作为新开发者完整上手 | [开发者手册](developer-handbook.md) |
 | 修改代码或增加功能 | [开发者指南](developer-guide.md) |
 | 理解数据采集、存储和恢复 | [数据生命周期](data-lifecycle.md) 与 [抓取--存储手册](data-capture-storage-handbook.md) |
 | 核对集合所有权和暴露边界 | [数据所有权矩阵](data-ownership-matrix.md) |

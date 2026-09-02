@@ -6,6 +6,8 @@
 
 THEIA 是面向北京化工大学学生的本地优先 Windows 校园工作台。它把教务系统、北化在线 THEOL、校园邮箱和本地学习工具放到同一个桌面应用中，负责读取、整理、计算、提醒和准备操作；学校系统中的最终提交、选课决定和成绩认定仍由用户确认。
 
+THEIA 面向所有人开放协作，任何人都可以参与开发并提交 commit；提交前请遵守[贡献者指南](CONTRIBUTING.md)中的测试、安全和审查约定。
+
 ## 文档入口
 
 本文件 `README.md` 是 THEIA 当前的正式综合说明。它取代旧版 README，具体开发流程和稳定接口以现行文档及源码为准。
@@ -15,6 +17,8 @@ THEIA 是面向北京化工大学学生的本地优先 Windows 校园工作台�
 - [功能总览](docs/features/overview.md)：当前功能和使用边界。
 - [API 与 IPC 参考](docs/reference/api-and-ipc.md)：桌面桥接和本地 API 契约。
 - [本地 MCP 接入](integration/README.md)：Codex / Claude Code 的只读接入说明。
+- [贡献与提交](CONTRIBUTING.md)：工作区卫生、检查命令和改动边界。
+- [开发者手册](docs/development/developer-handbook.md)：面向全体开发者的架构、数据、IPC、Agent、测试和交接说明。
 - [Iris 使用指南](docs/guides/IRIS_GUIDE.md)：QQ 伴侣的配置和使用方式。
 - [v0.7.5 发行说明](docs/releases/v0.7.5.md)：版本变更、发布文件和校验值。
 - [安全策略](SECURITY.md)：安全问题的报告方式。
