@@ -139,6 +139,11 @@ test('single-instance failure cannot continue into normal startup', () => {
   assert.match(mainSource, /if \(!lock\) \{[\s\S]*?app\.quit\(\)\s*\}\)\s*\} else \{\s*console\.log\('\[THEIA\] Single instance lock acquired/s)
 })
 
+test("startup error reporting uses Electron supported dialog API", () => {
+  assert.doesNotMatch(mainSource, /dialog\.showErrorBoxSync/)
+  assert.equal((mainSource.match(/dialog\.showErrorBox\(/g) || []).length, 2)
+})
+
 test('manual THEOL actor reuses only an identical target and synchronizes once after release', () => {
   const openInteraction = sourceBetween('async function open(', '\n\n  function invalidateCurrent', theolInteractionRuntimeSource)
   const finishInteraction = sourceBetween('async function finishActor(', '\n\n  function createActor', theolInteractionRuntimeSource)
@@ -161,7 +166,7 @@ test('course-work navigation proves every final URL and DOM identity before the 
   assert.match(actorLifecycle, /catch \(error\)[\s\S]*?actor\.rejectOpened\(error\)[\s\S]*?Promise\.all\(\[\.\.\.actor\.windows\]\.map/s)
   assert.match(mainSource, /if \(window\.__theiaTheolInteractiveActor\?\.validated === false\) return \{ action: 'deny' \}/)
   assert.match(urlValidation, /THEOL_INTERACTION_COURSE_PATHS\.has\(finalUrl\.pathname\.toLowerCase\(\)\)[\s\S]*?courseIds\[0\] !== check\.courseId/s)
-  assert.match(urlValidation, /finalUrl\.pathname\.toLowerCase\(\) !== taskType\.path[\s\S]*?taskIds\[0\] !== check\.taskId/s)
+  assert.match(urlValidation, /!taskType\.paths\.has\(finalUrl\.pathname\.toLowerCase\(\)\)[\s\S]*?taskIds\[0\] !== check\.taskId/s)
   assert.match(domValidation, /courseEvidence\.includes\(check\.courseId\)[\s\S]*?identity\.courseFields\.some/s)
   assert.match(domValidation, /taskFields[\s\S]*?taskUrls[\s\S]*?includes\(check\.taskId\)/s)
   assert.match(courseWork, /navigationChecks: \[[\s\S]*?type: 'course',[\s\S]*?courseId: assignment\.courseId[\s\S]*?type: 'task',[\s\S]*?kind: entry\.kind,[\s\S]*?uniqueTaskId: entry\.uniqueTaskId/s)
@@ -351,7 +356,7 @@ test('course-selection reads restore the JWGLXT browser session before one retry
 test('startup authentication prioritizes JWGLXT before the serial THEOL actor', () => {
   const openLogin = sourceBetween('async function openLoginWindow(', '\n\n  async function freshJwglxtBrowserStatus(', authRuntimeSource)
   assert.match(openLogin, /: \['jwglxt', 'theol'\]/)
-  assert.match(mainSource, /async function autoLoginOnStartup\(\)[\s\S]*?openLoginWindow\(\{ background: true, requireBrowser: true \}\)/s)
+  assert.match(mainSource, /async function autoLoginOnStartup\(\)[\s\S]*?shouldRefreshStaleSync\(sync\)[\s\S]*?openLoginWindow\(\{ background: true, requireBrowser: true, skipSync: true \}\)[\s\S]*?if \(!refreshStaleData\) return[\s\S]*?syncOrchestrator\.syncForegroundCampusData\(\)/s)
 })
 
 test('authenticated-page inspection initializes the runtime before probing pages', () => {

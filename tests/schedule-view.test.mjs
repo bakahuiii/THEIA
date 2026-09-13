@@ -16,3 +16,9 @@ test('schedule period labels reserve enough width for the two-line label', () =>
   assert.match(styles, /grid-template-columns:\s*96px repeat\(7, minmax\(146px, 1fr\)\)/u)
   assert.match(styles, /\.schedule-period-time\s*\{[^}]*white-space:\s*nowrap/u)
 })
+
+test('overlapping schedule items prioritize taught courses over marked self-study entries', () => {
+  assert.match(view, /function isSelfStudyScheduleItem\(item: ScheduleItem\)/u)
+  assert.match(view, /items: \[\.\.\.slot\.items\]\.sort\(/u)
+  assert.match(view, /Number\(isSelfStudyScheduleItem\(left\)\)\s*-\s*Number\(isSelfStudyScheduleItem\(right\)\)/u)
+})

@@ -18,12 +18,18 @@ const COURSE_ENTRY_PATHS = new Set([
 ])
 const ASSIGNMENT_ENTRY_TYPES = Object.freeze([
   {
-    path: '/meol/common/hw/student/hwtask.view.jsp',
+    paths: new Set(['/meol/common/hw/student/hwtask.view.jsp']),
     parameter: 'hwtid',
     kind: 'assignment',
   },
   {
-    path: '/meol/common/question/test/student/stu_qtest_navigate.jsp',
+    paths: new Set([
+      '/meol/common/question/test/student/stu_qtest_navigate.jsp',
+      '/meol/common/question/test/student/stu_qtest_pre.jsp',
+      '/meol/common/question/test/student/stu_qtest_result.jsp',
+      '/meol/common/question/test/student/stu_qtest_more_result.jsp',
+      '/meol/common/question/test/student/stu_qtest_over.jsp',
+    ]),
     parameter: 'testId',
     kind: 'online-test',
   },
@@ -163,7 +169,7 @@ function courseEntryUrl(rawUrl, expectedCourseId) {
 
 function assignmentEntryUrl(rawUrl, expectedKind) {
   const url = theolUrl(rawUrl, '北化在线THEOL任务入口')
-  const type = ASSIGNMENT_ENTRY_TYPES.find((candidate) => candidate.path === url.pathname.toLowerCase())
+  const type = ASSIGNMENT_ENTRY_TYPES.find((candidate) => candidate.paths.has(url.pathname.toLowerCase()))
   if (!type) throw new Error('北化在线THEOL任务入口不是唯一任务详情页')
   const identifiers = url.searchParams.getAll(type.parameter).map((value) => value.trim())
   if (identifiers.length !== 1 || !/^\d+$/.test(identifiers[0])) {

@@ -312,7 +312,7 @@ export async function runAssignmentScan(runId, generation, { scoped = false, arc
         previousRecordCount: this.store.snapshot().assignments.length,
         receivedRecordCount: Array.isArray(assignments) ? assignments.length : 0,
         errorCode: error ? 'partial_assignment_scan' : complete ? null : 'partial_assignment_scan',
-        parserVersion: 'theol-adapter/5',
+        parserVersion: 'theol-adapter/6',
       })
       const state = await this.trackSyncWrite(this.store.update((current) => {
         if (generation !== this.assignmentGeneration || (!scoped && current.sync.runId !== runId)) return current

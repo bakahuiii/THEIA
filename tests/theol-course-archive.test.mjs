@@ -98,6 +98,9 @@ test('THEOL list-only assignment scans do not fetch task details or attachments'
       if (url === courseUrl) {
         return { url, text: '<input name="lid" value="101"><a href="/meol/common/hw/student/hwtask.jsp">课程作业</a>' }
       }
+      if (url.includes('/question/test/student/list.jsp')) {
+        return { url, text: '<input name="cateId" value="101"><table></table>' }
+      }
       return {
         url: 'https://course.buct.edu.cn/meol/common/hw/student/hwtask.jsp?lid=101',
         text: `<input name="lid" value="101"><table><tr><td><a href="${homeworkUrl}">第一次作业</a></td><td>2099-12-31 23:59</td><td>未提交</td></tr></table>`,
@@ -110,7 +113,11 @@ test('THEOL list-only assignment scans do not fetch task details or attachments'
     archive: false,
     onCourseResult: (value) => { courseResults.push(value) },
   })
-  assert.deepEqual(requested, [courseUrl, 'https://course.buct.edu.cn/meol/common/hw/student/hwtask.jsp?lid=101'])
+  assert.deepEqual(requested, [
+    courseUrl,
+    'https://course.buct.edu.cn/meol/common/hw/student/hwtask.jsp?lid=101',
+    'https://course.buct.edu.cn/meol/common/question/test/student/list.jsp?cateId=101',
+  ])
   assert.deepEqual(courseResults.map((item) => ({ courseId: item.courseId, complete: item.complete })), [
     { courseId: '101', complete: true },
   ])

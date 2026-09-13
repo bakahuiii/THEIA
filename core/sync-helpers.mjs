@@ -220,9 +220,9 @@ function uniqueTheolTaskKey(rawUrl) {
     const url = new URL(String(rawUrl || ''))
     if (url.protocol !== 'https:' || url.hostname !== 'course.buct.edu.cn' || url.port || url.username || url.password) return null
     const entry = [
-      { path: '/meol/common/hw/student/hwtask.view.jsp', parameter: 'hwtid', kind: 'assignment' },
-      { path: '/meol/common/question/test/student/stu_qtest_navigate.jsp', parameter: 'testId', kind: 'online-test' },
-    ].find((candidate) => candidate.path === url.pathname.toLowerCase())
+      { path: /\/meol\/common\/hw\/student\/hwtask\.view\.jsp$/i, parameter: 'hwtid', kind: 'assignment' },
+      { path: /\/meol\/common\/question\/test\/student\/stu_qtest_(?:navigate|pre|result|more_result|over)\.jsp$/i, parameter: 'testId', kind: 'online-test' },
+    ].find((candidate) => candidate.path.test(url.pathname))
     if (!entry) return null
     const identifiers = url.searchParams.getAll(entry.parameter).map((value) => value.trim()).filter(Boolean)
     return identifiers.length === 1 && /^\d+$/.test(identifiers[0])

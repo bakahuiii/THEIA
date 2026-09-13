@@ -113,6 +113,10 @@ function periodTimeLabel(calendar: AcademicCalendar | null | undefined, period: 
   return time ? `${time.startTime}-${time.endTime}` : "时间待解析";
 }
 
+function isSelfStudyScheduleItem(item: ScheduleItem) {
+  return /^\s*(?:\[|【)\s*自修\s*(?:\]|】)/u.test(String(item.title || ""));
+}
+
 function clampPopoverPosition(x: number, y: number, height = 420) {
   const viewportWidth = window.innerWidth;
   const availableWidth = Math.max(0, viewportWidth - POPOVER_MARGIN * 2);
@@ -249,7 +253,15 @@ export function ScheduleView({
         items: [item],
       });
     });
-    const slots = [...groupedSlots.values()].sort(
+    const slots = [...groupedSlots.values()].map((slot) => ({
+      ...slot,
+      // Keep every overlapping class in the popover, but make the primary
+      // card deterministic: a taught course takes precedence over a marked
+      // self-study entry when both occupy the same timetable slot.
+      items: [...slot.items].sort(
+        (left, right) => Number(isSelfStudyScheduleItem(left)) - Number(isSelfStudyScheduleItem(right)),
+      ),
+    })).sort(
       (left, right) =>
         left.start - right.start ||
         left.weekday - right.weekday ||

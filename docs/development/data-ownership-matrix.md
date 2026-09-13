@@ -18,7 +18,7 @@ THEIA 的功能跨越校园来源、Electron 特权能力、纯业务核心、�
 | `grades` | JWGLXT / 教务 API | parser、adapter、`gpa.mjs` | `academic/grades` | snapshot、Feed、`/v1/grades`、CSV | 成绩为空不代表没有成绩，先检查同步时间和来源错误。 |
 | `selectedCourses` | JWGLXT | `parsers/jwglxt.mjs` | `academic/selected-courses` | snapshot、Feed、`/v1/selected-courses`、CSV | 反映当前同步快照，不表示选课事务正在执行。 |
 | `academicProgress` | 官方培养方案优先；教务 API 可补充 | `academic-progress.mjs` | `academic/progress` | snapshot、Feed、`/v1/academic-progress` | 根树有 `and/or` 关系；不能把一条替代分支当作所有要求都必须满足。 |
-| `assignments` | 北化在线THEOL | `adapters/theol.mjs`、`parsers/theol.mjs` | `coursework/assignments` | snapshot、Feed、`/v1/assignments`、CSV、ICS | `pending` 是处理候选，不等于已经提交或允许自动提交。 |
+| `assignments` | 北化在线THEOL | `adapters/theol.mjs`、`parsers/theol.mjs` | `coursework/assignments` | snapshot、Feed、`/v1/assignments`、CSV、ICS | 作业和在线测试均不保留过期记录；未开始测试的 gotostart 启动器会归一化为预试入口。`pending` 是处理候选，不等于已经提交或允许自动提交。 |
 | `workspaces` | `CourseWorkService` | `course-work.mjs` | `coursework/workspaces` | snapshot、Feed、`/v1/workspaces`、CSV | 路径指向本机资料，存在不等于模型输出或学校提交已验证。 |
 | `notices` | JWGLXT/THEOL | adapters/parsers | `communication/notices` | snapshot、Feed、`/v1/notices`、CSV | `publishedAt` 是时间证据；标题/摘要可能不完整。 |
 | `emails` | IMAP | `imap-mail-service.mjs` | `communication/emails` | snapshot、Feed、`/v1/emails`、CSV | 正文可能按需缓存；邮件高度敏感，不应默认发送给第三方 AI。 |

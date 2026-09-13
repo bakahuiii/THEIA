@@ -23,7 +23,6 @@ test('THEOL work parser extracts downloadable material and test questions', () =
   assert.equal(parsed.questions[0].choices[0].value, 'A')
   assert.equal(parsed.questions[1].type, 'text')
 })
-
 test('course work resolves one legacy THEOL course and enters course context before task details', async () => {
   const root = await mkdtemp(resolve(tmpdir(), 'theia-work-entry-'))
   try {
@@ -65,6 +64,31 @@ test('course work resolves one legacy THEOL course and enters course context bef
   }
 })
 
+
+test('course work accepts THEOL pre-test detail URLs', async () => {
+  const root = await mkdtemp(resolve(tmpdir(), 'theia-work-pre-test-'))
+  try {
+    const store = new CampusStore(root)
+    await store.load()
+    const assignmentSourceUrl = 'https://course.buct.edu.cn/meol/common/question/test/student/stu_qtest_pre.jsp?testId=9005'
+    await store.update((state) => ({
+      ...state,
+      courses: [{ id: '101', title: 'Test course', source: 'theol', sourceUrl: courseUrl('101') }],
+      assignments: [{
+        id: 'online-test-pre-001', courseId: '101', title: 'Online test', kind: 'online-test',
+        dueAt: new Date(Date.now() + 86_400_000).toISOString(), status: 'pending',
+        source: 'theol', courseSourceUrl: courseUrl('101'), sourceUrl: assignmentSourceUrl,
+      }],
+    }))
+    const service = new CourseWorkService({ root, store })
+    const entry = service.assignmentEntry('online-test-pre-001')
+    assert.equal(entry.kind, 'online-test')
+    assert.equal(entry.uniqueTaskId, 'online-test:9005')
+    assert.equal(entry.assignmentSourceUrl, assignmentSourceUrl)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
 test('assignment entry permits read-only opening of submitted tasks but keeps automation current-only', async () => {
   const root = await mkdtemp(resolve(tmpdir(), 'theia-work-readonly-'))
   try {
@@ -88,7 +112,6 @@ test('assignment entry permits read-only opening of submitted tasks but keeps au
     await rm(root, { recursive: true, force: true })
   }
 })
-
 test('course work stops before parsing when THEOL redirects to another course or task', async (t) => {
   const scenarios = [
     {
@@ -156,7 +179,6 @@ test('course work stops before parsing when THEOL redirects to another course or
     })
   }
 })
-
 test('course work rejects ambiguous context and non-unique task pages before network access', async () => {
   const cases = [
     {
@@ -238,7 +260,6 @@ test('course work rejects ambiguous context and non-unique task pages before net
     }
   }
 })
-
 test('course work service saves a local work package and accepts a test answer key', async () => {
   const root = await mkdtemp(resolve(tmpdir(), 'theia-work-'))
   try {
@@ -282,7 +303,6 @@ test('course work service saves a local work package and accepts a test answer k
     await rm(root, { recursive: true, force: true })
   }
 })
-
 test('course work service preserves attachments whose filenames collide on Windows', async () => {
   const root = await mkdtemp(resolve(tmpdir(), 'theia-work-collisions-'))
   try {
@@ -320,7 +340,6 @@ test('course work service preserves attachments whose filenames collide on Windo
     await rm(root, { recursive: true, force: true })
   }
 })
-
 test('course work service keeps hostile attachment filenames inside the workspace', async () => {
   const root = await mkdtemp(resolve(tmpdir(), 'theia-work-attachment-paths-'))
   try {
@@ -357,7 +376,6 @@ test('course work service keeps hostile attachment filenames inside the workspac
     await rm(root, { recursive: true, force: true })
   }
 })
-
 test('course work service rejects tampered workspace file paths outside the assignment directory', async () => {
   const root = await mkdtemp(resolve(tmpdir(), 'theia-work-paths-'))
   try {
@@ -400,7 +418,6 @@ test('course work service rejects tampered workspace file paths outside the assi
     await rm(root, { recursive: true, force: true })
   }
 })
-
 test('preparing a workspace drops previously tampered optional paths', async () => {
   const root = await mkdtemp(resolve(tmpdir(), 'theia-work-repair-'))
   try {

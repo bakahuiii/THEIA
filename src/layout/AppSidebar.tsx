@@ -1,7 +1,7 @@
 import { Database, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import { useMemo } from "react";
 import { navGroups, navItems } from "../ui/navigation";
-import { SyncChip, type ViewId } from "../ui/app-shared";
+import { isExpiredAssignment, SyncChip, type ViewId } from "../ui/app-shared";
 import type { CampusState } from "../types";
 
 type AppSidebarProps = {
@@ -49,7 +49,7 @@ export function AppSidebar({
   mark,
 }: AppSidebarProps) {
   const unfinishedAssignments = useMemo(
-    () => state.assignments.filter((item) => item.status !== "submitted").length,
+    () => state.assignments.filter((item) => item.status !== "submitted" && !isExpiredAssignment(item)).length,
     [state.assignments],
   );
   return (

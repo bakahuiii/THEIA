@@ -433,10 +433,34 @@ export function useTheiaApp() {
   }, [applyRendererSnapshot, refreshAdvisorOverview, setError, setMsg, syncFailureObserver]);
 
   useEffect(() => {
-    if (!state) return;
-    const interval = window.setInterval(() => void refreshAdvisorOverview(), 60_000);
-    return () => window.clearInterval(interval);
-  }, [refreshAdvisorOverview, state]);
+    let active = true;
+    const reconcile = async () => {
+      try {
+        const snapshot = await bridge.getRendererSnapshot();
+        if (!active) return;
+        // Progress events are transient. If the renderer missed the terminal
+        // event, reconcile the banner against the persisted sync marker
+        // instead of leaving the whole workspace in a permanent syncing state.
+        if (syncSnapshotIsPending(snapshot.sync) && syncStartedDuringRenderer(snapshot.sync, rendererStartedAt.current)) return;
+        setSyncing(false);
+        setSyncStage(null);
+        setSyncProgress(null);
+      } catch {
+        // Keep the current indicator until an authoritative snapshot is read.
+      }
+    };
+    const advisorInterval = state
+      ? window.setInterval(() => void refreshAdvisorOverview(), 60_000)
+      : null;
+    const syncInterval = syncing && syncStage !== "assignments"
+      ? window.setInterval(() => void reconcile(), 5_000)
+      : null;
+    return () => {
+      active = false;
+      if (advisorInterval !== null) window.clearInterval(advisorInterval);
+      if (syncInterval !== null) window.clearInterval(syncInterval);
+    };
+  }, [refreshAdvisorOverview, state, syncStage, syncing]);
 
   useEffect(() => {
     if (settingsOpen) void refreshActivityLog();

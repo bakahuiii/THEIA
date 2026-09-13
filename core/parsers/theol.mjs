@@ -298,18 +298,29 @@ export function parseTheolCourseResources(html, { courseId, sourceUrl, capturedA
   return [...new Map(items.map((item) => [item.id, item])).values()].slice(0, 500)
 }
 
-function assignmentLink(rawHref, sourceUrl) {
+function assignmentLink(rawHref, sourceUrl, rawOnclick = '') {
   const href = absoluteUrl(rawHref, sourceUrl)
-  if (!href) return null
-  const url = new URL(href)
-  const match = [
-    { path: /\/(?:hwtask\.view|hwtask_blended)\.jsp$/i, parameter: 'hwtid', kind: 'assignment' },
-    { path: /\/stu_qtest_(?:navigate|result|more_result|over)\.jsp$/i, parameter: 'testId', kind: 'online-test' },
-  ].find((candidate) => candidate.path.test(url.pathname))
-  if (!match) return null
-  const identifiers = url.searchParams.getAll(match.parameter).map((value) => value.trim()).filter(Boolean)
-  if (identifiers.length !== 1 || !/^\d+$/.test(identifiers[0])) return null
-  return { href, kind: match.kind, identifier: identifiers[0] }
+  if (href) {
+    const url = new URL(href)
+    const match = [
+      { path: /\/(?:hwtask\.view|hwtask_blended)\.jsp$/i, parameter: 'hwtid', kind: 'assignment' },
+      { path: /\/stu_qtest_(?:navigate|result|pre|more_result|over)\.jsp$/i, parameter: 'testId', kind: 'online-test' },
+    ].find((candidate) => candidate.path.test(url.pathname))
+    if (match) {
+      const identifiers = url.searchParams.getAll(match.parameter).map((value) => value.trim()).filter(Boolean)
+      if (identifiers.length === 1 && /^\d+$/.test(identifiers[0])) {
+        return { href, kind: match.kind, identifier: identifiers[0] }
+      }
+    }
+  }
+
+  // THEOL uses a placeholder href (###) for an unstarted test and puts the
+  // only stable test id in gotostart(...). Convert that read-only launcher to
+  // the actual pre-test route so current tests are not silently discarded.
+  const testId = String(rawOnclick || '').match(/\b(?:gotostart|start)\s*\(\s*["']?(\d+)\b/i)?.[1]
+  if (!testId) return null
+  const testHref = absoluteUrl(`/meol/common/question/test/student/stu_qtest_pre.jsp?testId=${testId}`, sourceUrl)
+  return testHref ? { href: testHref, kind: 'online-test', identifier: testId } : null
 }
 
 function assignmentTitle($, node, link, kind) {
@@ -346,8 +357,8 @@ export function parseTheolAssignments(html, { course, sourceUrl, capturedAt = ne
   const $ = cheerio.load(html)
   const items = []
   const seen = new Set()
-  $('a[href]').each((_index, link) => {
-    const task = assignmentLink($(link).attr('href'), sourceUrl)
+  $('[href], [onclick]').each((_index, link) => {
+    const task = assignmentLink($(link).attr('href'), sourceUrl, $(link).attr('onclick'))
     if (!task) return
     const row = $(link).closest('tr, li, .task, .homework, .hw-item, .list-item').first()
     const node = row.length ? row : $(link).parent()

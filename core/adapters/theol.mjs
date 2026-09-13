@@ -20,7 +20,7 @@ const PERSONAL = new URL('personal.do', BASE).toString()
 const COURSE_LIST = new URL('lesson/blen.student.lesson.list.jsp', BASE).toString()
 const WELCOME = new URL('welcomepage/student/index.jsp', BASE).toString()
 const MOBILE_UNDONE_TASKS = 'http://course.buct.edu.cn/mobile/stuUnDoTaskList.do'
-const PARSER_VERSION = 'theol-adapter/5'
+const PARSER_VERSION = 'theol-adapter/6'
 const TASK_LIST_PAGE_LIMIT = 20
 const COURSE_IDENTITY_PARAMETERS = new Set(['courseid', 'lid', 'cateid'])
 
@@ -62,10 +62,11 @@ function taskListCourseIdentityMatches(result, course) {
     const value = String($(node).attr('value') || '').trim()
     if (COURSE_IDENTITY_PARAMETERS.has(name) && value) identities.add(value)
   })
-  $('[href], [action], [src]').each((_index, node) => {
-    for (const attribute of ['href', 'action', 'src']) {
-      addUrlCourseIdentities(identities, $(node).attr(attribute), finalUrl)
-    }
+  // Course-navigation links and embedded resource URLs often carry another
+  // course id on otherwise valid THEOL task pages. Only a form action is
+  // task-context evidence here; ordinary href/src values are not.
+  $('form[action]').each((_index, node) => {
+    addUrlCourseIdentities(identities, $(node).attr('action'), finalUrl)
   })
   $('script, [onclick]').each((_index, node) => {
     const source = `${$(node).html() || ''} ${$(node).attr('onclick') || ''}`
@@ -119,16 +120,52 @@ function isCurrentTask(item, now = Date.now()) {
   return !Number.isFinite(dueAt) || dueAt > now
 }
 
+function taskListLinkKind(item) {
+  const url = String(item?.url || '')
+  if (/hwtask/i.test(url)) return 'assignment'
+  if (/(?:question[\/_]test[\/_]student[\/_]list|question_test_student_list)/i.test(url)) return 'online-test'
+  const value = `${item?.title || ''} ${url}`
+  if (/(?:在线测试|测试|test|quiz|exam)/i.test(value)) return 'online-test'
+  if (/(?:课程作业|作业|任务)/i.test(value)) return 'assignment'
+  return null
+}
+
 function taskListLinks(links, courseId) {
-  const direct = links.filter((item) => /(?:hwtask|question[\/_]test[\/_]student[\/_]list|question_test_student_list)/i.test(item.url))
-  if (direct.length) return direct
-  const named = links.filter((item) => /(?:课程作业|在线测试|作业|测试|hwtask|test|quiz|exam)/i.test(`${item.title} ${item.url}`)).slice(0, 2)
-  if (named.length) return named
+  const candidates = Array.isArray(links) ? links : []
+  const direct = candidates.filter((item) => /(?:hwtask|question[\/_]test[\/_]student[\/_]list|question_test_student_list)/i.test(String(item?.url || '')))
+  const named = candidates.filter((item) => /(?:课程作业|作业|任务|在线测试|测试|hwtask|test|quiz|exam)/i.test(`${item?.title || ''} ${item?.url || ''}`))
+  const selected = []
+  const seenUrls = new Set()
+  const append = (item) => {
+    const url = String(item?.url || '')
+    if (!url || seenUrls.has(url)) return
+    seenUrls.add(url)
+    selected.push(item)
+  }
+
+  direct.forEach(append)
+  const directKinds = new Set(direct.map(taskListLinkKind).filter(Boolean))
+  const namedKinds = new Set()
+  for (const item of named) {
+    const kind = taskListLinkKind(item)
+    if (!kind || directKinds.has(kind) || namedKinds.has(kind)) continue
+    namedKinds.add(kind)
+    append(item)
+  }
+
   const id = encodeURIComponent(String(courseId || ''))
-  return [
-    { title: '课程作业', url: new URL(`common/hw/student/hwtask.jsp?lid=${id}`, BASE).toString() },
-    { title: '在线测试', url: new URL(`common/question/test/student/list.jsp?cateId=${id}`, BASE).toString() },
+  const fallback = [
+    { title: '\u8bfe\u7a0b\u4f5c\u4e1a', url: new URL(`common/hw/student/hwtask.jsp?lid=${id}`, BASE).toString() },
+    { title: '\u5728\u7ebf\u6d4b\u8bd5', url: new URL(`common/question/test/student/list.jsp?cateId=${id}`, BASE).toString() },
   ]
+  const selectedKinds = new Set(selected.map(taskListLinkKind).filter(Boolean))
+  if (!selected.length) return fallback
+  // A course page commonly exposes the homework list directly while hiding
+  // the test entry behind a named transfer link. Preserve the existing
+  // homework request pattern, but always probe the missing test list so tests
+  // cannot disappear merely because the two links use different URL shapes.
+  if (!selectedKinds.has('online-test')) append(fallback[1])
+  return selected
 }
 
 function taskListPageUrl(rawHref, baseUrl, courseId = null) {

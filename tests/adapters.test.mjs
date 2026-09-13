@@ -22,7 +22,6 @@ test('THEOL probes the authenticated personal homepage instead of the public ind
   assert.equal(requested[0], 'https://course.buct.edu.cn/meol/personal.do')
   assert.equal(THEOL_URLS.personal, requested[0])
 })
-
 test('THEOL fast sync returns home courses and notices without claiming assignments', async () => {
   const home = '<a href="/meol/homepage/course/course_index.jsp?courseId=101">Course One</a><a href="/meol/notice/view.jsp?id=notice-1">通知</a>'
   const requested = []
@@ -44,7 +43,6 @@ test('THEOL fast sync returns home courses and notices without claiming assignme
   assert.equal(result.domainOutcomes.assignments.attempted, false)
   assert.deepEqual(requested, [THEOL_URLS.personal])
 })
-
 test('THEOL course sync falls back to the dedicated course list', async () => {
   const requested = []
   const adapter = new TheolAdapter({
@@ -60,7 +58,6 @@ test('THEOL course sync falls back to the dedicated course list', async () => {
   assert.deepEqual(requested, [THEOL_URLS.personal, THEOL_URLS.courseList])
   assert.equal(result.domainOutcomes.courses.emptyConfirmed, false)
 })
-
 test('THEOL empty authenticated shells fail the course scan instead of clearing local data', async () => {
   const requested = []
   const adapter = new TheolAdapter({
@@ -76,7 +73,6 @@ test('THEOL empty authenticated shells fail the course scan instead of clearing 
   )
   assert.deepEqual(requested, [THEOL_URLS.personal, THEOL_URLS.courseList, THEOL_URLS.welcome])
 })
-
 test('THEOL course details are opt-in and resource capture is course-scoped', async () => {
   const courseUrl = 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=101'
   const resourceUrl = 'https://course.buct.edu.cn/meol/homepage/course/courseResource_stu.jsp?folderid=0&lid=101'
@@ -99,7 +95,6 @@ test('THEOL course details are opt-in and resource capture is course-scoped', as
   assert.equal(resources.resources[0].courseId, '101')
   void fast
 })
-
 test('THEOL detail capture rejects pages without course identity evidence', async () => {
   const adapter = new TheolAdapter({
     async page(url) {
@@ -112,7 +107,6 @@ test('THEOL detail capture rejects pages without course identity evidence', asyn
   assert.deepEqual(result.courses, [])
   assert.equal(result.errors.length, 1)
 })
-
 test('THEOL detail failures retain the complete personal roster', async () => {
   const first = 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=101'
   const second = 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=102'
@@ -127,7 +121,6 @@ test('THEOL detail failures retain the complete personal roster', async () => {
   assert.deepEqual(result.courses.map((item) => item.id), ['101', '102'])
   assert.equal(result.domainOutcomes['course-details'].completeness, 'partial')
 })
-
 test('THEOL resource sync follows the frameset mainFrame and nested folders', async () => {
   const course = { id: '17010', title: '课程资源测试', source: 'theol', sourceUrl: 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=17010', resourceLinks: [{ title: '课程资源', url: 'https://course.buct.edu.cn/meol/common/script/courseResource.jsp?folderid=0&lid=17010' }] }
   const requested = []
@@ -148,7 +141,6 @@ test('THEOL resource sync follows the frameset mainFrame and nested folders', as
   assert.deepEqual(result.resources.map((item) => item.kind), ['folder', 'file'])
   assert.equal(result.errors.length, 0)
 })
-
 test('THEOL resource sync follows a buildless course column iframe', async () => {
   const course = {
     id: '17010', title: '栏目资源测试', source: 'theol',
@@ -174,7 +166,6 @@ test('THEOL resource sync follows a buildless course column iframe', async () =>
   assert.equal(result.resources[0].title, '1科技论文写作-前言.ppt')
   assert.equal(result.errors.length, 0)
 })
-
 test('THEOL assignment sync keeps each course and task list strictly serial', async () => {
   const courses = [
     { id: '101', title: 'Course One', source: 'theol', sourceUrl: 'https://course.buct.edu.cn/meol/course?courseId=101' },
@@ -197,6 +188,9 @@ test('THEOL assignment sync keeps each course and task list strictly serial', as
       if (url.includes('courseId=202')) {
         return { url, text: '<input name="lid" value="202"><a href="/meol/transfer?columnId=2">在线测试</a>' }
       }
+      if (url.includes('/question/test/student/list.jsp')) {
+        return { url, text: '<input name="cateId" value="101"><table></table>' }
+      }
       const firstCourse = url.includes('columnId=1')
       const id = firstCourse ? '101' : '202'
       return {
@@ -215,6 +209,7 @@ test('THEOL assignment sync keeps each course and task list strictly serial', as
   assert.deepEqual(requested, [
     courses[0].sourceUrl,
     'https://course.buct.edu.cn/meol/transfer?columnId=1',
+    'https://course.buct.edu.cn/meol/common/question/test/student/list.jsp?cateId=101',
     courses[1].sourceUrl,
     'https://course.buct.edu.cn/meol/transfer?columnId=2',
   ])
@@ -226,6 +221,48 @@ test('THEOL assignment sync keeps each course and task list strictly serial', as
   assert.equal(result.domainOutcomes.assignments.completeness, 'complete')
 })
 
+
+test('THEOL assignment sync keeps a named online-test link when homework is also direct', async () => {
+  const course = { id: '101', title: 'Course', source: 'theol', sourceUrl: 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=101' }
+  const requested = []
+  const adapter = new TheolAdapter({
+    async page(url) {
+      requested.push(url)
+      if (url === course.sourceUrl) {
+        return {
+          url,
+          text: '<script>const courseId=101</script><a href="/meol/common/hw/student/hwtask.jsp?lid=101">\u8bfe\u7a0b\u4f5c\u4e1a</a><a href="/meol/transfer?columnId=2">\u5728\u7ebf\u6d4b\u8bd5</a>',
+        }
+      }
+      if (url.includes('/hwtask.jsp')) {
+        return {
+          url,
+          text: '<input name="lid" value="101"><table><tr><td><a href="hwtask.view.jsp?hwtid=1">Homework</a></td><td>2099-09-20 23:59</td><td>\u672a\u63d0\u4ea4</td></tr></table>',
+        }
+      }
+      if (url.includes('columnId=2')) {
+        return {
+          url: 'https://course.buct.edu.cn/meol/common/question/test/student/list.jsp?cateId=101',
+          text: '<input name="cateId" value="101"><table><tr><td>Online test</td><td>Published</td><td>2099-09-20 23:59</td><td><a href="stu_qtest_pre.jsp?testId=2">Start</a></td></tr></table>',
+        }
+      }
+      throw new Error(`unexpected page ${url}`)
+    },
+  })
+
+  const result = await adapter.syncAssignments([course])
+
+  assert.deepEqual(requested, [
+    course.sourceUrl,
+    'https://course.buct.edu.cn/meol/common/hw/student/hwtask.jsp?lid=101',
+    'https://course.buct.edu.cn/meol/transfer?columnId=2',
+  ])
+  assert.deepEqual(result.assignments.map((item) => [item.kind, item.title]), [
+    ['assignment', 'Homework'],
+    ['online-test', 'Online test'],
+  ])
+  assert.equal(result.errors.length, 0)
+})
 test('THEOL assignment sync stops after a rate-limit response', async () => {
   const first = { id: '101', title: 'Course One', source: 'theol', sourceUrl: 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=101' }
   const second = { id: '102', title: 'Course Two', source: 'theol', sourceUrl: 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=102' }
@@ -250,7 +287,6 @@ test('THEOL assignment sync stops after a rate-limit response', async () => {
   assert.equal(result.source.rateLimited, true)
   assert.deepEqual(result.failedCourseIds, ['101'])
 })
-
 test('THEOL assignment sync removes tasks whose real due time has passed', async () => {
   const course = {
     id: '101', title: 'Course One', source: 'theol',
@@ -276,6 +312,40 @@ test('THEOL assignment sync removes tasks whose real due time has passed', async
   assert.equal(result.domainOutcomes.assignments.emptyConfirmed, true)
   assert.equal(result.domainOutcomes.assignments.completeness, 'complete')
 })
+test('THEOL assignment sync parses unstarted online tests and ignores expired tests', async () => {
+  const course = {
+    id: '101', title: 'Course One', source: 'theol',
+    sourceUrl: 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=101',
+  }
+  const adapter = new TheolAdapter({
+    async page(url) {
+      if (url === course.sourceUrl) {
+        return {
+          url,
+          text: '<script>const courseId=101</script><a href="/meol/transfer?columnId=2">在线测试</a>',
+        }
+      }
+      return {
+        url: 'https://course.buct.edu.cn/meol/common/question/test/student/list.jsp?cateId=101',
+        text: `<input name="cateId" value="101"><table>
+          <tr><th>测试标题</th><th>开始时间</th><th>截止时间</th><th>开始测试</th></tr>
+          <tr><td><img title="试题型">当前测试</td><td>2026-09-13 08:00:00</td><td>2099-09-20 23:59:00</td><td><a href="###" onclick="return gotostart('9001','client','new03')"><img alt="开始"></a></td></tr>
+          <tr><td><img title="试题型">历史测试</td><td>2021-07-01 08:00:00</td><td>2021-07-16 23:59:00</td><td><a href="stu_qtest_result.jsp?testId=9002">查看结果</a></td></tr>
+        </table>`,
+      }
+    },
+  })
+
+  const result = await adapter.syncAssignments([course])
+
+  assert.deepEqual(result.assignments.map((item) => [item.kind, item.title, item.sourceUrl]), [[
+    'online-test',
+    '当前测试',
+    'https://course.buct.edu.cn/meol/common/question/test/student/stu_qtest_pre.jsp?testId=9001',
+  ]])
+  assert.equal(result.domainOutcomes.assignments.emptyConfirmed, false)
+  assert.equal(result.domainOutcomes.assignments.receivedRecordCount, 1)
+})
 
 test('THEOL assignment sync follows task-list pagination', async () => {
   const course = {
@@ -291,6 +361,9 @@ test('THEOL assignment sync follows task-list pagination', async () => {
           url,
           text: '<script>const courseId=101</script><a href="/meol/common/hw/student/hwtask.jsp">课程作业</a>',
         }
+      }
+      if (url.includes('/question/test/student/list.jsp')) {
+        return { url, text: '<input name="cateId" value="101"><table></table>' }
       }
       if (url.includes('s_gotopage=') === false) {
         return {
@@ -310,6 +383,7 @@ test('THEOL assignment sync follows task-list pagination', async () => {
     course.sourceUrl,
     'https://course.buct.edu.cn/meol/common/hw/student/hwtask.jsp?lid=101',
     'https://course.buct.edu.cn/meol/common/hw/student/hwtask.jsp?s_gotopage=2&lid=101',
+    'https://course.buct.edu.cn/meol/common/question/test/student/list.jsp?cateId=101',
   ])
   assert.deepEqual(result.assignments.map((item) => item.title), ['第一页作业', '第二页作业'])
   assert.deepEqual(result.successfulCourseIds, ['101'])
@@ -317,7 +391,6 @@ test('THEOL assignment sync follows task-list pagination', async () => {
   assert.equal(result.domainOutcomes.assignments.receivedRecordCount, 2)
   assert.equal(result.domainOutcomes.assignments.completeness, 'complete')
 })
-
 test('THEOL assignment sync retains earlier pages when a later page fails', async () => {
   const course = {
     id: '101', title: 'Course One', source: 'theol',
@@ -347,7 +420,6 @@ test('THEOL assignment sync retains earlier pages when a later page fails', asyn
   assert.equal(result.domainOutcomes.assignments.completeness, 'partial')
   assert.match(result.errors[0], /page two unavailable/)
 })
-
 test('THEOL mobile fallback does not hide an incomplete paginated course', async () => {
   const course = {
     id: '101', title: 'Course One', source: 'theol',
@@ -387,7 +459,6 @@ test('THEOL mobile fallback does not hide an incomplete paginated course', async
   assert.equal(result.domainOutcomes.assignments.completeness, 'partial')
   assert.match(result.errors.join('; '), /page two unavailable/)
 })
-
 test('THEOL falls back to the mobile pending-task feed after a course-page failure', async () => {
   const course = {
     id: '101', title: 'Course One', source: 'theol',
@@ -443,7 +514,6 @@ test('THEOL falls back to the mobile pending-task feed after a course-page failu
   assert.equal(result.source.mobileFallback.added, 2)
   assert.equal(result.domainOutcomes.assignments.completeness, 'complete')
 })
-
 test('THEOL assignment sync rejects a course page whose identity does not match the requested course', async () => {
   const course = {
     id: '101', title: 'Course One', source: 'theol',
@@ -466,7 +536,6 @@ test('THEOL assignment sync rejects a course page whose identity does not match 
   assert.equal(result.domainOutcomes.assignments.emptyConfirmed, false)
   assert.match(result.errors[0], /different course context/)
 })
-
 test('THEOL assignment sync rejects mismatched task-list URL or DOM identity without merging that course', async (t) => {
   const course = {
     id: '101', title: 'Course One', source: 'theol',
@@ -518,6 +587,32 @@ test('THEOL assignment sync rejects mismatched task-list URL or DOM identity wit
     })
   }
 })
+test('THEOL task-list identity ignores unrelated course navigation links', async () => {
+  const course = {
+    id: '101', title: 'Course One', source: 'theol',
+    sourceUrl: 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=101',
+  }
+  const adapter = new TheolAdapter({
+    async page(url) {
+      if (url === course.sourceUrl) {
+        return { url, text: '<script>const courseId=101</script><a href="/meol/common/hw/student/hwtask.jsp">课程作业</a>' }
+      }
+      if (url.includes('/question/test/student/list.jsp')) {
+        return { url, text: '<a href="/meol/homepage/course/course_index.jsp?courseId=202">另一门课程</a><table></table>' }
+      }
+      return {
+        url,
+        text: '<a href="/meol/homepage/course/course_index.jsp?courseId=202">另一门课程</a><table><tr><td><a href="hwtask.view.jsp?hwtid=9003">当前作业</a></td><td>2099-08-20 23:59</td><td>未提交</td></tr></table>',
+      }
+    },
+  })
+
+  const result = await adapter.syncAssignments([course])
+
+  assert.deepEqual(result.assignments.map((item) => item.title), ['当前作业'])
+  assert.deepEqual(result.successfulCourseIds, ['101'])
+  assert.deepEqual(result.failedCourseIds, [])
+})
 
 test('health cloud parses the paired metric and result table', async () => {
   const page = `
@@ -553,7 +648,6 @@ test('health cloud parses the paired metric and result table', async () => {
     availableYears: [],
   })
 })
-
 test('health cloud upgrades only its own insecure authentication callback', () => {
   assert.equal(
     upgradeTyglRedirectUrl('http://tygl.buct.edu.cn/?ticket=opaque#result'),
@@ -567,7 +661,6 @@ test('health cloud upgrades only its own insecure authentication callback', () =
     'not a URL',
   ]) assert.equal(upgradeTyglRedirectUrl(url), null, url)
 })
-
 test('health cloud returns a readable year without measurements as an empty result', async () => {
   const availableYears = [
     { yearKey: '2026-2027_1', label: '2026年(1)' },
@@ -591,7 +684,6 @@ test('health cloud returns a readable year without measurements as an empty resu
     assert.equal(score[field], null, field)
   }
 })
-
 test('JWGLXT queries current-term schedule, grades and exams through their student endpoints', async () => {
   const forms = []
   const requestPhases = []
@@ -676,7 +768,6 @@ test('JWGLXT queries current-term schedule, grades and exams through their stude
   const firstSecondary = requestPhases.findIndex((phase) => ['selected-courses', 'notices'].includes(phase))
   assert.ok(firstSecondary > requestPhases.findLastIndex((phase) => ['schedule', 'exams', 'grades', 'academic-progress'].includes(phase)))
 })
-
 test('JWGLXT publishes a completed domain while another domain is still pending', async () => {
   let releaseExams
   const examsGate = new Promise((resolveGate) => { releaseExams = resolveGate })
@@ -711,7 +802,6 @@ test('JWGLXT publishes a completed domain while another domain is still pending'
   assert.equal(result.domainOutcomes.schedule.succeeded, true)
   assert.equal(result.domainOutcomes.exams.succeeded, true)
 })
-
 test('JWGLXT schedule sync prioritizes the selected term and ignores years before admission', async () => {
   const scheduleYears = ['2034', '2033', '2027', '2026', '2025', '2024', '2023', '2022']
     .map((year) => `<option value="${year}"${year === '2026' ? ' selected' : ''}>${year}-${Number(year) + 1}</option>`)
@@ -744,7 +834,6 @@ test('JWGLXT schedule sync prioritizes the selected term and ignores years befor
   assert.equal(result.source.diagnostics.scheduleFetch[0].termId, '2026-3')
   assert.equal(result.errors.length, 0)
 })
-
 test('JWGLXT retries an unpositioned schedule payload through the configured API endpoint', async () => {
   const calls = []
   const client = {
@@ -767,7 +856,6 @@ test('JWGLXT retries an unpositioned schedule payload through the configured API
   assert.equal(result.domainOutcomes.schedule.completeness, 'complete')
   assert.ok(calls.some((url) => url.includes('xskbcx_cxXsKb.html')))
 })
-
 test('JWGLXT never treats a fallback empty schedule as confirmation after an unpositioned response', async () => {
   const client = {
     async page(url) {
@@ -788,7 +876,6 @@ test('JWGLXT never treats a fallback empty schedule as confirmation after an unp
   assert.equal(result.domainOutcomes.schedule.errorCode, 'schedule_read_failed')
   assert.ok(result.source.diagnostics.scheduleFetch.every((entry) => entry.unpositioned))
 })
-
 test('JWGLXT rejects course-list rows that cannot be placed on a timetable', async () => {
   const client = {
     async page(url) {
@@ -813,7 +900,6 @@ test('JWGLXT rejects course-list rows that cannot be placed on a timetable', asy
   assert.equal(result.source.diagnostics.scheduleFetch[0].unpositioned, true)
   assert.equal(result.source.diagnostics.scheduleFetch[0].returnedCount, 1)
 })
-
 test('JWGLXT keeps a partial timetable successful when another term returns an unpositioned course list', async () => {
   const client = {
     async page(url) {
@@ -842,7 +928,6 @@ test('JWGLXT keeps a partial timetable successful when another term returns an u
   )
   assert.deepEqual(result.errors, [])
 })
-
 test('JWGLXT grades retry concrete terms when the all-term endpoint rejects blank selectors', async () => {
   const gradeRequests = []
   const client = {
@@ -868,7 +953,6 @@ test('JWGLXT grades retry concrete terms when the all-term endpoint rejects blan
     'cjcx_cxDgXscj.html?doType=query&gnmkdm=N305005',
   ].some((suffix) => url.endsWith(suffix))))
 })
-
 test('JWGLXT accepts deeply nested grade payloads and explicit empty responses', async () => {
   const client = {
     async page(url) {
@@ -885,7 +969,6 @@ test('JWGLXT accepts deeply nested grade payloads and explicit empty responses',
   assert.equal(result.domainOutcomes.grades.succeeded, true)
   assert.equal(result.grades.length, 1)
 })
-
 test('JWGLXT academic-progress retry does not request schedule, exams, grades, or selected courses', async () => {
   const requests = []
   const client = {

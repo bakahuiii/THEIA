@@ -9,6 +9,7 @@ import { THEOL_URLS } from '../core/adapters/theol.mjs'
 import { upgradeTyglRedirectUrl } from '../core/adapters/tygl.mjs'
 import { probeAcademicCalendarOcrRuntime } from '../core/academic-calendar-ocr.mjs'
 import { toTheiaFeed } from '../core/schema.mjs'
+import { AUTO_SYNC_STALE_AFTER_MS, lastSyncAt, shouldRefreshStaleSync } from '../core/sync-policy.mjs'
 import {
   cacheMotionVenueCatalog,
   cacheMotionVenueStatus,
@@ -1299,10 +1300,31 @@ async function autoLoginOnStartup() {
   const credentialStatus = await credentialVault.status()
   if (credentialStatus.saved && !credentialStatus.error) {
     await schoolProxyReady.catch(() => undefined)
+    // Verify the saved browser session on every launch, but only fetch campus
+    // data again when the last successful sync is at least one day old.
+    const sync = store.snapshot().sync
+    const refreshStaleData = shouldRefreshStaleSync(sync)
+    const lastSyncTimestamp = lastSyncAt(sync)
+    void writeDiagnostic('sync.startup_refresh_decision', {
+      refreshStaleData,
+      lastSyncAt: lastSyncTimestamp === null ? null : new Date(lastSyncTimestamp).toISOString(),
+      staleAfterMs: AUTO_SYNC_STALE_AFTER_MS,
+    })
     // API credentials and the browser partition are independent. Require a
     // real browser check here so the first source-page click does not pay for
-    // a second hidden authentication probe.
-    await openLoginWindow({ background: true, requireBrowser: true })
+    // a second hidden authentication probe. Startup auth itself is always
+    // session-only; a stale refresh is launched as one foreground batch below
+    // so it advances the global sync watermark exactly once.
+    const actors = await openLoginWindow({ background: true, requireBrowser: true, skipSync: true })
+    if (!refreshStaleData) return
+    await Promise.allSettled(actors.map((actor) => actor?.lifecycle).filter(Boolean))
+    if (!actors.some((actor) => actor?.authenticated)) return
+    try {
+      await syncOrchestrator.syncForegroundCampusData()
+      syncOrchestrator.scheduleAcademicStaticPrefetch({ reason: 'startup_stale' })
+    } catch (error) {
+      void writeDiagnostic('sync.startup_refresh_failed', { error: diagnosticError(error) })
+    }
   }
 }
 
@@ -1376,7 +1398,7 @@ if (theolMobileDiagnosticOutput) {
   if (!lock) {
     console.error('[THEIA] Single instance lock failed - another instance is already running')
     app.whenReady().then(() => {
-      dialog.showErrorBoxSync(
+      dialog.showErrorBox(
         'THEIA 已在运行',
         'THEIA 的另一个实例正在运行。\n\n' +
         '如果您确认没有打开其他 THEIA 窗口，可能是进程残留导致的。\n\n' +
@@ -1429,7 +1451,7 @@ if (theolMobileDiagnosticOutput) {
       if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close()
       splashWindow = null
       app.whenReady().then(() => {
-        dialog.showErrorBoxSync(
+        dialog.showErrorBox(
           'THEIA 启动失败',
           `启动时发生错误：\n\n${error.message || error}\n\n` +
           '请尝试：\n' +

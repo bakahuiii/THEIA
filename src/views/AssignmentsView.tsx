@@ -1,4 +1,4 @@
-import { Bell, CheckCircle2, ChevronLeft, ChevronRight, FileText } from "lucide-react";
+import { Bell, CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, FileText } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { AssignmentRow } from "../components/AssignmentRow";
 import {
@@ -46,7 +46,8 @@ export function AssignmentsView({
   workingId,
   ...actions
 }: AssignmentViewProps) {
-  const [mode, setMode] = useState<"pending" | "submitted" | "all">("pending");
+  const [kindFilter, setKindFilter] = useState<"assignments" | "tests">("assignments");
+  const [statusFilter, setStatusFilter] = useState<"pending" | "completed" | "all">("pending");
   const [page, setPage] = useState(0);
   const workspaceByAssignment = useMemo(
     () => new Map(workspaces.map((item) => [item.assignmentId, item])),
@@ -55,48 +56,79 @@ export function AssignmentsView({
   const filtered = useMemo(
     () =>
       items
-        .filter((item) => !isExpiredAssignment(item))
-        .filter(
-          (item) =>
-            mode === "all" ||
-            (mode === "submitted"
-              ? item.status === "submitted"
-              : item.status !== "submitted"),
-        )
+        .filter((item) => kindFilter === "tests" ? item.kind === "online-test" : item.kind !== "online-test")
+        .filter((item) => {
+          if (statusFilter === "completed") return item.status === "submitted";
+          if (statusFilter === "all") return !isExpiredAssignment(item);
+          return item.status !== "submitted" && !isExpiredAssignment(item);
+        })
         .sort(
           (left, right) =>
             (left.dueAt ? new Date(left.dueAt).getTime() : Infinity) -
             (right.dueAt ? new Date(right.dueAt).getTime() : Infinity),
         ),
-    [items, mode],
+    [items, kindFilter, statusFilter],
   );
   const pageCount = Math.max(1, Math.ceil(filtered.length / LIST_PAGE_SIZE));
-  useEffect(() => setPage(0), [mode]);
+  useEffect(() => setPage(0), [kindFilter, statusFilter]);
   useEffect(() => {
     if (page >= pageCount) setPage(pageCount - 1);
   }, [page, pageCount]);
   const pageItems = filtered.slice(page * LIST_PAGE_SIZE, (page + 1) * LIST_PAGE_SIZE);
   return (
     <div className="data-page">
-      <div className="segmented">
-        <button
-          className={mode === "pending" ? "active" : ""}
-          onClick={() => setMode("pending")}
-        >
-          待完成
-        </button>
-        <button
-          className={mode === "submitted" ? "active" : ""}
-          onClick={() => setMode("submitted")}
-        >
-          已提交
-        </button>
-        <button
-          className={mode === "all" ? "active" : ""}
-          onClick={() => setMode("all")}
-        >
-          全部
-        </button>
+      <div className="assignment-filters">
+        <div className="assignment-kind-tabs" role="tablist" aria-label="任务类型">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={kindFilter === "assignments"}
+            className={`assignment-kind-tab${kindFilter === "assignments" ? " active" : ""}`}
+            onClick={() => setKindFilter("assignments")}
+          >
+            <FileText size={16} />
+            <span>作业</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={kindFilter === "tests"}
+            className={`assignment-kind-tab${kindFilter === "tests" ? " active" : ""}`}
+            onClick={() => setKindFilter("tests")}
+          >
+            <ClipboardCheck size={16} />
+            <span>在线测试</span>
+          </button>
+        </div>
+        <div className="assignment-status-row">
+          <span className="assignment-status-label">状态</span>
+          <div className="assignment-status-tabs" role="group" aria-label="任务状态">
+            <button
+              type="button"
+              aria-pressed={statusFilter === "pending"}
+              className={`assignment-status-tab${statusFilter === "pending" ? " active" : ""}`}
+              onClick={() => setStatusFilter("pending")}
+            >
+              待完成
+            </button>
+            <button
+              type="button"
+              aria-pressed={statusFilter === "completed"}
+              className={`assignment-status-tab${statusFilter === "completed" ? " active" : ""}`}
+              onClick={() => setStatusFilter("completed")}
+            >
+              已完成
+            </button>
+            <button
+              type="button"
+              aria-pressed={statusFilter === "all"}
+              className={`assignment-status-tab${statusFilter === "all" ? " active" : ""}`}
+              onClick={() => setStatusFilter("all")}
+            >
+              全部
+            </button>
+          </div>
+        </div>
       </div>
       {filtered.length ? (
         <div className="panel task-list wide">
@@ -120,8 +152,8 @@ export function AssignmentsView({
       ) : (
         <EmptyState
           icon={CheckCircle2}
-          title="当前没有任务"
-          detail="已自动隐藏超过截止时间的课程任务"
+          title={kindFilter === "tests" ? "当前没有在线测试" : "当前没有作业"}
+          detail={statusFilter === "pending" ? "已自动隐藏超过截止时间的课程任务。" : statusFilter === "completed" ? "当前筛选范围内没有已完成的课程任务。" : "当前筛选范围内没有课程任务。"}
         />
       )}
     </div>

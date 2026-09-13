@@ -319,7 +319,7 @@ test('THEOL resource parser tolerates malformed percent-encoding in file paths',
   assert.equal(resources[0].title, '坏%标题.pdf')
 })
 
-test('THEOL assignments accept only unique detail endpoints and reject list navigation', () => {
+test('THEOL assignments accept unique test detail endpoints and reject list navigation', () => {
   const course = { id: '34841', title: '社会主义道路探索史', sourceUrl: 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=34841' }
   const homework = parseTheolAssignments(`
     <table>
@@ -336,16 +336,16 @@ test('THEOL assignments accept only unique detail endpoints and reject list navi
   assert.equal(homework[0].courseSourceUrl, course.sourceUrl)
   assert.ok(homework[0].dueAt)
 
-  const rejected = parseTheolAssignments(`
+  const mixed = parseTheolAssignments(`
     <ul>
       <li><a href="detail.jsp?id=9">旧详情形状</a> 作业</li>
       <li><a href="hwtask.stat.jsp?hwtid=9">统计信息</a> 作业</li>
       <li><a href="hwtask.view.jsp?hwtid=not-numeric">无效作业 ID</a></li>
-      <li><a href="stu_qtest_pre.jsp?testId=10">开始测试</a></li>
+      <li><a href="/meol/common/question/test/student/stu_qtest_pre.jsp?testId=10">开始测试</a></li>
       <li><a href="list.jsp?sortColumn=title&cateId=34841">测试标题</a></li>
     </ul>
   `, { course, sourceUrl: 'https://course.buct.edu.cn/meol/common/hw/student/hwtask.jsp' })
-  assert.deepEqual(rejected, [])
+  assert.deepEqual(mixed.map((item) => [item.kind, item.sourceUrl]), [['online-test', 'https://course.buct.edu.cn/meol/common/question/test/student/stu_qtest_pre.jsp?testId=10']])
 })
 
 test('THEOL online tests use the row title and unique test result endpoint', () => {
@@ -363,6 +363,27 @@ test('THEOL online tests use the row title and unique test result endpoint', () 
   assert.equal(assignments[0].sourceUrl, 'https://course.buct.edu.cn/meol/common/question/test/student/stu_qtest_navigate.jsp?testId=98857726')
   assert.equal(assignments[0].courseSourceUrl, course.sourceUrl)
   assert.ok(assignments[0].dueAt)
+})
+
+test('THEOL online tests parse gotostart launchers for unstarted rows', () => {
+  const course = { id: '26861', title: '马克思主义基本原理', sourceUrl: 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=26861' }
+  const assignments = parseTheolAssignments(`
+    <table>
+      <tr><th>测试标题</th><th>开始时间</th><th>截止时间</th><th>开始测试</th></tr>
+      <tr>
+        <td><img src="test.png" title="试题型">专题九 社会主义的发展与共产主义的最终实现</td>
+        <td>2026-08-31 08:00:00</td><td>2026-12-13 23:59:00</td>
+        <td><a href="###" onclick="return gotostart('150409458','client','new03')"><img alt="开始"></a></td>
+      </tr>
+    </table>
+  `, { course, sourceUrl: 'https://course.buct.edu.cn/meol/common/question/test/student/list.jsp?cateId=26861' })
+
+  assert.equal(assignments.length, 1)
+  assert.equal(assignments[0].kind, 'online-test')
+  assert.equal(assignments[0].title, '专题九 社会主义的发展与共产主义的最终实现')
+  assert.equal(assignments[0].sourceUrl, 'https://course.buct.edu.cn/meol/common/question/test/student/stu_qtest_pre.jsp?testId=150409458')
+  assert.equal(assignments[0].status, 'unknown')
+  assert.equal(assignments[0].dueAt, '2026-12-13T15:59:00.000Z')
 })
 
 test('THEOL assignments parse non-table task containers and header-located deadlines', () => {

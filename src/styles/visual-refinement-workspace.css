@@ -77,6 +77,109 @@
   box-shadow: 0 2px 7px -4px color-mix(in srgb, var(--foreground) 40%, transparent);
 }
 
+.assignment-filters {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  background: color-mix(in srgb, var(--card) 94%, var(--secondary));
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 17px;
+  box-shadow: 0 10px 24px -24px color-mix(in srgb, var(--foreground) 62%, transparent);
+}
+
+.assignment-kind-tabs {
+  width: min(100%, 420px);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  background: color-mix(in srgb, var(--secondary) 90%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 14px;
+}
+
+.assignment-kind-tab {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 16px;
+  color: var(--muted-foreground);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.assignment-kind-tab:hover {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--card) 74%, var(--accent));
+}
+
+.assignment-kind-tab.active {
+  color: var(--primary-foreground);
+  background: var(--primary);
+  border-color: var(--primary);
+  box-shadow: 0 5px 12px -8px color-mix(in srgb, var(--primary) 70%, transparent);
+}
+
+.assignment-kind-tab.active svg {
+  color: var(--primary-foreground);
+}
+
+.assignment-status-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 9px 3px 0;
+  border-top: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+}
+
+.assignment-status-label {
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.assignment-status-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--secondary);
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 11px;
+}
+
+.assignment-status-tab {
+  min-height: 29px;
+  padding: 0 13px;
+  color: var(--muted-foreground);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.assignment-status-tab:hover {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--card) 72%, var(--accent));
+}
+
+.assignment-status-tab.active {
+  color: var(--accent-foreground);
+  background: var(--accent);
+  border-color: color-mix(in srgb, var(--primary) 18%, transparent);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--foreground) 10%, transparent);
+}
+
 .schedule-toolbar {
   margin-bottom: 16px;
   padding: 8px;
@@ -781,6 +884,27 @@
   justify-content: flex-start;
   min-width: 110px;
   border-radius: 11px;
+}
+
+@media (max-width: 640px) {
+  .assignment-kind-tabs {
+    width: 100%;
+    max-width: none;
+  }
+
+  .assignment-status-row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .assignment-status-tabs {
+    width: 100%;
+  }
+
+  .assignment-status-tab {
+    flex: 1 1 0;
+  }
 }
 
 @media (max-width: 860px) {

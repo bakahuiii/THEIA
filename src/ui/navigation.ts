@@ -26,7 +26,7 @@ export const navItems: Array<{ id: ViewId; label: string; icon: LucideIcon }> =
     { id: "progress", label: "学业", icon: GraduationCap },
     { id: "courses", label: "课程", icon: BookOpen },
     { id: "selection", label: "抢课", icon: Crosshair },
-    { id: "assignments", label: "作业", icon: CheckCircle2 },
+    { id: "assignments", label: "作业与测试", icon: CheckCircle2 },
     { id: "notices", label: "通知与邮箱", icon: MessagesSquare },
     { id: "tools", label: "学习工具", icon: Wrench },
     { id: "map", label: "校园地图", icon: MapIcon },

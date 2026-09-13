@@ -6,12 +6,18 @@ const THEOL_INTERACTION_COURSE_PATHS = new Set([
 ])
 const THEOL_INTERACTION_TASK_TYPES = Object.freeze({
   assignment: {
-    path: '/meol/common/hw/student/hwtask.view.jsp',
+    paths: new Set(['/meol/common/hw/student/hwtask.view.jsp']),
     parameter: 'hwtid',
     evidence: 'homework',
   },
   'online-test': {
-    path: '/meol/common/question/test/student/stu_qtest_navigate.jsp',
+    paths: new Set([
+      '/meol/common/question/test/student/stu_qtest_navigate.jsp',
+      '/meol/common/question/test/student/stu_qtest_pre.jsp',
+      '/meol/common/question/test/student/stu_qtest_result.jsp',
+      '/meol/common/question/test/student/stu_qtest_more_result.jsp',
+      '/meol/common/question/test/student/stu_qtest_over.jsp',
+    ]),
     parameter: 'testId',
     evidence: 'test',
   },
@@ -92,7 +98,7 @@ export function createTheolInteractionRuntime({
     }
     const taskType = THEOL_INTERACTION_TASK_TYPES[check.kind]
     const taskIds = finalUrl.searchParams.getAll(taskType.parameter)
-    if (finalUrl.pathname.toLowerCase() !== taskType.path
+    if (!taskType.paths.has(finalUrl.pathname.toLowerCase())
       || taskIds.length !== 1
       || taskIds[0] !== check.taskId) {
       throw new Error('THEOL returned a different task page')

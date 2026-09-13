@@ -20,6 +20,9 @@ test('renderer reconciles a missed sync terminal event from persisted timestamps
   assert.match(source, /if \(credentials\.saved\) \{\s*setSyncing\(true\);\s*setSyncProgress\("正在恢复学校统一身份认证会话"\);\s*setMsg\(null\);\s*\}/s)
   assert.match(source, /setSyncing\(false\)/)
   assert.match(source, /lastCompletedAt\)/)
+  assert.match(source, /const syncInterval = syncing && syncStage !== "assignments"/)
+  assert.match(source, /bridge\.getRendererSnapshot\(\)/)
+  assert.match(source, /setInterval\(\(\) => void reconcile\(\), 5_000\)/)
 })
 
 test('settings exposes detailed domain outcomes, native logs, and the data directory action', async () => {
