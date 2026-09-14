@@ -13,6 +13,7 @@ import {
 import { parseTheolMobileTaskList } from '../parsers/theol-mobile.mjs'
 import { parseTheolWorkPage } from '../parsers/theol-work.mjs'
 import { sourceDomainOutcome } from '../domain-provenance.mjs'
+import { selectTheolCurrentTermCourses } from '../sync-helpers.mjs'
 import { extractTheolVisibleText, materializeTheolUeditorFrame } from '../theol-course-archive-store.mjs'
 
 const BASE = 'https://course.buct.edu.cn/meol/'
@@ -20,7 +21,7 @@ const PERSONAL = new URL('personal.do', BASE).toString()
 const COURSE_LIST = new URL('lesson/blen.student.lesson.list.jsp', BASE).toString()
 const WELCOME = new URL('welcomepage/student/index.jsp', BASE).toString()
 const MOBILE_UNDONE_TASKS = 'http://course.buct.edu.cn/mobile/stuUnDoTaskList.do'
-const PARSER_VERSION = 'theol-adapter/6'
+const PARSER_VERSION = 'theol-adapter/7'
 const TASK_LIST_PAGE_LIMIT = 20
 const COURSE_IDENTITY_PARAMETERS = new Set(['courseid', 'lid', 'cateid'])
 
@@ -503,7 +504,9 @@ export class TheolAdapter {
       }
     }
 
-    const courses = [...new Map(home.courses.map((item) => [item.id, item])).values()]
+    const discoveredCourses = [...new Map(home.courses.map((item) => [item.id, item])).values()]
+    const courseFilter = selectTheolCurrentTermCourses(discoveredCourses, options.currentTermCourseTitles)
+    const courses = courseFilter.courses
     const notices = [...new Map(home.notices.map((item) => [item.id, item])).values()]
     if (needsCourses && courses.length === 0) {
       const error = new Error(`THEOL 课程列表未解析到课程，未确认课程为空${errors.length ? `: ${errors.join('; ')}` : ''}`)
@@ -551,7 +554,21 @@ export class TheolAdapter {
         ...(wants('notices') ? { notices: outcome(notices, errors.length ? 'partial_notice_scan' : null) } : {}),
       },
       errors,
-      source: { connected: true, checkedAt: capturedAt, url: homeResult.url, errors },
+      source: {
+        connected: true,
+        checkedAt: capturedAt,
+        url: homeResult.url,
+        errors,
+        courseFilter: {
+          enabled: Array.isArray(options.currentTermCourseTitles) && options.currentTermCourseTitles.length > 0,
+          termId: typeof options.currentTermId === 'string' ? options.currentTermId : null,
+          sourceCourseCount: courseFilter.sourceCourseCount,
+          requestedTitleCount: courseFilter.requestedTitleCount,
+          matchedTitleCount: courseFilter.matchedTitleCount,
+          filteredOutCourseCount: courseFilter.filteredOutCourseCount,
+          fallback: courseFilter.fallback,
+        },
+      },
     }
   }
 
@@ -691,6 +708,7 @@ export class TheolAdapter {
     const assignments = []
     const successfulCourseIds = []
     const failedCourseIds = []
+    const courseTimings = []
     const incompleteCourseIds = new Set()
     const listedCourses = Array.isArray(courses)
       ? courses.filter((item) => item?.source === 'theol' && item.sourceUrl)
@@ -710,24 +728,49 @@ export class TheolAdapter {
     }
 
     for (const listedCourse of listedCourses) {
+      const timingStartedAt = Date.now()
+      let taskPageCount = 0
+      let courseAssignments = []
+      let timingStatus = 'succeeded'
+      const finishTiming = () => {
+        courseTimings.push({
+          courseId: String(listedCourse.id),
+          courseName: listedCourse.title || null,
+          elapsedMs: Math.max(0, Date.now() - timingStartedAt),
+          taskPageCount,
+          assignmentCount: courseAssignments.length,
+          status: timingStatus,
+        })
+      }
       if (rateLimited) break
-      if (!shouldContinue()) return { aborted: true, capturedAt, errors }
+      if (!shouldContinue()) {
+        timingStatus = 'partial'
+        return { aborted: true, capturedAt, errors, courseTimings }
+      }
       try {
         let courseComplete = true
         const courseResult = await this.client.page(listedCourse.sourceUrl, { source: `Course task ${listedCourse.title}`, signal })
-        if (!shouldContinue()) return { aborted: true, capturedAt, errors }
+        if (!shouldContinue()) {
+          timingStatus = 'partial'
+          return { aborted: true, capturedAt, errors, courseTimings }
+        }
         if (!courseIdentityMatches(courseResult, listedCourse)) {
           throw new Error('THEOL returned a different course context')
         }
         const course = parseTheolCourse(courseResult.text, { course: listedCourse, sourceUrl: courseResult.url, capturedAt })
-        const courseAssignments = []
         const visitedTaskListUrls = new Set()
         for (const taskLink of taskListLinks(course.assignmentLinks || [], listedCourse.id)) {
-          if (!shouldContinue()) return { aborted: true, capturedAt, errors }
+          if (!shouldContinue()) {
+            timingStatus = 'partial'
+            return { aborted: true, capturedAt, errors, courseTimings }
+          }
           let nextTaskListUrl = taskListPageUrl(taskLink.url, taskLink.url, listedCourse.id) || taskLink.url
           let pagesVisited = 0
           while (nextTaskListUrl) {
-            if (!shouldContinue()) return { aborted: true, capturedAt, errors }
+            if (!shouldContinue()) {
+              timingStatus = 'partial'
+              return { aborted: true, capturedAt, errors, courseTimings }
+            }
             if (pagesVisited >= TASK_LIST_PAGE_LIMIT) {
               courseComplete = false
               incompleteCourseIds.add(String(listedCourse.id))
@@ -743,6 +786,7 @@ export class TheolAdapter {
               }
               courseAssignments.push(...parseTheolAssignments(taskResult.text, { course, sourceUrl: taskResult.url, capturedAt }))
               pagesVisited += 1
+              taskPageCount += 1
               const candidateNextUrl = taskListNextUrl(taskResult.text, taskResult.url, listedCourse.id)
               if (candidateNextUrl && visitedTaskListUrls.has(candidateNextUrl)) {
                 courseComplete = false
@@ -752,7 +796,10 @@ export class TheolAdapter {
               }
               nextTaskListUrl = candidateNextUrl
             } catch (error) {
-              if (!shouldContinue() || signal?.aborted) return { aborted: true, capturedAt, errors }
+              if (!shouldContinue() || signal?.aborted) {
+                timingStatus = 'partial'
+                return { aborted: true, capturedAt, errors, courseTimings }
+              }
               if (error instanceof AuthRequiredError) throw error
               if (error instanceof CourseContextMismatchError) throw error
               courseComplete = false
@@ -766,14 +813,24 @@ export class TheolAdapter {
         assignments.push(...courseAssignments)
         if (courseComplete) successfulCourseIds.push(String(listedCourse.id))
         else failedCourseIds.push(String(listedCourse.id))
+        timingStatus = courseComplete ? 'succeeded' : 'partial'
         await notifyCourseResult(listedCourse.id, courseAssignments, courseComplete)
       } catch (error) {
-        if (!shouldContinue() || signal?.aborted) return { aborted: true, capturedAt, errors }
-        if (error instanceof AuthRequiredError) throw error
+        if (!shouldContinue() || signal?.aborted) {
+          timingStatus = 'partial'
+          return { aborted: true, capturedAt, errors, courseTimings }
+        }
+        if (error instanceof AuthRequiredError) {
+          timingStatus = 'auth-required'
+          throw error
+        }
+        timingStatus = 'failed'
         failedCourseIds.push(String(listedCourse.id))
         errors.push(`${listedCourse.title}: ${compactError(error)}`)
         rateLimited ||= isSourceRateLimited(error)
         await notifyCourseResult(listedCourse.id, [], false, error)
+      } finally {
+        finishTiming()
       }
     }
 
@@ -785,7 +842,7 @@ export class TheolAdapter {
         const payload = await this.client.json(MOBILE_UNDONE_TASKS, {}, {
           source: 'THEOL mobile pending-task fallback', signal,
         })
-        if (!shouldContinue()) return { aborted: true, capturedAt, errors }
+        if (!shouldContinue()) return { aborted: true, capturedAt, errors, courseTimings }
         const mobile = parseTheolMobileTaskList(payload, { courses: listedCourses, capturedAt })
         if (mobile.authenticated) {
           primaryAssignmentIds = new Set(assignments.map((item) => item.id))
@@ -914,6 +971,7 @@ export class TheolAdapter {
         errors,
         mobileFallback,
         captureMode: archive ? 'archived' : 'list-only',
+        courseTimings,
         ...(rateLimited ? { rateLimited: true } : {}),
       },
     }

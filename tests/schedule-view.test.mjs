@@ -22,3 +22,11 @@ test('overlapping schedule items prioritize taught courses over marked self-stud
   assert.match(view, /items: \[\.\.\.slot\.items\]\.sort\(/u)
   assert.match(view, /Number\(isSelfStudyScheduleItem\(left\)\)\s*-\s*Number\(isSelfStudyScheduleItem\(right\)\)/u)
 })
+
+test('schedule day headers show dates for the selected week instead of course counts', () => {
+  assert.match(view, /function scheduleDayDates\(/u)
+  assert.match(view, /return DAY_LABELS\.map/u)
+  assert.match(view, /dayDates\?\.\[index\] \|\| "日期待定"/u)
+  assert.doesNotMatch(view, /dayCourseCounts|门课程/u)
+  assert.match(styles, /font-variant-numeric:\s*tabular-nums/u)
+})

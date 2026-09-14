@@ -7,6 +7,32 @@ import { mergeSyncResult, normalizeState, normalizeSyncPayload, recoverInterrupt
 import { CampusStore } from '../core/store.mjs'
 import { SyncService } from '../core/sync-service.mjs'
 import { aggregateDomainProvenance, sourceDomainOutcome } from '../core/domain-provenance.mjs'
+import { currentTermIdForState, currentTheolCourseScope, selectTheolCurrentTermCourses } from '../core/sync-helpers.mjs'
+
+test('THEOL course scope derives the current term from academic records and fails open without titles', () => {
+  const now = new Date('2026-09-14T09:00:00+08:00')
+  const state = {
+    terms: [{ id: '2025-16' }, { id: '2026-3' }],
+    selectedCourses: [
+      { termId: '2026-3', title: ' 当前课程 ' },
+      { termId: '2025-16', title: '历史课程' },
+    ],
+    schedule: [{ termId: '2026-3', courseName: '[自修]当前课程' }],
+  }
+
+  assert.equal(currentTermIdForState(state, now), '2026-3')
+  assert.deepEqual(currentTheolCourseScope(state, now), {
+    termId: '2026-3',
+    titles: ['当前课程'],
+  })
+
+  const noTitles = currentTheolCourseScope({ terms: [{ id: '2026-3' }] }, now)
+  assert.deepEqual(noTitles, { termId: '2026-3', titles: [] })
+  const courses = [{ id: 'old' }, { id: 'current' }]
+  const fallback = selectTheolCurrentTermCourses(courses, noTitles.titles)
+  assert.deepEqual(fallback.courses, courses)
+  assert.equal(fallback.fallback, true)
+})
 
 test('legacy sync timestamps migrate only a completed successful run to lastSuccessAt', () => {
   const completedAt = '2026-08-12T01:00:00.000Z'
@@ -2443,6 +2469,77 @@ test('assignment retry reuses the THEOL scan without starting either platform sy
     assert.equal(assignmentScans, 1)
     assert.deepEqual(state.assignments.map((item) => item.id), ['assignment-1'])
     assert.equal(state.sync.domains.assignments.outcomes.theol.status, 'succeeded')
+  } finally {
+    service?.stop()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('THEOL assignment scans pass only current-term courses and retain roster filter diagnostics', async () => {
+  const root = await mkdtemp(resolve(tmpdir(), 'theia-assignment-current-term-'))
+  let service
+  try {
+    const store = new CampusStore(root)
+    await store.load()
+    await store.update((state) => ({
+      ...state,
+      terms: [{ id: '2026-3', year: 2026, term: '3', label: '2026-2027 第一学期' }],
+      selectedCourses: [{ id: 'selected-current', title: 'Current course', termId: '2026-3' }],
+      courses: [
+        { id: 'current', title: 'Current course', source: 'theol', sourceUrl: 'https://course.buct.edu.cn/meol/course?courseId=current' },
+        { id: 'old', title: 'Old course', source: 'theol', sourceUrl: 'https://course.buct.edu.cn/meol/course?courseId=old' },
+        { id: 'duplicate', title: 'Current course', source: 'theol', sourceUrl: 'https://course.buct.edu.cn/meol/course?courseId=duplicate' },
+      ],
+      sync: {
+        ...state.sync,
+        runId: 'assignment-current-term-run',
+        sources: {
+          ...state.sync.sources,
+          theol: {
+            connected: true,
+            courseFilter: {
+              enabled: true,
+              termId: '2026-3',
+              sourceCourseCount: 3,
+            },
+          },
+        },
+      },
+    }))
+
+    let scannedCourses = null
+    service = new SyncService({
+      store,
+      jwglxt: {},
+      theol: {
+        async syncAssignments(courses) {
+          scannedCourses = courses.map((course) => course.id)
+          return {
+            assignments: [],
+            successfulCourseIds: ['current'],
+            failedCourseIds: [],
+            errors: [],
+            source: { connected: true, courseTimings: [] },
+          }
+        },
+      },
+    })
+
+    service.scheduleAssignmentScan('assignment-current-term-run')
+    const deadline = Date.now() + 1_000
+    while (!service.assignmentActive && Date.now() < deadline) {
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 5))
+    }
+    assert.ok(service.assignmentActive)
+    await service.waitForAssignmentScan()
+
+    assert.deepEqual(scannedCourses, ['current'])
+    const filter = store.snapshot().sync.sources.theol.assignmentScan.courseFilter
+    assert.equal(filter.termId, '2026-3')
+    assert.equal(filter.sourceCourseCount, 3)
+    assert.equal(filter.scannedCourseCount, 1)
+    assert.equal(filter.filteredOutCourseCount, 2)
+    assert.equal(filter.fallback, false)
   } finally {
     service?.stop()
     await rm(root, { recursive: true, force: true })

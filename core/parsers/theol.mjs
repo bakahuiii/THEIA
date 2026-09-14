@@ -353,6 +353,11 @@ function assignmentDueText($, node, kind, text) {
     || ''
 }
 
+
+function hasSubmittedResult($, node, text) {
+  if (/(?:已提交|已完成|已交)/u.test(text)) return true
+  return $(node).find('a.view, a[title*="查看结果"], a[aria-label*="查看结果"], a[href*="taskanswer.jsp"], a[href*="stu_qtest_result.jsp"]').length > 0
+}
 export function parseTheolAssignments(html, { course, sourceUrl, capturedAt = new Date().toISOString() } = {}) {
   const $ = cheerio.load(html)
   const items = []
@@ -370,7 +375,7 @@ export function parseTheolAssignments(html, { course, sourceUrl, capturedAt = ne
     const title = assignmentTitle($, node, link, task.kind)
     if (!title) return
     const score = text.match(/(?:成绩|得分)[:：]?\s*([0-9]+(?:\.\d+)?)/)?.[1] || null
-    const status = /已提交|已完成|已交/.test(text) ? 'submitted' : /未提交|未完成/.test(text) ? 'pending' : 'unknown'
+    const status = hasSubmittedResult($, node, text) ? 'submitted' : /未提交|未完成/.test(text) ? 'pending' : 'unknown'
     items.push({
       kind: task.kind,
       id: stableId('theol-assignment', task.kind, task.identifier),

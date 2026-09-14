@@ -4,12 +4,14 @@ import { compactError, sanitizeDiagnosticValue } from './util.mjs'
 import { aggregateDomainProvenance, domainHasData, sourceDomainOutcome } from './domain-provenance.mjs'
 import { SyncCancelledError, SyncDisabledError } from './sync-errors.mjs'
 import {
+  currentTheolCourseScope,
   fallbackSourceOutcomes,
   failureCode,
   mergeAssignmentScan,
   mergeCourseResourceRecords,
   retainableAssignments,
   retainedAssignmentsAfterScan,
+  selectTheolCurrentTermCourses,
 } from './sync-helpers.mjs'
 
 export function cancelAssignmentScan() {
@@ -282,7 +284,27 @@ export async function runAssignmentScan(runId, generation, { scoped = false, arc
       return
     }
     const attemptedAt = new Date().toISOString()
-    const courses = this.store.snapshot().courses.filter((item) => item?.source === 'theol')
+    const courseSnapshot = this.store.snapshot()
+    const allCourses = courseSnapshot.courses.filter((item) => item?.source === 'theol')
+    const courseScope = currentTheolCourseScope(courseSnapshot)
+    const selectedCourses = selectTheolCurrentTermCourses(allCourses, courseScope.titles)
+    const courses = selectedCourses.courses
+    const previousCourseFilter = courseSnapshot.sync.sources?.theol?.courseFilter
+    const previousRosterCount = previousCourseFilter?.termId === courseScope.termId
+      && Number.isInteger(previousCourseFilter?.sourceCourseCount)
+      ? previousCourseFilter.sourceCourseCount
+      : 0
+    const sourceCourseCount = Math.max(selectedCourses.sourceCourseCount, previousRosterCount)
+    const courseFilter = {
+      enabled: courseScope.titles.length > 0,
+      termId: courseScope.termId,
+      sourceCourseCount,
+      requestedTitleCount: selectedCourses.requestedTitleCount,
+      matchedTitleCount: selectedCourses.matchedTitleCount,
+      filteredOutCourseCount: selectedCourses.fallback ? 0 : Math.max(0, sourceCourseCount - courses.length),
+      scannedCourseCount: courses.length,
+      fallback: selectedCourses.fallback,
+    }
     const partialSuccessfulCourseIds = new Set()
     const partialFailedCourseIds = new Set()
     const commitCourseResult = async ({ courseId, assignments = [], complete = false, error = null } = {}) => {
@@ -312,7 +334,7 @@ export async function runAssignmentScan(runId, generation, { scoped = false, arc
         previousRecordCount: this.store.snapshot().assignments.length,
         receivedRecordCount: Array.isArray(assignments) ? assignments.length : 0,
         errorCode: error ? 'partial_assignment_scan' : complete ? null : 'partial_assignment_scan',
-        parserVersion: 'theol-adapter/6',
+        parserVersion: 'theol-adapter/7',
       })
       const state = await this.trackSyncWrite(this.store.update((current) => {
         if (generation !== this.assignmentGeneration || (!scoped && current.sync.runId !== runId)) return current
@@ -342,6 +364,7 @@ export async function runAssignmentScan(runId, generation, { scoped = false, arc
                   successfulCourseCount: partialSuccessfulCourseIds.size,
                   failedCourseCount: partialFailedCourseIds.size,
                   captureMode: archive ? 'archived' : 'list-only',
+                  courseFilter,
                   error: error || null,
                 }),
               },
@@ -416,6 +439,8 @@ export async function runAssignmentScan(runId, generation, { scoped = false, arc
         failedCourseCount: Array.isArray(result?.failedCourseIds) ? result.failedCourseIds.length : null,
         mobileFallback: result?.source?.mobileFallback || null,
         captureMode: result?.source?.captureMode || (archive ? 'archived' : 'list-only'),
+        courseFilter: result?.source?.courseFilter || courseFilter,
+        courseTimings: Array.isArray(result?.source?.courseTimings) ? result.source.courseTimings : null,
         rateLimited: result?.source?.rateLimited === true,
         error: error ? compactError(error) : result.errors?.length ? result.errors.join('; ') : null,
       })

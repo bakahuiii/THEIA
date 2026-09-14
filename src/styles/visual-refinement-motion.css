@@ -433,6 +433,7 @@
   color: var(--muted-foreground);
   font-size: 10px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .schedule-day-header.is-today {

@@ -58,6 +58,37 @@ test('THEOL course sync falls back to the dedicated course list', async () => {
   assert.deepEqual(requested, [THEOL_URLS.personal, THEOL_URLS.courseList])
   assert.equal(result.domainOutcomes.courses.emptyConfirmed, false)
 })
+test('THEOL course sync keeps only current-term titles and the first duplicate roster entry', async () => {
+  const firstDuplicate = 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=201'
+  const secondDuplicate = 'https://course.buct.edu.cn/meol/homepage/course/course_index.jsp?courseId=202'
+  const adapter = new TheolAdapter({
+    async page(url) {
+      return {
+        url,
+        text: `<span>退出</span>
+          <a href="/meol/homepage/course/course_index.jsp?courseId=101">历史课程</a>
+          <a href="${firstDuplicate}">重复课程(Ⅱ)</a>
+          <a href="${secondDuplicate}">重复课程(Ⅱ)</a>
+          <a href="/meol/homepage/course/course_index.jsp?courseId=303">当前课程</a>`,
+      }
+    },
+  })
+
+  const result = await adapter.sync({
+    domains: ['courses'],
+    currentTermId: '2026-3',
+    currentTermCourseTitles: ['当前课程', '重复课程（Ⅱ）'],
+  })
+
+  assert.deepEqual(result.courses.map((item) => item.id), ['201', '303'])
+  assert.equal(result.source.courseFilter.enabled, true)
+  assert.equal(result.source.courseFilter.termId, '2026-3')
+  assert.equal(result.source.courseFilter.sourceCourseCount, 4)
+  assert.equal(result.source.courseFilter.requestedTitleCount, 2)
+  assert.equal(result.source.courseFilter.matchedTitleCount, 2)
+  assert.equal(result.source.courseFilter.filteredOutCourseCount, 2)
+  assert.equal(result.source.courseFilter.fallback, false)
+})
 test('THEOL empty authenticated shells fail the course scan instead of clearing local data', async () => {
   const requested = []
   const adapter = new TheolAdapter({
@@ -219,6 +250,17 @@ test('THEOL assignment sync keeps each course and task list strictly serial', as
   assert.deepEqual(result.successfulCourseIds, ['101', '202'])
   assert.deepEqual(result.failedCourseIds, [])
   assert.equal(result.domainOutcomes.assignments.completeness, 'complete')
+  assert.deepEqual(result.source.courseTimings.map((item) => ({
+    courseId: item.courseId,
+    courseName: item.courseName,
+    taskPageCount: item.taskPageCount,
+    assignmentCount: item.assignmentCount,
+    status: item.status,
+  })), [
+    { courseId: '101', courseName: 'Course One', taskPageCount: 2, assignmentCount: 1, status: 'succeeded' },
+    { courseId: '202', courseName: 'Course Two', taskPageCount: 1, assignmentCount: 1, status: 'succeeded' },
+  ])
+  assert.ok(result.source.courseTimings.every((item) => Number.isInteger(item.elapsedMs) && item.elapsedMs >= 0))
 })
 
 

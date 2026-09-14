@@ -1,5 +1,6 @@
 import { AuthRequiredError } from './source-client.mjs'
 import { mergeSingleSourceCollection } from './sync-merge.mjs'
+import { academicTermCandidate, normalizeText } from './util.mjs'
 import {
   SYNC_SOURCE_DOMAINS,
   aggregateDomainProvenance,
@@ -316,6 +317,97 @@ export function normalizeSourceDomains(source, requested) {
   const invalid = domains.find((domain) => !allowed.includes(domain))
   if (invalid) throw new TypeError(`unsupported ${source} sync domain: ${invalid}`)
   return domains
+}
+
+function termRank(termId) {
+  const [yearValue, codeValue] = String(termId || '').split('-')
+  const year = Number.parseInt(yearValue, 10)
+  const codeRank = { '3': 3, '12': 2, '16': 1 }[codeValue] || 0
+  return Number.isFinite(year) ? year * 10 + codeRank : 0
+}
+
+function courseTitleKey(value) {
+  return normalizeText(value)
+    .replace(/[（]/gu, '(')
+    .replace(/[）]/gu, ')')
+    .replace(/[［【]/gu, '[')
+    .replace(/[］】]/gu, ']')
+    .replace(/^\[自修\]/u, '')
+    .replace(/\s+/gu, '')
+    .toLocaleLowerCase()
+}
+
+export function currentTermIdForState(state, now = new Date()) {
+  const terms = Array.isArray(state?.terms) ? state.terms : []
+  const candidate = academicTermCandidate(now).id
+  if (terms.some((term) => String(term?.id || '') === candidate)) return candidate
+  const observed = new Set([
+    ...(Array.isArray(state?.selectedCourses) ? state.selectedCourses : []).map((item) => String(item?.termId || '').trim()),
+    ...(Array.isArray(state?.schedule) ? state.schedule : []).map((item) => String(item?.termId || '').trim()),
+  ].filter(Boolean))
+  return [...observed].sort((left, right) => termRank(right) - termRank(left))[0]
+    || terms.map((term) => String(term?.id || '').trim()).filter(Boolean)
+      .sort((left, right) => termRank(right) - termRank(left))[0]
+    || null
+}
+
+export function currentTheolCourseScope(state, now = new Date()) {
+  const termId = currentTermIdForState(state, now)
+  if (!termId) return { termId: null, titles: [] }
+  const titles = [
+    ...(Array.isArray(state?.selectedCourses) ? state.selectedCourses : [])
+      .filter((item) => String(item?.termId || '').trim() === termId)
+      .map((item) => item?.title),
+    ...(Array.isArray(state?.schedule) ? state.schedule : [])
+      .filter((item) => String(item?.termId || '').trim() === termId)
+      .map((item) => item?.courseName || item?.title),
+  ].map(normalizeText).filter(Boolean)
+  const seen = new Set()
+  return {
+    termId,
+    titles: titles.filter((title) => {
+      const key = courseTitleKey(title)
+      if (!key || seen.has(key)) return false
+      seen.add(key)
+      return true
+    }),
+  }
+}
+
+export function selectTheolCurrentTermCourses(courses, currentTermCourseTitles = []) {
+  const all = Array.isArray(courses) ? courses : []
+  const wanted = new Set((Array.isArray(currentTermCourseTitles) ? currentTermCourseTitles : [])
+    .map(courseTitleKey).filter(Boolean))
+  if (!wanted.size) {
+    return {
+      courses: all,
+      sourceCourseCount: all.length,
+      requestedTitleCount: 0,
+      matchedTitleCount: 0,
+      filteredOutCourseCount: 0,
+      fallback: true,
+    }
+  }
+  // THEOL keeps repeated historical offerings in one ordered roster. For a
+  // duplicate title, keep the first matching roster entry: that is the
+  // current offering in the authenticated course-list page and avoids
+  // crawling old offerings with the same display name.
+  const matched = new Set()
+  const selected = all.filter((course) => {
+    const key = courseTitleKey(course?.title)
+    if (!wanted.has(key) || matched.has(key)) return false
+    matched.add(key)
+    return true
+  })
+  const fallback = selected.length === 0
+  return {
+    courses: fallback ? all : selected,
+    sourceCourseCount: all.length,
+    requestedTitleCount: wanted.size,
+    matchedTitleCount: matched.size,
+    filteredOutCourseCount: fallback ? 0 : all.length - selected.length,
+    fallback,
+  }
 }
 
 export function normalizeSyncRequest(options = {}) {

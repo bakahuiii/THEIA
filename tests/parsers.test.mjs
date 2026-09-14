@@ -401,6 +401,16 @@ test('THEOL assignments parse non-table task containers and header-located deadl
   assert.equal(assignments[0].status, 'pending')
 })
 
+test('THEOL assignment status recognizes a hidden view-result link as submitted', () => {
+  const course = { id: '12968', title: '普通物理(Ⅱ)', sourceUrl: 'https://course.buct.edu.cn/meol/jpk/course/layout/lesson/index.jsp?courseId=12968' }
+  const assignments = parseTheolAssignments(
+    '<table><tr><td><a href="hwtask.view.jsp?hwtid=82312">已提交作业</a></td><td>2026年9月14日 23:59:00</td><td>教师</td><td><a class="view" title="查看结果" href="taskanswer.jsp?hwtid=82312"></a></td></tr><tr><td><a href="hwtask.view.jsp?hwtid=81887">未提交作业</a></td><td>2026年9月15日 23:59:00</td><td>教师</td><td>未提交</td></tr></table>',
+    { course, sourceUrl: 'https://course.buct.edu.cn/meol/common/hw/student/hwtask.jsp' },
+  )
+
+  assert.deepEqual(assignments.map((item) => item.status), ['submitted', 'pending'])
+})
+
 test('THEOL error page is not treated as an authenticated session', () => {
   const result = parseTheolHome('<html><head><title>错误！</title></head><body>null！</body></html>', 'https://course.buct.edu.cn/meol/personal.do')
   assert.equal(result.loggedIn, false)

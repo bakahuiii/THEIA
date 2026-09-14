@@ -113,6 +113,27 @@ function periodTimeLabel(calendar: AcademicCalendar | null | undefined, period: 
   return time ? `${time.startTime}-${time.endTime}` : "时间待解析";
 }
 
+const DAY_MILLISECONDS = 86_400_000;
+const TERM_SEMESTER_INDEX: Record<string, number> = { "3": 0, "12": 1, "16": 2 };
+
+function scheduleDayDates(
+  calendar: AcademicCalendar | null | undefined,
+  termId: string,
+  week: number,
+) {
+  if (!calendar?.schoolYear || !Number.isInteger(week) || week < 1) return null;
+  const [year, term] = termId.split("-");
+  if (year !== calendar.schoolYear.slice(0, 4)) return null;
+  const semester = calendar.semesters[TERM_SEMESTER_INDEX[term]];
+  if (!semester?.startDate) return null;
+  const start = Date.parse(semester.startDate + "T00:00:00Z");
+  if (!Number.isFinite(start)) return null;
+  return DAY_LABELS.map((_day, index) => {
+    const date = new Date(start + ((week - 1) * 7 + index) * DAY_MILLISECONDS);
+    return (date.getUTCMonth() + 1) + "月" + date.getUTCDate() + "日";
+  });
+}
+
 function isSelfStudyScheduleItem(item: ScheduleItem) {
   return /^\s*(?:\[|【)\s*自修\s*(?:\]|】)/u.test(String(item.title || ""));
 }
@@ -184,6 +205,10 @@ export function ScheduleView({
       && termFilter === currentWeek.termId
       && weekNum === currentWeek.week,
   );
+  const dayDates = useMemo(
+    () => scheduleDayDates(calendar, termFilter, weekNum),
+    [calendar, termFilter, weekNum],
+  );
   const showToday = () => {
     const vacation = currentAcademicVacation(calendar);
     if (vacation) {
@@ -222,7 +247,7 @@ export function ScheduleView({
 
   // Older local snapshots did not persist termId for schedule entries. They
   // still belong to the currently loaded timetable and must remain visible.
-  const { slots, unscheduledItems, periodCount, dayCourseCounts } = useMemo(() => {
+  const { slots, unscheduledItems, periodCount } = useMemo(() => {
     const filtered = items.filter(
       (item) => !item.termId || matchTerm(item.termId, termFilter),
     );
@@ -271,10 +296,7 @@ export function ScheduleView({
       DEFAULT_PERIOD_COUNT,
       ...slots.map((slot) => slot.end),
     );
-    const dayCourseCounts = days.map(
-      (_day, index) => slots.filter((slot) => slot.weekday === index + 1).length,
-    );
-    return { slots, unscheduledItems, periodCount, dayCourseCounts };
+    return { slots, unscheduledItems, periodCount };
   }, [items, termFilter, weekMode, weekNum, days]);
 
   const openCourseDetails = (
@@ -476,7 +498,7 @@ export function ScheduleView({
             style={{ gridColumn: index + 2, gridRow: 1 }}
           >
             <strong>{day}</strong>
-            <span>{dayCourseCounts[index]} 门课程</span>
+            {weekMode === "week" && <span>{dayDates?.[index] || "日期待定"}</span>}
           </header>
         ))}
         {Array.from({ length: periodCount }, (_value, index) => {

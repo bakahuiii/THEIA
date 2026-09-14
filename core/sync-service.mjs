@@ -9,6 +9,7 @@ export { SyncCancelledError, SyncDisabledError } from './sync-errors.mjs'
 import {
   domainSelectionCovers,
   mergeDomainSelections,
+  currentTheolCourseScope,
   normalizeSyncRequest,
   SYNC_SOURCE_NAMES,
 } from './sync-helpers.mjs'
@@ -113,6 +114,16 @@ export class SyncService {
         freeClassroomSchedule: this.store.snapshot().schedule,
       },
     } : {}
+    if (sources.includes('theol')) {
+      const scope = currentTheolCourseScope(this.store.snapshot())
+      if (scope.titles.length) {
+        adapterOptionsBySource.theol = {
+          ...(adapterOptionsBySource.theol || {}),
+          currentTermId: scope.termId,
+          currentTermCourseTitles: scope.titles,
+        }
+      }
+    }
     const idleSources = []
     const pending = []
     for (const source of sources) {
